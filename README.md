@@ -29,6 +29,7 @@ a-share-fib-wave/
 │   └── sh000001_raw.md / *.csv
 ├── R159~R232_*.py      # 历次核查/体检脚本（只读，不改生产）
 ├── push_to_github.bat / push_silent.bat  # Windows 一键/自动推送到 GitHub（SSH）
+├── push_to_github.sh / com.user.ashare.autopush.plist  # Mac 版等价推送脚本 + launchd 模板
 └── .workbuddy/         # 项目级 WorkBuddy 数据（已 gitignore，不入库，勿手动提交）
 ```
 
@@ -119,7 +120,30 @@ done
   ```
   SSH key 无 passphrase，可无人值守。`push_silent.bat` 日志落 `%TEMP%/ashare_push.log`。
 
-> Mac 上等价做法：在 `crontab` 或 `launchd` 里每日跑 `git push`，前提是本机网络能连 `github.com:22`（SSH）。
+> **Mac 上等价自动化（换机后照搬即可）**：仓库已带 `push_to_github.sh` + `com.user.ashare.autopush.plist`，替代 Windows 的 schtasks。
+>
+> ```bash
+> # 1. 配 SSH key（Mac 本地，一次）
+> ssh-keygen -t ed25519 -C "willinxusheng@163.com"
+> # 把 ~/.ssh/id_ed25519.pub 内容贴到 GitHub → Settings → SSH and GPG keys
+> ssh -T git@github.com   # 看到 Hi willinxusheng! 即成功
+>
+> # 2. 给脚本加执行权限
+> chmod +x push_to_github.sh
+>
+> # 3. 安装 launchd 定时任务（每日 19:05，改 plist 里的 YOUR_USER 为你的实际用户名）
+> sed -i '' 's/YOUR_USER/你的用户名/g' com.user.ashare.autopush.plist
+> cp com.user.ashare.autopush.plist ~/Library/LaunchAgents/
+> launchctl load ~/Library/LaunchAgents/com.user.ashare.autopush.plist
+>
+> # 验证：手动跑一次 + 查日志
+> ./push_to_github.sh
+> tail /tmp/ashare_push.log
+> launchctl list | grep ashare
+> ```
+> 前提是 Mac 网络能连 `github.com:22`（SSH）。若哪天不想自动推：`launchctl unload ~/Library/LaunchAgents/com.user.ashare.autopush.plist`。
+>
+> ⚠️ **换机要点**：Windows 的 schtasks 不会随云同步/仓库迁移到 Mac，必须按上面步骤在 Mac 上重建；WorkBuddy 内置自动化即便同账号恢复，其 cwd 仍是 Windows 路径、依赖的本地引擎/SSH key 不随同步，需重新指向 Mac 仓库并配环境。
 
 ---
 

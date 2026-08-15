@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.ashare.autopush</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <!-- 改为你 Mac 上仓库的实际绝对路径 -->
+    <string>/Users/YOUR_USER/WorkBuddy/2026-08-04-23-16-18/a-share-fib-wave/push_to_github.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOUR_USER/WorkBuddy/2026-08-04-23-16-18/a-share-fib-wave</string>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>19</integer>
+    <key>Minute</key>
+    <integer>5</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/ashare_launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ashare_launchd.err</string>
+</dict>
+</plist>
