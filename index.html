@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上证指数 · 斐波那契波浪专业分析看板</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<!-- 防缓存：每次刷新强制拉取最新 data.js，避免旧版子浪时间轴(曾错画到2027)被缓存 -->
+<script>document.write('<script src="data/data.js?v=' + Date.now() + '"><\/script>');</script>
+<style>
+  :root {
+    --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
+    --ink: #242a35; --sub: #7c8494; --bg: #eef1f6; --card: #ffffff; --line: #e6eaf1;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.65; }
+  .wrap { max-width: 1480px; margin: 0 auto; padding: 0 24px 60px; }
+
+  /* ===== 吸顶导航 ===== */
+  .nav { position: sticky; top: 0; z-index: 100; background: rgba(22,33,62,.96); backdrop-filter: blur(6px); display: flex; gap: 4px; padding: 0 22px; overflow-x: auto; box-shadow: 0 2px 8px rgba(22,33,62,.25); }
+  .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 11px 13px; white-space: nowrap; border-bottom: 2px solid transparent; }
+  .nav a:hover { color: var(--gold); border-bottom-color: var(--gold); }
+  .nav .brand { color: var(--gold); font-weight: 700; letter-spacing: 1px; }
+
+  /* ===== 顶部横幅 ===== */
+  .hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy2) 60%, #2a3d66 100%); color: #fff; padding: 30px 34px 24px; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+  .hero .kicker { color: var(--gold); font-size: 12.5px; letter-spacing: 3px; font-weight: 600; }
+  .hero h1 { font-size: 23px; margin: 6px 0 4px; font-weight: 700; }
+  .hero .meta { color: rgba(255,255,255,.5); font-size: 12px; }
+  .hero .price-row { display: flex; align-items: baseline; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+  .hero .price { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.gold { background: rgba(201,160,99,.16); color: var(--gold); border: 1px solid rgba(201,160,99,.45); }
+  .badge.ghost { background: rgba(255,255,255,.08); color: rgba(255,255,255,.7); border: 1px solid rgba(255,255,255,.16); }
+  .badge.ok { background: rgba(47,158,68,.16); color: #7fe39a; border: 1px solid rgba(47,158,68,.45); }
+  .badge.danger { background: rgba(194,53,49,.18); color: #ff9b97; border: 1px solid rgba(194,53,49,.5); }
+  .badge.up { background: rgba(194,53,49,.14); color: #e05a55; border: 1px solid rgba(194,53,49,.4); }
+  .badge.down { background: rgba(47,158,68,.14); color: #4faf6a; border: 1px solid rgba(47,158,68,.4); }
+  .spark-box { text-align: right; }
+  .spark-box .lb { font-size: 11px; color: rgba(255,255,255,.45); margin-top: 2px; }
+
+  /* ===== 距离仪表盘 ===== */
+  .gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
+  .gauge { background: var(--card); border-radius: 12px; padding: 15px 18px 13px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border-top: 3px solid var(--line); }
+  .gauge.g1 { border-top-color: var(--gold); } .gauge.g2 { border-top-color: var(--red); }
+  .gauge.g3 { border-top-color: var(--green); } .gauge.g4 { border-top-color: var(--navy2); }
+  .gauge .t { font-size: 12px; color: var(--sub); }
+  .gauge .v { font-size: 21px; font-weight: 800; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  .gauge .bar { height: 5px; background: var(--line); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .gauge .bar i { display: block; height: 100%; border-radius: 3px; }
+  .gauge .d { font-size: 11px; color: var(--sub); margin-top: 6px; }
+
+  /* ===== 面板 ===== */
+  .panel { background: var(--card); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(22,33,62,.07); }
+  .panel h2 { font-size: 16.5px; display: flex; align-items: center; gap: 10px; }
+  .panel h2 .no { background: var(--navy); color: var(--gold); width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex: none; }
+  .panel .note { font-size: 12.5px; color: var(--sub); margin: 6px 0 12px; }
+  /* 子浪推演前提横幅：明确对应「强势」情景，避免与基准线误读为矛盾 */
+  .scen-premise { display: flex; align-items: flex-start; gap: 9px; margin: 8px 0 12px; padding: 9px 13px;
+    background: #fff7e6; border: 1px solid #f0d9a8; border-left: 4px solid #e6a23c; border-radius: 8px;
+    font-size: 12.5px; line-height: 1.6; color: #7a5a1e; }
+  .scen-premise .tag { flex: none; font-weight: 800; color: #b8740f; background: #fbe9c4; border-radius: 5px; padding: 1px 7px; }
+  .scen-premise b { color: #b8740f; }
+  /* 情景自适应切换器（随机应变） */
+  .scn-switch { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; font-size: 13px; }
+  .scn-switch label { font-weight: 600; color: var(--sub); }
+  .scn-switch select { font-size: 13px; padding: 5px 9px; border: 1px solid #cdd5e0; border-radius: 7px; background: #fff; color: #2b2f38; cursor: pointer; }
+  .scn-switch select:focus { outline: 2px solid var(--navy); }
+  .scn-auto { font-size: 12px; color: #7c8494; }
+  .scn-auto b { color: var(--navy); }
+  .scn-status { margin: 0 0 6px; font-size: 12.5px; padding: 6px 11px; border-radius: 8px; background: #f4f6fa; border: 1px solid #e2e7ef; color: #4a5261; }
+  .scn-status b { color: var(--navy); }
+  .scn-status .manual { color: #b8872a; font-weight: 600; }
+  /* 悬浮提示（置信带说明） */
+  .info-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 10px; cursor: help; }
+  .info-wrap > .info-ico { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; background: #e6a23c; color: #fff; font-size: 11px; font-weight: 700; font-style: normal; line-height: 1; }
+  .info-pop { display: none; position: absolute; top: 26px; left: 0; width: 360px; padding: 13px 15px; background: #fff; border: 1px solid #d8dee9; border-radius: 9px; box-shadow: 0 8px 28px rgba(0,0,0,.16); font-size: 12.5px; line-height: 1.62; color: #2b2f38; z-index: 60; font-weight: 400; text-align: left; }
+  .info-wrap:hover .info-pop, .info-wrap:focus-within .info-pop { display: block; }
+  .info-pop b { color: #c23531; }
+  .info-pop .pop-h { font-weight: 700; color: #1f3a5f; margin-bottom: 6px; display: block; }
+  .info-pop ul { margin: 4px 0 0; padding-left: 18px; }
+  .info-pop li { margin: 3px 0; }
+  .chart-lg { width: 100%; height: 900px; }
+  .chart-md { width: 100%; height: 560px; }
+  .chart-sm { width: 100%; height: 420px; }
+
+  /* ===== 发现卡 ===== */
+  .findings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .finding { background: var(--card); border-radius: 12px; padding: 15px 17px; box-shadow: 0 1px 3px rgba(22,33,62,.07); font-size: 12.5px; }
+  .finding .ft { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.good { background: var(--green); } .dot.warn { background: #e6a23c; } .dot.neutral { background: var(--navy2); }
+  .finding p { color: #4a5261; }
+
+  /* ===== 规则校验卡 ===== */
+  .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 18px; }
+  .rule { border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; display: flex; gap: 11px; align-items: flex-start; background: #fbfcfe; }
+  .rule .ic { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; margin-top: 1px; }
+  .rule .ic.ok { background: var(--green); } .rule .ic.na { background: var(--gold); }
+  .rule .rn { font-size: 13px; font-weight: 700; }
+  .rule .rd { font-size: 11.5px; color: var(--sub); margin-top: 3px; }
+
+  /* ===== 浪型时间线 ===== */
+  .timeline { display: flex; align-items: stretch; margin: 14px 0 6px; overflow-x: auto; padding-bottom: 4px; }
+  .tl { flex: 1; min-width: 165px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; position: relative; font-size: 12px; }
+  .tl + .tl { margin-left: 26px; }
+  .tl + .tl::before { content: "→"; position: absolute; left: -21px; top: 50%; transform: translateY(-50%); color: var(--gold); font-weight: 800; font-size: 16px; }
+  .tl b { font-size: 14px; display: block; }
+  .tl .pr { font-variant-numeric: tabular-nums; font-weight: 700; margin: 3px 0; }
+  .tl.cur { border-color: var(--gold); background: #fdf8ef; }
+  .tl span { color: var(--sub); }
+
+  /* ===== 表格 ===== */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px;
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff;
+    box-shadow: 0 1px 3px rgba(22,33,62,.06); font-variant-numeric: tabular-nums; }
+  th, td { padding: 10px 14px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; }
+  th { background: #f4f6fa; color: var(--sub); font-weight: 700; font-size: 12.5px;
+    letter-spacing: .2px; border-bottom: 2px solid #e3e8f0; }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:nth-child(even) { background: #fafbfd; }
+  tbody tr:hover { background: #eef3fb; }
+  th:first-child { border-top-left-radius: 11px; }
+  th:last-child { border-top-right-radius: 11px; }
+  .c-l { text-align: left !important; } .c-c { text-align: center !important; } .c-r { text-align: right !important; }
+  .ok { color: var(--green); font-weight: 600; } .mid { color: #e6a23c; font-weight: 600; }
+  .num-red { color: var(--red); font-weight: 700; } .num-green { color: var(--green); font-weight: 700; }
+  .tag { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 600; }
+  .tag-t { background: #fdecea; color: var(--red); } .tag-s { background: #e8f5e9; color: var(--green); } .tag-k { background: #fdf3e0; color: #b8872a; }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .sub-h { font-size: 13.5px; font-weight: 700; color: var(--navy); margin: 2px 0 8px; }
+
+  .disc { font-size: 12px; color: #98a0ad; background: #f2f4f8; border-radius: 10px; padding: 14px 18px; }
+
+  /* ===== 触达即触发 醒目提示框 ===== */
+  .trigger-callout { background: linear-gradient(135deg, #fff6f5 0%, #fdecea 100%); border: 1px solid #f3c9c6; border-left: 5px solid var(--red); border-radius: 12px; padding: 16px 20px; margin: 4px 0 16px; box-shadow: 0 1px 4px rgba(194,53,49,.08); }
+  .trigger-callout h3 { font-size: 15px; color: var(--red); display: flex; align-items: center; gap: 8px; margin-bottom: 8px; letter-spacing: .3px; }
+  .trigger-callout h3 .spark { font-size: 17px; }
+  .trigger-callout .lead { font-size: 13px; color: #5a3a38; line-height: 1.7; margin-bottom: 13px; }
+  .trigger-callout .lead b { color: #b1261f; }
+  .trigger-callout .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .trigger-callout .tier { background: #fff; border-radius: 10px; padding: 12px 14px; border-top: 3px solid; box-shadow: 0 1px 2px rgba(22,33,62,.05); }
+  .trigger-callout .tier .tn { font-weight: 800; font-size: 14px; }
+  .trigger-callout .tier .tb { font-size: 12px; color: #6b5b59; margin-top: 6px; font-variant-numeric: tabular-nums; line-height: 1.6; }
+  .trigger-callout .tier .tp { font-size: 12px; margin-top: 6px; }
+  .trigger-callout .tier .foot { font-size: 11.5px; color: #8a6b68; margin-top: 7px; line-height: 1.55; }
+  .tag-fire { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; background: #fdecea; color: var(--red); border: 1px solid #f3c9c6; }
+  @media (max-width: 960px) { .trigger-callout .tiers { grid-template-columns: 1fr; } }
+  @media (max-width: 960px) { .gauges, .findings, .rules { grid-template-columns: repeat(2,1fr); } .cols2 { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 12px 40px; }
+    .hero { padding: 20px 18px 16px; }
+    .hero h1 { font-size: 18px; line-height: 1.35; }
+    .hero .price { font-size: 32px; }
+    .hero .price-row { gap: 10px; }
+    .spark-box { display: none; }
+    .gauges, .findings, .rules { grid-template-columns: 1fr; }
+    .panel { padding: 16px 14px; }
+    .panel h2 { font-size: 15px; }
+    .nav { padding: 0 12px; }
+    .nav a { font-size: 11.5px; padding: 10px 9px; }
+    .tl { min-width: 138px; }
+    .tl + .tl { margin-left: 18px; }
+    table { font-size: 12px; }
+    th, td { padding: 8px 10px; }
+  }
+
+  /* ===== 手机端（竖屏）精修：图表高度下调，字号/留白更贴合窄屏 ===== */
+  @media (max-width: 760px) {
+    .wrap { padding: 0 12px 36px; }
+    .hero { padding: 18px 16px 14px; }
+    .hero h1 { font-size: 17px; line-height: 1.32; }
+    .hero .price { font-size: 30px; }
+    .spark-box { display: none; }
+    .gauges, .findings, .rules { grid-template-columns: 1fr; }
+    .cols2 { grid-template-columns: 1fr; }
+    .panel { padding: 15px 13px; }
+    .panel h2 { font-size: 15px; flex-wrap: wrap; }
+    .nav { padding: 0 10px; }
+    .nav a { font-size: 11px; padding: 9px 7px; }
+    .chart-lg, #chart2, #chartSubF { height: 460px !important; }
+    .chart-md { height: 360px; }
+    .chart-sm { height: 300px; }
+    table { font-size: 11.5px; }
+    th, td { padding: 7px 8px; }
+    .trigger-callout .tiers { grid-template-columns: 1fr; }
+  }
+
+  /* ===== 手机横屏：高度有限，压缩图表高度、保持双列信息密度 ===== */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .wrap { padding: 0 16px 28px; }
+    .hero { padding: 12px 16px; }
+    .hero h1 { font-size: 16px; }
+    .hero .price { font-size: 26px; }
+    .spark-box { display: none; }
+    .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
+    .rules { grid-template-columns: repeat(3, 1fr); }
+    .panel { padding: 12px 14px; margin-bottom: 12px; }
+    .panel h2 { font-size: 14px; }
+    .nav a { font-size: 11px; padding: 8px 7px; }
+    .chart-lg, #chart2, #chartSubF { height: 300px !important; }
+    .chart-md { height: 240px; }
+    .chart-sm { height: 200px; }
+    .cols2 { grid-template-columns: 1fr 1fr; }
+    table { font-size: 11.5px; }
+    th, td { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div>
+    <div class="kicker">FIBONACCI · ELLIOTT WAVE · 每日自动更新</div>
+    <h1>上证指数（000001.SH）斐波那契波浪专业分析看板</h1>
+    <div class="meta"><span id="upd0"></span> ~ <span id="upd1"></span>（日K线）｜数据源：腾讯自选股｜价格 × 时间 × 量能 × 多周期 四维验证</div>
+    <div class="price-row">
+      <div class="price" id="heroPrice"></div>
+      <span class="badge gold" id="heroWave"></span>
+      <span class="badge ghost" id="heroVol"></span>
+    </div>
+  </div>
+  <div class="spark-box">
+    <div id="spark"></div>
+    <div class="lb">近60个交易日收盘走势</div>
+  </div>
+</div>
+
+<nav class="nav">
+  <a class="brand" href="#">Φ 波浪看板</a>
+  <a href="#p1">全景K线</a><a href="#p2">数浪校验</a><a href="#p3">通道推演</a><a href="#pLink">板块联动</a><a href="#pXM">跨市场</a><a href="#p4">子浪预测</a><a href="#p5">买卖框架</a><a href="#p6">预测回测</a>
+</nav>
+
+<div class="wrap">
+  <div class="gauges" id="gauges" style="margin-top:18px"></div>
+  <div class="findings" id="findings"></div>
+
+  <div class="panel" id="p1">
+    <h2><span class="no">1</span>五年全景：浪型划分 × 斐波那契回撤 × 均线 × 时间窗</h2>
+    <div class="note">金色虚线=五年区间斐波那契回撤位；竖线=斐波那契时间窗（灰=自浪起点，橙=自浪③顶）；MA60/MA250 为机构趋势基准（图例可点选）；副图：成交量 / RSI(14)。<b style="color:#2f9e44">▲ 绿色上三角＝买入信号</b>、<b style="color:#c23531">▼ 红色倒三角＝卖出信号</b>（悬停查看日期与价位）。<b style="color:#c23531">主图上三档红色/橙色/紫色横带=卖①②③触达触发带（自下向上进入即触发对应档卖出）。</b></div>
+    <div class="trigger-callout" id="triggerCallout"></div>
+    <div id="chart1" class="chart-lg"></div>
+  </div>
+
+  <div class="panel" id="p2">
+    <h2><span class="no">2</span>数浪质量校验：三铁律 · 两规则 · 比例 · 量能</h2>
+    <div class="note">艾略特波浪的数浪不是主观画图——三铁律是硬约束（违反即证伪），交替/通道是软规则，比例与量能是交叉验证。</div>
+    <div class="rules" id="rules"></div>
+    <div class="timeline" id="waveFlow"></div>
+    <div class="cols2">
+      <div>
+        <div class="sub-h">浪间比例校验（实际 vs 经典理论）</div>
+        <table id="ratioTable"></table>
+      </div>
+      <div>
+        <div class="sub-h">量能验证（各浪日均成交量，万手）</div>
+        <table id="volTable"></table>
+        <div class="note" style="margin-top:10px">浪④均量高于浪③，未见恐慌抛售；但浪③未显著放量，动能温和——与比例校验"浪3偏弱"互证。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="p3">
+    <h2><span class="no">3</span>艾略特通道 × 未来情景推演</h2>
+    <div class="note" id="noteChan">金色平行线=艾略特通道（浪②-浪④连线 + 过浪③顶平行线），浪⑤理论上轨指向通道上沿；虚线=三情景推演路径（月度路标示意）。<b>绿色三角=买点参考区</b>（浪④回踩 0.382~铁律线），<b>红色倒三角=浪⑤兑现目标</b>，绿色横带=买入参考区，黄色实线=3674.40 铁律线/风控位。所有标记均为斐波那契+波浪推导的参考位，非确定性指令。<br><b style="color:#b8740f">三情景是三套不同前提，不可直接比较</b>：『强势』线（浪④底 3741 已成、浪⑤直接启动）与下方子浪细分推演<b>同源</b>；『基准』线（浪4 仍在 3650–3741 磨底，9/30≈3700）与『风险』线（跌破铁律线 3674 证伪）是另外两套前提，不与子浪图直接对比。</div>
+    <div id="c2ScnStatus" class="scn-status"></div>
+    <div id="chart2" class="chart-lg" style="height:640px"></div>
+    <div class="cols2" style="margin-top:16px">
+      <div>
+        <div class="sub-h">斐波那契扩展目标位</div>
+        <table id="targetTable"></table>
+      </div>
+      <div>
+        <div class="sub-h">斐波那契回撤支撑位</div>
+        <table id="fibTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="pLink">
+    <h2><span class="no">4</span>板块/指数联动（趋势交叉验证）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">板块联动是什么？</span><ul><li>用<b>沪深300、创业板指</b>等宽基近20日方向，对上证趋势做<b>纯交叉验证</b>（不含上证自身，避免自指确认）。</li><li>广度系数 ±1=多指数同向确认（势齐）、0=背离（势散）；它管"势是否齐"，与子浪概率（管"到不到"）互补。</li><li>上证自身单独列出供<b>背离对照</b>：若上证涨而宽基跌，说明是少数权重拉抬的窄幅行情，需警惕。</li><li>若某宽基<b>数据缺失</b>（取数限流），信号自动降级并明示，绝不静默伪装成满置信。</li></ul></span></span></h2>
+    <div class="note" id="linkSummary"></div>
+    <table id="linkTable"></table>
+    <div id="linkStyle" style="margin-top:14px"></div>
+    <div id="linkWarn"></div>
+  </div>
+
+  <div class="panel" id="pXM">
+    <h2><span class="no">5</span>跨市场联动（港股+美股趋势交叉验证）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">跨市场联动是什么？</span><ul><li>用<b>恒生、恒生科技、标普500、纳斯达克</b>近20日方向，对上证趋势做<b>纯跨市场交叉验证</b>（不含上证自身）。</li><li>广度系数 ±1=全球 equity 同向确认（势齐）、0=背离（势散）；它管"全球风险情绪是否齐"，与子浪概率（管"到不到"）互补。</li><li>上证自身单独列出供<b>背离对照</b>：若上证涨而全球 equity 跌，说明是 A股 独立行情，需警惕外围拖累。</li><li>美股数据为<b>上一交易日</b>（中美时差），港股/上证为当日；20日趋势对比不受单日时差影响。</li><li>若某市场<b>数据缺失</b>（取数限流），信号自动降级并明示，绝不静默伪装成满置信。</li></ul></span></span></h2>
+    <div class="note" id="xmSummary"></div>
+    <table id="xmTable"></table>
+    <div id="xmWarn"></div>
+  </div>
+
+  <div class="panel" id="p4">
+    <h2><span class="no">6</span>浪⑤子浪走势预测（斐波那契细分推演）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">置信带（浅蓝阴影）是什么？</span><ul><li>它是子浪各目标位的<b>触达带</b>（与下方表格「区间(±σ)」逐点一致）：由近期波动率×期望触达天数推导的 ~1σ 区间；近端子浪(子浪ⅰ/ⅱ)带更窄、远端子浪ⅴ约 10%。<b>历史离散度参考 ±10.14%</b> 见下方校准卡。</li><li><b>为什么这么宽？</b> 波浪理论对点位的预测本身误差就大——±10% 是真实历史误差，不是画错。它说明<b>中间子浪的具体价位仅供参考</b>，别按点位死磕。</li><li><b>带的价值在两端</b>：浪⑤起点、子浪ⅴ≡卖① 是代数锁定的铁律位（带在端点收敛为 0），确定性最高；做决策应锚定这两个端点，强弱方向看上方「未来情景推演」图。</li><li>带 ≠ 可操作买卖区间，只是<b>误差背景</b>。</li></ul></span></span></h2>
+    <div class="scn-switch">
+      <label for="scenarioSel">情景切换：</label>
+      <select id="scenarioSel">
+        <option value="strong">强势（浪⑤启动 · 完整子浪）</option>
+        <option value="base">基准（浪④磨底 · 子浪待激活）</option>
+        <option value="risk">风险（跌破铁律 · 子浪失效）</option>
+      </select>
+      <span id="scnAuto" class="scn-auto"></span>
+    </div>
+    <div id="subFBanner" class="scen-premise"></div>
+    <div id="chartSubF" class="chart-lg" style="height:680px"></div>
+    <div id="subFDebug" style="margin-top:8px;font-size:12px;color:#666;font-family:monospace;"></div>
+    <div class="sub-h" id="subFTableTitle" style="margin-top:14px">浪⑤子浪目标位（基准=卖①保守口径细分）</div>
+    <table id="subFTable"></table>
+    <div id="subFCalib" class="disc" style="margin-top:12px"></div>
+  </div>
+
+  <div class="panel" id="p5">
+    <h2><span class="no">7</span>买卖参考框架（波浪 + 斐波那契推导 · 仅供参考）</h2>
+    <div class="note" id="noteP8">下列买 / 卖参考位由<b>当前浪型 + 斐波那契比例</b>推导，是"到了哪里、做什么动作"的参考框架，<b>不是确定性指令</b>。实际下单须结合实时量价、仓位与风险承受力独立判断，并严格以铁律线 3674.40 为风控位。</div>
+    <div class="cols2">
+      <div>
+        <div class="sub-h">买入参考区 / 风控位</div>
+        <table id="buyTable"></table>
+        <div class="sub-h" style="margin-top:14px">卖出兑现目标（浪⑤）</div>
+        <table id="sellTable"></table>
+      </div>
+      <div id="planNote"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="p6">
+    <h2><span class="no">8</span>预测回测：目标位命中率闭环（提升预测准确性）</h2>
+    <div class="note" id="noteBt">每日生成的目标位（卖①②③ + 子浪ⅰ~ⅴ）自动存档，并在其后 30 个交易日内回看是否触及，统计各目标历史命中率。命中率仅基于「已到观察期」的样本；冷启动阶段（样本不足）不展示比率，避免误导。这是后续区间宽度与比率校准的数据地基。</div>
+    <table id="btTable"></table>
+    <div class="note" id="btFoot" style="margin-top:10px"></div>
+  </div>
+
+  <div class="disc" id="discFoot">
+    <b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。波浪理论数浪存在主观性，情景推演、观察矩阵及图中全部买/卖参考标记均为斐波那契+波浪理论推导的<b>参考位而非确定性指令</b>，不预示未来收益，亦不构成买卖建议。实际交易请以铁律线 3674.40 为风控基准独立决策。
+  </div>
+</div>
+
+<script>
+var D = window.FIB_DATA;
+// 统一日期转本地时间戳，避免 ECharts 对 'YYYY-MM-DD' 字符串在不同浏览器/时区解析歧义
+// A股 2026 官方休市日（上交所 上证公告〔2025〕45号）；2027 安排待公布后补充。
+// R207/R208：addBizDays 顶层全局工具，卖出目标/触达参考日期统一排假（与子浪预测图同源）。
+var _HOLIDAYS_2026 = {};
+"2026-01-01,2026-01-02,2026-01-03,2026-02-15,2026-02-16,2026-02-17,2026-02-18,2026-02-19,2026-02-20,2026-02-21,2026-02-22,2026-02-23,2026-04-04,2026-04-05,2026-04-06,2026-05-01,2026-05-02,2026-05-03,2026-05-04,2026-05-05,2026-06-19,2026-06-20,2026-06-21,2026-09-25,2026-09-26,2026-09-27,2026-10-01,2026-10-02,2026-10-03,2026-10-04,2026-10-05,2026-10-06,2026-10-07"
+  .split(',').forEach(function (h) { _HOLIDAYS_2026[h] = 1; });
+// R209：统一数值格式化——避免裸拼接浮点(如 125.38 在 IEEE754 下最短表示为 125.38000000000011)导致小数点过长。
+// 所有价格/比率显示必须经此收口；null/undefined 显示占位符，非数字原样透传。
+function fmt2(v) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) : (v == null ? '—' : v); }
+function addBizDays(from, n) {
+  var d = new Date(from + 'T00:00:00');
+  var added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    var wd = d.getDay();
+    var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+    var ds = y + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
+    if (wd !== 0 && wd !== 6 && !_HOLIDAYS_2026[ds]) added++;
+  }
+  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  return y + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
+}
+var _toTs = function (d) { return new Date(d + 'T00:00:00').getTime(); };
+if (!D || typeof D !== 'object') {
+  // 数据未生成（如自动化取数失败）时给出明确提示，避免白屏
+  document.body.innerHTML = '<div style="padding:48px;font-family:sans-serif;color:#c23531;line-height:1.8">' +
+    '⚠️ 数据加载失败：data/data.js 未生成或为空。<br>请重新运行 analyze.py 与 build_data.py 生成数据后刷新本页。</div>';
+  throw new Error('FIB_DATA missing or invalid');
+}
+var RED = '#c23531', GREEN = '#2f9e44', GOLD = '#c9a063', NAVY = '#1f2d50', ORANGE = '#e6a23c';
+var CHART_FONT = '"Microsoft YaHei","PingFang SC",sans-serif';  // 图表画布文字与页面字体保持一致
+var charts = [];  // 收集所有实例，供窗口 resize 时统一重绘
+// R211：响应式 dataZoom 滑块——手机端放大触摸目标（手柄/滑轨更高更粗），避免误触与坐标轴重叠。
+// 横屏/竖屏切换时由 _resizeAll 重新套用，保证滚动条始终贴合当前屏宽。
+var IS_MOB = function () { return window.innerWidth <= 760; };
+function _sliderZoom(xIdx, extra) {
+  var m = IS_MOB();
+  return Object.assign({
+    type: 'slider', xAxisIndex: xIdx, start: 0, end: 100, showDetail: false,
+    handleSize: m ? '120%' : '100%',   // 手机端手柄适度放大，兼顾触摸与矮画布不溢出
+    moveHandleSize: m ? 10 : 7,        // 中间拖动把手加粗
+    height: m ? 14 : 16,               // 手机端滑轨略收，避免 300px 矮画布裁切
+    // 用固定像素 bottom：桌面/手机保持滚动条上缘与 x 轴标签下缘约 14–16px 净距，
+    // 与 chartSubF 的 grid bottom:55 视觉对齐，避免矮画布下百分比漂移导致重叠。
+    bottom: m ? 12 : 8,
+    textStyle: { fontSize: 11 },
+    handleStyle: { color: '#7b61c4' },
+    borderColor: '#e0e3e8',
+    fillerColor: 'rgba(123,97,196,0.15)'
+  }, extra || {});
+}
+function _zoomFor(c) {
+  if (!c || !c._zoomX) return;
+  try { c.setOption({ dataZoom: [ { type: 'inside', xAxisIndex: c._zoomX, start: 0, end: 100 }, _sliderZoom(c._zoomX) ] }); } catch (e) {}
+}
+// 看板级当前情景状态（情景联动全看板）：自动判定 active + 映射到 D.scenarios 索引
+var SS = D.scenarioSwitch || { active: 'strong', lastClose: D.lastClose, keyLine: (D.tradePlan && D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0), w4Low: (D.wavePoints ? D.wavePoints[D.wavePoints.length - 1].price : 0), base: {}, risk: {} };
+var CURRENT_SCENARIO = SS.active;  // 自动判定值（每日更新跟随行情）
+var SCN_IDX = { base: 0, strong: 1, risk: 2 };  // scenarioSwitch.active → D.scenarios 索引
+// 铁律线单一真值（取自 tradePlan.stopLine.price），注入到文案（避免与 KEY_LINE 双份真值脱节）
+var KL = D.tradePlan.stopLine.price.toFixed(2);
+['noteChan', 'noteP8', 'discFoot'].forEach(function (id) {
+  var e = document.getElementById(id);
+  if (e) e.innerHTML = e.innerHTML.replace('3674.40', KL);
+});
+// 图3注释由 D.p3Note 注入（子浪幅度/回撤由 subWavePoints 派生，消除与浪型标注双份真值）
+
+/* ---------- 头部 + 迷你走势 ---------- */
+document.getElementById('upd0').textContent = D.kline.dates[0];   // 数据起始日，由 kline 派生（避免与文案硬编码 2021-08-04 双份真值漂移）
+document.getElementById('upd1').textContent = D.updated;
+var _ohc = D.kline.ohlc;
+var _prevClose = (_ohc.length >= 2) ? _ohc[_ohc.length - 2][1] : D.lastClose;
+var _chg = D.lastClose - _prevClose;
+var _chgPct = _prevClose ? _chg / _prevClose * 100 : 0;
+var _up = _chg >= 0;
+var heroPrice = document.getElementById('heroPrice');
+heroPrice.textContent = D.lastClose.toFixed(2);
+heroPrice.style.color = _up ? RED : GREEN;  // A股惯例：涨红跌绿
+var _chgBadge = document.createElement('span');
+_chgBadge.className = 'badge ' + (_up ? 'up' : 'down');
+_chgBadge.textContent = (_up ? '▲ +' : '▼ ') + _chg.toFixed(2) + '  (' + (_up ? '+' : '') + _chgPct.toFixed(2) + '%)';
+heroPrice.parentNode.insertBefore(_chgBadge, document.getElementById('heroWave'));
+var heroWave = document.getElementById('heroWave');
+heroWave.textContent = (D.state && D.state.text) ? D.state.text : '浪④回调中';
+heroWave.className = 'badge ' + ((D.state && D.state.cls) ? D.state.cls : 'ghost');
+document.getElementById('heroVol').textContent = 'HV20 ' + D.volatility.now + '%（五年' + D.volatility.pctile + '分位·' + D.volRegime.bucket + '波动区）';
+(function () {
+  var pts = D.spark || [], w = 220, h = 64, pad = 4;
+  var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+  var step = (w - pad * 2) / (pts.length - 1);
+  var rng = mx - mn;
+  var path = pts.map(function (v, i) {
+    var x = pad + i * step;
+    // 横盘时 mx==mn 会除零得 NaN，退化为中心水平线
+    var y = h - pad - (rng < 1e-9 ? 0.5 : (v - mn) / rng) * (h - pad * 2);
+    return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  var up = pts[pts.length - 1] >= pts[0];
+  var c = up ? '#e8b4b0' : '#a8d5b0';
+  document.getElementById('spark').innerHTML =
+    '<svg width="' + w + '" height="' + h + '"><path d="' + path + '" fill="none" stroke="' + c + '" stroke-width="2"/></svg>';
+})();
+
+/* ---------- 距离仪表盘 ---------- */
+(function () {
+  function fmtPct(v) { return (v > 0 ? '+' : '') + v.toFixed(2) + '%'; }
+  var g = D.distances;
+  // 浪⑤目标区间从卖出目标派生(卖①最低~卖③最高)，避免与 tradePlan 计算双份维护、写死 4494~4726 漂移
+  var _sellP = D.tradePlan.sellTargets.map(function (t) { return t.price; });
+  var _sLo = Math.min.apply(null, _sellP), _sHi = Math.max.apply(null, _sellP);
+  // 浪③顶/浪④低从 wavePoints 派生，避免与浪型标注双份真值(4258.86/3741.11)漂移
+  function _wpv(kw) { var p = D.wavePoints.find(function (x) { return x.label.indexOf(kw) === 0; }); return p ? p.price : NaN; }
+  var _w3p = _wpv("浪3"), _w4p = _wpv("浪4");
+  var items = [
+    { t: '距铁律线缓冲（' + D.tradePlan.stopLine.price.toFixed(2) + '）', v: fmtPct(g.toKeyLine),
+      cls: g.toKeyLine >= 0 ? 'num-green' : 'num-red',
+      bar: Math.min(Math.abs(g.toKeyLine) / 10 * 100, 100), bc: GOLD,
+      d: g.toKeyLine >= 0 ? '上方缓冲，跌破则浪④数法证伪转防御' : '已跌破铁律线，浪④数法证伪，转防御', g: 'g1' },
+    { t: '距前高（' + _w3p.toFixed(2) + '）', v: fmtPct(g.toPrevHigh),
+      cls: g.toPrevHigh >= 0 ? 'num-red' : 'num-green',
+      bar: Math.min(Math.abs(g.toPrevHigh) / 20 * 100, 100), bc: RED,
+      d: g.toPrevHigh >= 0 ? '未到前高，收复=浪④结束右侧确认' : '已收复前高，浪④结束确认', g: 'g2' },
+    { t: '较浪④低点（' + _w4p.toFixed(2) + '）', v: fmtPct(g.fromW4Low),
+      cls: g.fromW4Low >= 0 ? 'num-green' : 'num-red',
+      bar: Math.min(Math.abs(g.fromW4Low) / 10 * 100, 100), bc: GREEN,
+      d: g.fromW4Low >= 0 ? '07-20 低点以来的反弹幅度' : '已低于浪④低点', g: 'g3' },
+    { t: '浪⑤上行空间（' + _sLo.toFixed(2) + '~' + _sHi.toFixed(2) + '）', v: fmtPct(g.toTargetLow) + ' ~ ' + fmtPct(g.toTargetHigh),
+      // A股约定 涨红跌绿 + 本看板主惯例「卖/兑现=红、买/持有=绿」：toTargetLow>=0 表示现价仍低于卖目标(上行空间尚在,持有)→绿；
+      // <0 表示已触达浪⑤卖目标区(兑现/减仓)→红，与卖出目标表(num-red)/卖出三角/触发框主题一致。
+      cls: g.toTargetLow >= 0 ? 'num-green' : 'num-red',
+      bar: Math.min(Math.abs(g.toTargetLow) / 25 * 100, 100), bc: NAVY,
+      d: g.toTargetLow >= 0 ? '自现价起算的斐波那契目标空间' : '已触及浪⑤目标区，注意兑现', g: 'g4' }
+  ];
+  document.getElementById('gauges').innerHTML = items.map(function (c) {
+    return '<div class="gauge ' + c.g + '"><div class="t">' + c.t + '</div><div class="v ' + c.cls + '">' + c.v + '</div>' +
+      '<div class="bar"><i style="width:' + c.bar + '%;background:' + c.bc + '"></i></div><div class="d">' + c.d + '</div></div>';
+  }).join('');
+})();
+
+/* ---------- 专业发现 ---------- */
+document.getElementById('findings').innerHTML = D.findings.map(function (f) {
+  return '<div class="finding"><div class="ft"><span class="dot ' + f.level + '"></span>' + f.title + '</div><p>' + f.text + '</p></div>';
+}).join('');
+
+/* ---------- 规则校验卡 ---------- */
+document.getElementById('rules').innerHTML = D.rules.map(function (r) {
+  var ok = r.ok === true;
+  return '<div class="rule"><div class="ic ' + (ok ? 'ok' : 'na') + '">' + (ok ? '✓' : '—') + '</div>' +
+    '<div><div class="rn">' + r.name + '</div><div class="rd">' + r.detail + '</div></div></div>';
+}).join('');
+
+/* ---------- 浪型时间线（数据驱动，杜绝与 wavePoints/tradePlan 双份真值漂移）---------- */
+(function () {
+  function _wp(kw) { return D.wavePoints.find(function (p) { return p.label.indexOf(kw) === 0; }); }
+  var s = _wp("双底"), w1 = _wp("浪1"), w2 = _wp("浪2"), w3 = _wp("浪3"), w4 = _wp("浪4");
+  var sell = D.tradePlan.sellTargets;
+  var w1a = w1.price - s.price;   // 浪①幅度（浪②回撤基准）
+  var w3a = w3.price - w2.price;  // 浪③幅度（浪④回撤基准）
+  var waves = [
+    { n: '浪①', p: s.price.toFixed(2) + ' → ' + w1.price.toFixed(2), d: '+' + w1a.toFixed(2), s: '2024-09 ~ 2024-10' },
+    { n: '浪②', p: w1.price.toFixed(2) + ' → ' + w2.price.toFixed(2),
+      d: '回撤 ' + ((w1.price - w2.price) / w1a * 100).toFixed(1) + '%',
+      s: (D.w2Days || 121) + '个交易日，复杂平台' },
+    { n: '浪③', p: w2.price.toFixed(2) + ' → ' + w3.price.toFixed(2),
+      d: '+' + w3a.toFixed(2) + ' = ' + (w3a / w1a).toFixed(3) + '×浪①', s: '子浪延长结构' },
+    { n: '浪④?', p: w3.price.toFixed(2) + ' → ' + w4.price.toFixed(2),
+      d: '回撤 ' + ((w3.price - w4.price) / w3a * 100).toFixed(1) + '%',
+      s: '急促锯齿，低点待确认', cur: true },
+    { n: '浪⑤?', p: '目标 ' + sell[0].price.toFixed(2) + ' / ' + sell[1].price.toFixed(2) + ' / ' + sell[2].price.toFixed(2),
+      d: '三口径目标区', s: '待浪④确认后启动', cur: true }
+  ];
+  document.getElementById('waveFlow').innerHTML = waves.map(function (w) {
+    return '<div class="tl' + (w.cur ? ' cur' : '') + '"><b>' + w.n + '</b><div class="pr">' + w.p + '</div>' + w.d + '<br><span>' + w.s + '</span></div>';
+  }).join('');
+})();
+
+/* ---------- 图一：五年K线 + MA + 量 + RSI + 时间窗 ---------- */
+(function () {
+  var dates = D.kline.dates;
+  var MOB = IS_MOB();
+  var dateIdx = {};
+  dates.forEach(function (d, i) { dateIdx[d] = i; });
+
+  var zzLine = dates.map(function () { return null; });
+  D.zigzag.forEach(function (p) {
+    if (dateIdx[p.date] !== undefined) zzLine[dateIdx[p.date]] = p.price;
+  });
+
+  var waveMarks = D.wavePoints.map(function (p) {
+    // 右缘落点（时间轴后 20%）的标签若居中，会向右长出画布被裁；
+    // 改 align:'right' 让文字向左生长，整段留在图表内。
+    var _rightAlign = (dateIdx[p.date] != null && dates.length && dateIdx[p.date] / dates.length > 0.80) ? 'right' : null;
+    return {
+      coord: [p.date, p.price], value: p.label,
+      label: {
+        position: p.pos, fontSize: 11, fontWeight: 'bold', color: '#242a35', show: !MOB,
+        // 浪③顶落点恰好被卖①目标线标签（insideEndTop，横跨右缘约 105px）覆盖，
+        // 点上方已无可用空位 → 唯独该点标签下移到 K 线下方，彻底分离。
+        offset: (p.pos === 'top' && /^浪3/.test(p.label)) ? [0, 34] : [0, 0],
+        align: _rightAlign
+      },
+      itemStyle: { color: p.pos === 'top' ? RED : GREEN }, symbolSize: 8
+    };
+  });
+  // 五年全景图上 20 个信号点若各挂一个「买/卖」字，会与浪型标注在同一转折点叠印
+  // （文字与三角形符号本就同点）。三角形的朝向+颜色已完整表达方向，文字纯冗余，
+  // 故只保留符号并适当放大；图注已写明「▲绿=买入 ▼红=卖出」。
+  var sigMarks = D.signals.map(function (s) {
+    var i = dateIdx[s.date];
+    if (i === undefined) return null;
+    var price = D.kline.ohlc[i][s.signal === 1 ? 2 : 3];
+    return {
+      coord: [s.date, price], value: s.signal === 1 ? '买' : '卖',
+      label: { show: false },
+      itemStyle: { color: s.signal === 1 ? GREEN : RED },
+      symbol: s.signal === 1 ? 'triangle' : 'invertedTriangle', symbolSize: 10
+    };
+  }).filter(function (x) { return x !== null; });
+
+  var bz0 = D.tradePlan.buyZones[0];
+  // 五年回撤线标签：左缘(insideStart)是全图最拥挤处（触发带/铁律线/调整起点/早期买点都在那儿），
+  // 故用「三档水平错位 + 上下交替」把 5 条标签摊开，相邻两条永不同列，避免叠印。
+  var fibLines = D.fib5y.map(function (f, i) {
+    var _fp = [
+      { position: 'insideStartTop', offset: [186, 0] },
+      { position: 'insideMiddleTop', offset: [0, 0] },
+      { position: 'insideEndTop', offset: [-250, 0] },
+      { position: 'insideStartBottom', offset: [186, 0] },
+      { position: 'insideMiddleBottom', offset: [0, 0] }
+    ];
+    var _s = _fp[i % _fp.length];
+    return {
+      yAxis: f.price,
+      lineStyle: { type: 'dashed', color: GOLD, width: 1 },
+      label: { formatter: '回撤' + f.ratio, position: _s.position, offset: _s.offset, fontSize: 10, color: '#a8813f', align: /End/.test(_s.position) ? 'right' : null, show: !MOB }
+    };
+  });
+  D.tzWaveStart.forEach(function (t) {
+    if (t.passed && dateIdx[t.date] !== undefined) {
+      fibLines.push({ xAxis: t.date, lineStyle: { type: 'dashed', color: '#c3c9d4', width: 1 },
+        label: { formatter: 'T+' + t.n, position: 'insideEndTop', fontSize: 11, color: '#9aa2b0', align: 'right' } });
+    }
+  });
+  D.tzWave3Top.forEach(function (t) {
+    if (t.passed && dateIdx[t.date] !== undefined) {
+      fibLines.push({ xAxis: t.date, lineStyle: { type: 'dashed', color: ORANGE, width: 1 },
+        label: { formatter: 'T+' + t.n, position: 'insideEndBottom', fontSize: 11, color: ORANGE, align: 'right' } });
+    }
+  });
+
+  // ===== 卖①②③ 触达触发带（主图醒目可视化 + 触达即触发提示框）=====
+  var _bandCols = ['rgba(194,53,49,0.12)', 'rgba(214,140,20,0.12)', 'rgba(120,80,200,0.13)'];
+  var _lineCols = ['#c23531', '#d68c14', '#7850c8'];
+  var _tierNames = ['卖① 保守兑现', '卖② 标准兑现', '卖③ 激进兑现'];
+  var sellBands = D.tradePlan.sellTargets.map(function (t, i) {
+    return [
+      { yAxis: t.lo, itemStyle: { color: _bandCols[i] },
+        label: { formatter: _tierNames[i].split(' ')[0] + ' 触发带 ' + t.lo.toFixed(0) + '–' + t.hi.toFixed(0),
+          position: 'insideStartTop', fontSize: 11, fontWeight: 'bold', color: _lineCols[i], show: !MOB } },
+      { yAxis: t.hi }
+    ];
+  });
+  var sellCenterLines = D.tradePlan.sellTargets.map(function (t, i) {
+    return {
+      yAxis: t.price,
+      lineStyle: { type: 'solid', color: _lineCols[i], width: 1.6 },
+      label: { formatter: _tierNames[i].split(' ')[0] + ' ' + t.price.toFixed(0) + ' · 触发 ' + t.prob + '%',
+        position: 'insideEndTop', fontSize: 11, fontWeight: 'bold', color: _lineCols[i], align: 'right', show: (MOB ? (i === 0) : true) }
+    };
+  });
+  var keyLineMark = { yAxis: D.tradePlan.stopLine.price,
+    lineStyle: { type: 'dashed', color: ORANGE, width: 1.4 },
+    label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideEndBottom', align: 'right', offset: [0, 42], fontSize: 11, color: ORANGE } };
+
+  // 主图 y 轴须显式容纳卖①②③触发带（markArea/markLine 默认不计入坐标轴范围，否则带被裁切在顶部之外）
+  // ohlc 格式为 [open, close, LOW, HIGH]（已核实 r[2]<=r[3] 恒成立；信号标记买取 r[2]=低、卖取 r[3]=高）
+  var _kMin = Math.min.apply(null, D.kline.ohlc.map(function (r) { return r[2]; }));
+  var _kMax = Math.max.apply(null, D.kline.ohlc.map(function (r) { return r[3]; }));
+  var _yMin = Math.min(D.tradePlan.stopLine.price, _kMin);
+  // 注意：Math.max.apply(fn, array, extra) 的第三个参数会被 JS 引擎静默忽略，
+  // 必须把 _kMax 并入数组再 apply，否则 5 年K线最高价会被排出 y 轴上界（深熊重估时裁切蜡烛）。
+  var _sellHi = D.tradePlan.sellTargets.map(function (t) { return t.hi; });
+  var _yMax = Math.max.apply(null, _sellHi.concat(_kMax));
+  _yMin = Math.floor((_yMin - 200) / 100) * 100;
+  _yMax = Math.ceil((_yMax + 200) / 100) * 100;
+
+  // R174：均线密集压力带（年线末值 ~ 子浪ⅰ目标 的水平阴影带）
+  var _ma250Last = (function () { var a = D.kline.ma250; for (var i = a.length - 1; i >= 0; i--) { if (a[i] != null) return a[i]; } return null; })();
+  var _sub1Pt = (D.subForecast.points.filter(function (p) { return p.label === '子浪ⅰ'; })[0] || {});
+  var _pbArea = (_ma250Last != null && _sub1Pt.price != null) ? [[
+    { yAxis: _ma250Last, itemStyle: { color: 'rgba(220,60,60,0.08)' },
+      label: { formatter: '均线密集压力带', color: RED, fontSize: 11, position: 'insideBottom', show: !MOB } },
+    { yAxis: _sub1Pt.price }
+  ]] : [];
+
+  // 触达即触发 提示框填充（数据驱动，杜绝与 tradePlan 双份真值漂移）
+  document.getElementById('triggerCallout').innerHTML =
+    '<h3><span class="spark">⚡</span>触达即触发 — 卖①②③三档触发带（已绘于上方主图）</h3>' +
+    '<div class="lead">卖出信号不是"日历到点"才触发，而是 <b>价格自下向上进入对应触发带（触及该档目标区间）</b> 即触发该档卖出。带越往上、概率越低、越偏激进；进入卖①带即可兑现首批。有效跌破 <b>铁律线 ' + D.tradePlan.stopLine.price.toFixed(2) + '</b> 则浪④数法证伪，第一时间转防御。</div>' +
+    '<div class="tiers">' + D.tradePlan.sellTargets.map(function (t, i) {
+      return '<div class="tier" style="border-top-color:' + _lineCols[i] + '">' +
+        '<div class="tn" style="color:' + _lineCols[i] + '">' + _tierNames[i] + '</div>' +
+        '<div class="tb">触发带 <b>' + t.lo.toFixed(0) + ' – ' + t.hi.toFixed(0) + '</b><br>中心目标 <b>' + t.price.toFixed(2) + '</b></div>' +
+        '<div class="tp">触发概率 <b style="color:' + _lineCols[i] + '">' + t.prob + '%</b>（' + t.probSrc + '）</div>' +
+        '<div class="foot">' + t.note + '</div></div>';
+    }).join('') + '</div>';
+
+  var c1 = echarts.init(document.getElementById('chart1'));
+  c1.setOption({
+    animation: false,
+    textStyle: { fontFamily: CHART_FONT, color: '#242a35' },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { data: ['日K', '成交量', 'MA20', 'MA60', 'MA120', 'MA250', 'Zigzag摆动', 'RSI(14)'], top: 0, type: (MOB ? 'scroll' : undefined), textStyle: { fontSize: 12 } },
+    grid: [
+      { left: 80, right: 60, top: 44, bottom: '44%' },
+      { left: 80, right: 60, top: '58%', height: '9%' },
+      { left: 80, right: 60, top: '71%', bottom: 55 }
+    ],
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false } },
+      { type: 'category', data: dates, gridIndex: 2, axisLabel: { margin: 6, fontSize: 11 } }
+    ],
+    yAxis: [
+      { scale: false, min: _yMin, max: _yMax, gridIndex: 0, axisLabel: { fontSize: 12 } },
+      { scale: true, gridIndex: 1, splitNumber: 2, axisLabel: { fontSize: 11 } },
+      { scale: true, gridIndex: 2, min: 0, max: 100, splitNumber: 2, axisLabel: { fontSize: 11 } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1, 2], start: 0, end: 100 },
+      _sliderZoom([0, 1, 2])
+    ],
+    series: [
+      {
+        name: '日K', type: 'candlestick', data: D.kline.ohlc,
+        itemStyle: { color: RED, color0: GREEN, borderColor: RED, borderColor0: GREEN },
+        // hideOverlap 按数组顺序保留先者：waveMarks 在前 → 浪型标注优先，
+        // 与之叠印的「买/卖」文字自动隐藏（三角形符号本身已表达方向，信息不丢）。
+        markPoint: { labelLayout: { hideOverlap: true }, data: waveMarks.concat(sigMarks) },
+        markLine: { symbol: 'none', labelLayout: { hideOverlap: true }, data: fibLines.concat(sellCenterLines, [keyLineMark]) },
+        markArea: { data: [
+          [          { xAxis: D.tzBaseTop, yAxis: bz0.hi, itemStyle: { color: 'rgba(47,158,68,0.10)' },
+            label: { formatter: '浪④买点参考区', color: GREEN, fontSize: 11, position: (MOB ? 'insideStartBottom' : 'insideEndBottom'), align: (MOB ? null : 'right'), offset: [0, 30] } },
+           { xAxis: D.updated, yAxis: bz0.lo }]
+        ].concat(sellBands, _pbArea) }
+      },
+      { name: 'MA20', type: 'line', data: D.kline.ma20, symbol: 'none', lineStyle: { color: '#e6a23c', width: 1.1 }, itemStyle: { color: '#e6a23c' } },
+      { name: 'MA60', type: 'line', data: D.kline.ma60, symbol: 'none', lineStyle: { color: '#7b61c4', width: 1.2 }, itemStyle: { color: '#7b61c4' } },
+      { name: 'MA120', type: 'line', data: D.kline.ma120, symbol: 'none', lineStyle: { color: '#409eff', width: 1.2 }, itemStyle: { color: '#409eff' } },
+      { name: 'MA250', type: 'line', data: D.kline.ma250, symbol: 'none', lineStyle: { color: '#b0b8c8', width: 1.2, type: 'dashed' }, itemStyle: { color: '#b0b8c8' } },
+      { name: 'Zigzag摆动', type: 'line', data: zzLine, connectNulls: true, lineStyle: { color: NAVY, width: 1.5 }, symbol: 'none', z: 5 },
+      { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: D.kline.volume, itemStyle: { color: '#d5dae3' } },
+      {
+        name: 'RSI(14)', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: D.kline.rsi,
+        symbol: 'none', lineStyle: { color: '#7b61c4', width: 1.5 },
+        markPoint: {
+          symbol: 'circle', symbolSize: 7,
+          itemStyle: { color: '#7b61c4', borderColor: '#fff', borderWidth: 1.5 },
+          label: { show: true, formatter: '{c}', color: '#7b61c4', fontSize: 12, fontWeight: 'bold', position: 'right' },
+          data: [{ coord: [D.kline.rsi.length - 1, D.kline.rsi[D.kline.rsi.length - 1]], value: fmt2(D.kline.rsi[D.kline.rsi.length - 1]) }]
+        },
+        markLine: { symbol: 'none', data: [
+          { yAxis: 70, lineStyle: { color: RED, type: 'dashed', width: 1 }, label: { formatter: '超买 70', fontSize: 11, fontWeight: 'bold', color: RED, position: 'insideEndTop', align: 'right' } },
+          { yAxis: 50, lineStyle: { color: '#9aa3b2', type: 'dotted', width: 1 }, label: { formatter: '多空中轴 50', fontSize: 11, color: '#9aa3b2', position: 'insideEndTop', align: 'right', show: !MOB } },
+          { yAxis: 30, lineStyle: { color: GREEN, type: 'dashed', width: 1 }, label: { formatter: '超卖 30', fontSize: 11, fontWeight: 'bold', color: GREEN, position: 'insideEndTop', align: 'right' } }
+        ] }
+      }
+    ]
+  });
+  c1._zoomX = [0, 1, 2];
+  charts.push(c1);
+})();
+
+/* ---------- 图：艾略特通道 + 未来推演 ---------- */
+(function () {
+  // 情景线视觉权重（单一真值：初始渲染与 applyScenarioC2 切换共用，避免 R197 优化被加载/切换时无声回退）
+  // 预测线（强势/基准/风险）粗细贴近、透明度接近，避免 active 线过粗/ inactive 线过虚
+  var SCN_W_ACT = 2.0, SCN_W_IN = 1.8, SCN_OP_LINE_IN = 0.60, SCN_OP_DOT_IN = 0.60;
+  var actual = [];
+  var MOB = IS_MOB();
+  for (var i = 0; i < D.kline.dates.length; i++) {
+    if (D.kline.dates[i] >= '2024-09-01') actual.push([_toTs(D.kline.dates[i]), D.kline.close[i]]);
+  }
+  var series = [{
+    name: '实际收盘', type: 'line', data: actual, symbol: 'none',
+    lineStyle: { color: '#242a35', width: 2 }, itemStyle: { color: '#242a35' }
+  }];
+  var _activeScn = SCN_IDX[CURRENT_SCENARIO] != null ? SCN_IDX[CURRENT_SCENARIO] : 1;
+  D.scenarios.forEach(function (s, si) {
+    var _isAct = (si === _activeScn);
+    series.push({ name: s.name, type: 'line', data: s.points.map(function (pt) { return [_toTs(pt[0]), pt[1]]; }), symbol: 'circle', symbolSize: _isAct ? 6 : 4,
+      lineStyle: { color: s.color, width: _isAct ? SCN_W_ACT : SCN_W_IN, type: 'dashed', opacity: _isAct ? 1 : SCN_OP_LINE_IN },
+      itemStyle: { color: s.color, opacity: _isAct ? 1 : SCN_OP_DOT_IN }, z: _isAct ? 6 : 1 });
+  });
+  series.push({ name: '艾略特通道下轨（浪2-浪4）', type: 'line', data: D.channel.lower.map(function (pt) { return [_toTs(pt[0]), pt[1]]; }), symbol: 'none',
+    lineStyle: { color: GOLD, width: 2 }, itemStyle: { color: GOLD } });
+  series.push({ name: '艾略特通道上轨（过浪3顶）', type: 'line', data: D.channel.upper.map(function (pt) { return [_toTs(pt[0]), pt[1]]; }), symbol: 'none',
+    lineStyle: { color: GOLD, width: 2 }, itemStyle: { color: GOLD } });
+
+  // 目标线/支撑线标签在左/中/右 + 上/下交替，5条支撑线错开避免堆叠
+  var _tPos = ['insideStartTop', 'insideMiddleTop', 'insideEndTop', 'insideMiddleTop', 'insideEndTop'];
+  var _sPos = ['insideStartTop', 'insideMiddleBottom', 'insideEndTop', 'insideStartBottom', 'insideEndBottom'];
+  var levelLines = D.targets.map(function (t, i) {
+    var _p = _tPos[i % _tPos.length];
+    return { yAxis: t.price, lineStyle: { type: 'dashed', color: RED, width: 1.1 },
+      label: { formatter: t.name + '  ' + fmt2(t.price), position: _p, fontSize: 10, color: RED, align: /End/.test(_p) ? 'right' : null, show: !MOB } };
+  }).concat(D.supports.map(function (s, i) {
+    var _p = _sPos[i % _sPos.length];
+    return { yAxis: s.price, lineStyle: { type: s.key ? 'solid' : 'dashed', color: s.key ? ORANGE : GREEN, width: s.key ? 2 : 1.1 },
+      label: { formatter: s.name + '  ' + fmt2(s.price), position: _p, fontSize: 10, color: s.key ? ORANGE : GREEN, align: /End/.test(_p) ? 'right' : null, show: !MOB } };
+  }));
+
+  series[0].markLine = { symbol: 'none', labelLayout: { hideOverlap: true }, data: levelLines };
+
+  var stp = D.tradePlan.stopLine, bz = D.tradePlan.buyZones[0];
+  // 浪⑤目标区上下沿从卖出目标派生(卖①最低~卖③最高)，避免与 targets 计算双份维护、浪型重校订时脱节
+  var sellPrices = D.tradePlan.sellTargets.map(function (t) { return t.price; });
+  var tgtLo = Math.min.apply(null, sellPrices), tgtHi = Math.max.apply(null, sellPrices);
+  // 卖出目标日期：优先取同价子浪点真实日期；否则由 updated + expDays(交易日)推算，避免写死到 2027
+  // R207：A股 2026 官方休市日（上交所 上证公告〔2025〕45号）；2027 安排待公布后补充。
+  // addBizDays 旧式仅排周末，现追加休市日，使卖出目标日期不落在假期（与子浪预测图同源修复）。
+  // addBizDays / _HOLIDAYS_2026 已提升为全局工具(见脚本顶部 R207/R208)，此处不再重复定义。
+  var sfDateByPrice = {};
+  (D.subForecast ? D.subForecast.points : []).forEach(function (p) {
+    sfDateByPrice[Math.round(p.price * 100) / 100] = p.date;
+  });
+  var sellMarks = D.tradePlan.sellTargets.map(function (t, i) {
+    var key = Math.round(t.price * 100) / 100;
+    var dtStr = sfDateByPrice[key] || addBizDays(D.updated, t.expDays || 0);
+    return {
+      coord: [_toTs(dtStr), t.price], value: '卖' + (i + 1) + ' ' + fmt2(t.price),
+      label: { position: 'bottom', fontSize: 11, fontWeight: 'bold', color: RED, distance: 5, show: (MOB ? (i === 0) : true) },
+      itemStyle: { color: RED }, symbol: 'invertedTriangle', symbolSize: 12
+    };
+  });
+  var buyMark = {
+    coord: [_toTs(D.updated), bz.hi], value: '买点区 ' + fmt2(bz.lo) + '~' + fmt2(bz.hi),
+    label: { position: 'left', fontSize: 11, fontWeight: 'bold', color: GREEN, distance: 6 },
+    itemStyle: { color: GREEN }, symbol: 'triangle', symbolSize: 12
+  };
+  series[0].markPoint = { data: sellMarks.concat([buyMark]), labelLayout: { hideOverlap: true } };
+  series[0].markArea = {
+    data: [
+      [{ name: '浪⑤目标区', itemStyle: { color: 'rgba(194,53,49,0.05)' }, label: { formatter: '浪⑤目标区', color: RED, fontSize: 11, position: 'insideStartTop' }, yAxis: tgtLo }, { yAxis: tgtHi }],
+      [{ name: '买入参考区', itemStyle: { color: 'rgba(47,158,68,0.12)' }, label: { formatter: '买入参考区', color: GREEN, fontSize: 11, position: 'insideBottomLeft' }, xAxis: _toTs(D.updated), yAxis: bz.hi }, { xAxis: _toTs('2027-09-30'), yAxis: bz.lo }]
+    ]
+  };
+
+  // 图2 y 轴改为数据驱动，避免写死 2600/5400 在极端波动下裁切卖带或留大片空白
+  var _c2Vals = [];
+  function _push2(v) { if (typeof v === 'number' && !isNaN(v)) _c2Vals.push(v); }
+  D.kline.dates.forEach(function (dn, i) { if (dn >= '2024-09-01') _push2(D.kline.close[i]); });
+  D.scenarios.forEach(function (s) { s.points.forEach(function (pt) { _push2(pt[1]); }); });
+  D.channel.upper.forEach(function (pt) { _push2(pt[1]); });
+  D.channel.lower.forEach(function (pt) { _push2(pt[1]); });
+  D.tradePlan.sellTargets.forEach(function (t) { _push2(t.price); _push2(t.hi); _push2(t.lo); });
+  D.tradePlan.buyZones.forEach(function (z) { _push2(z.lo); _push2(z.hi); });
+  _push2(D.tradePlan.stopLine.price);
+  // 防御：极端部分取数失败时 _c2Vals 可能为空，Math.min.apply(null, []) 返回 Infinity
+  // 会令 chart2 y 轴崩溃(曲线消失)。兜底压入 lastClose，确保 y 轴范围始终有限。
+  if (!_c2Vals.length) _c2Vals.push(D.lastClose);
+  var _c2Min = Math.floor((Math.min.apply(null, _c2Vals) - 150) / 100) * 100;
+  var _c2Max = Math.ceil((Math.max.apply(null, _c2Vals) + 150) / 100) * 100;
+
+  // RSI(14) 轨道：底部独立 grid 展示，仅作情绪校验层（与全景图主图一致）
+  var rsiC2 = {
+    name: 'RSI(14)', type: 'line',
+    data: D.kline.dates.map(function (d, i) { return [_toTs(d), D.kline.rsi[i]]; }),
+    xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', connectNulls: true,
+    lineStyle: { color: '#7b61c4', width: 1.5 },
+    markPoint: {
+      symbol: 'circle', symbolSize: 7,
+      itemStyle: { color: '#7b61c4', borderColor: '#fff', borderWidth: 1.5 },
+      label: { show: true, formatter: '{c}', color: '#7b61c4', fontSize: 12, fontWeight: 'bold', position: 'right' },
+      data: [{ coord: [_toTs(D.kline.dates[D.kline.dates.length - 1]), D.kline.rsi[D.kline.rsi.length - 1]], value: fmt2(D.kline.rsi[D.kline.rsi.length - 1]) }]
+    },
+    markLine: { symbol: 'none', data: [
+      { yAxis: 70, lineStyle: { color: RED, type: 'dashed', width: 1 }, label: { formatter: '超买 70', fontSize: 11, fontWeight: 'bold', color: RED, position: 'insideEndTop', align: 'right' } },
+      { yAxis: 50, lineStyle: { color: '#9aa3b2', type: 'dotted', width: 1 }, label: { formatter: '多空中轴 50', fontSize: 11, color: '#9aa3b2', position: 'insideEndTop', align: 'right' } },
+      { yAxis: 30, lineStyle: { color: GREEN, type: 'dashed', width: 1 }, label: { formatter: '超卖 30', fontSize: 11, fontWeight: 'bold', color: GREEN, position: 'insideEndTop', align: 'right' } }
+    ] }
+  };
+  series.push(rsiC2);
+
+  var c2 = echarts.init(document.getElementById('chart2'));
+  c2.setOption({
+    textStyle: { fontFamily: CHART_FONT, color: '#242a35' },
+    tooltip: { trigger: 'axis' },
+    legend: { type: 'scroll', top: 0, show: !MOB, textStyle: { fontSize: 12 } },
+    grid: [
+      { left: 80, right: 60, top: 44, bottom: '42%' },
+      { left: 80, right: 60, top: '60%', bottom: (window.innerWidth <= 760 ? 56 : 46) }
+    ],
+    xAxis: [
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false } },
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 1, axisLabel: { fontSize: 11, margin: 6 }, splitLine: { show: false } }
+    ],
+    yAxis: [
+      { type: 'value', scale: true, min: _c2Min, max: _c2Max, gridIndex: 0, axisLabel: { fontSize: 12 } },
+      { type: 'value', scale: true, min: 0, max: 100, splitNumber: 2, gridIndex: 1, axisLabel: { fontSize: 11 } }
+    ],
+    series: series,
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0, 1] },
+      _sliderZoom([0, 1])
+    ]
+  });
+  c2._zoomX = [0, 1];
+  charts.push(c2);
+  // 情景联动全看板：暴露切换钩子，供子浪面板切换时联动高亮当前情景线 + 更新状态条
+  window.applyScenarioC2 = function (mode) {
+    var ai = SCN_IDX[mode] != null ? SCN_IDX[mode] : 1;
+    var upd = [];
+    for (var k = 0; k < series.length; k++) upd.push({});
+    for (var si = 0; si < D.scenarios.length; si++) {
+      var sidx = 1 + si, isAct = (si === ai);
+      upd[sidx] = { lineStyle: { width: isAct ? SCN_W_ACT : SCN_W_IN, opacity: isAct ? 1 : SCN_OP_LINE_IN }, itemStyle: { opacity: isAct ? 1 : SCN_OP_DOT_IN }, z: isAct ? 6 : 1, symbolSize: isAct ? 6 : 4 };
+    }
+    c2.setOption({ series: upd });
+  };
+  function _renderC2ScnStatus(mode) {
+    var el = document.getElementById('c2ScnStatus');
+    if (!el) return;
+    var nm = mode === 'strong' ? '强势（浪⑤已启动）' : (mode === 'base' ? '基准（浪④磨底）' : '风险（跌破铁律）');
+    var auNm = SS.active === 'strong' ? '强势' : (SS.active === 'base' ? '基准' : '风险');
+    var manual = (mode !== SS.active) ? ' <span class="manual">· 手动预览（不影响自动判定）</span>' : '';
+    el.innerHTML = '当前情景高亮：<b>' + nm + '</b>' + manual + ' ｜ 自动判定：' + auNm + '（每日更新跟随行情）';
+  }
+  _renderC2ScnStatus(CURRENT_SCENARIO);
+})();
+
+/* ---------- 图：浪⑤子浪走势预测（情景自适应 · 随机应变） ---------- */
+(function () {
+  var cSF = null;
+  var toTs = function (d) { return new Date(d + 'T00:00:00').getTime(); };
+
+  function _subFActual() {
+    var a = [];
+    for (var i = 0; i < D.kline.dates.length; i++) {
+      if (D.kline.dates[i] >= '2026-05-01') a.push([toTs(D.kline.dates[i]), D.kline.close[i]]);
+    }
+    return a;
+  }
+  function _fmt(v) { var d = new Date(v); return d.getFullYear() + '-' + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1) + '-' + (d.getDate() < 10 ? '0' : '') + d.getDate(); }
+
+  // 横幅：根据当前模式显示对应情景状态 + 自动判定说明
+  function renderSubFBanner(mode) {
+    var el = document.getElementById('subFBanner');
+    if (!el) return;
+    var auto = SS.active;
+    var autoName = auto === 'strong' ? '强势' : (auto === 'base' ? '基准' : '风险');
+    var lc = (SS.lastClose != null ? SS.lastClose.toFixed(2) : '?');
+    var wk = (SS.w4Low != null ? SS.w4Low.toFixed(2) : '');
+    var kl = (SS.keyLine != null ? SS.keyLine.toFixed(2) : '');
+    var manual = (mode !== auto) ? '（手动预览，不影响自动判定）' : '';
+    if (mode === 'strong') {
+      el.style.background = '#fff7e6'; el.style.borderColor = '#f0d9a8'; el.style.borderLeftColor = '#e6a23c'; el.style.color = '#7a5a1e';
+      el.innerHTML = '<span class="tag">强势</span><div><b>浪⑤已启动</b>：浪④底 ' + wk + ' 已成、浪⑤直接启动（与上方情景推演图「强势」线同源）。完整子浪 ⅰ-ⅴ 细分见下图；若收盘跌破 ' + wk + ' 自动切【基准】磨底，跌破铁律 ' + kl + ' 切【风险】失效。' + manual + '<br><span style="color:#9a7b3a">自动判定：收盘 ' + lc + ' ≥ 浪④底 ' + wk + ' → 强势（每日更新跟随行情）</span></div>';
+    } else if (mode === 'base') {
+      el.style.background = '#eef6ee'; el.style.borderColor = '#cfe6cf'; el.style.borderLeftColor = '#67a867'; el.style.color = '#3f6b3f';
+      el.innerHTML = '<span class="tag" style="color:#2f7d2f;background:#d8efd8">基准</span><div><b>浪④磨底中</b>：浪⑤尚未启动，子浪推演（浪⑤内部 ⅰ-ⅴ 五浪细分）<b>待激活</b>——需待浪④于 3650–' + wk + ' 完成、浪⑤启动后自动激活。下方为基准走势路径（当前价→9/30≈3700 磨底→未来浪⑤目标），<b>非子浪细分</b>。' + manual + '<br><span style="color:#5b8a5b">自动判定：收盘 ' + lc + ' 处于铁律 ' + kl + '～浪④底 ' + wk + ' 之间 → 基准</span></div>';
+    } else {
+      el.style.background = '#fdecec'; el.style.borderColor = '#f3c4c4'; el.style.borderLeftColor = '#c23531'; el.style.color = '#8a2b2b';
+      el.innerHTML = '<span class="tag" style="color:#c23531;background:#f7d4d4">风险</span><div><b>跌破铁律，数浪证伪</b>：收盘有效跌破铁律线 ' + kl + '，浪⑤数浪失败，子浪推演<b>失效</b>。下方为风险下行路径，仅供风控参考。' + manual + '<br><span style="color:#b05a5a">自动判定：收盘 ' + lc + ' < 铁律 ' + kl + ' → 风险</span></div>';
+    }
+    var sa = document.getElementById('scnAuto');
+    if (sa) sa.innerHTML = '<b>自动判定：' + autoName + '</b>（每日更新跟随行情）';
+  }
+
+  function renderSubFChart(mode) {
+    var el = document.getElementById('chartSubF');
+    if (!el) return;
+    if (cSF) { for (var ci = 0; ci < charts.length; ci++) { if (charts[ci] === cSF) { charts.splice(ci, 1); break; } } try { cSF.dispose(); } catch (e) {} }
+    var c = echarts.init(el); cSF = c; charts.push(c);
+    var actual = _subFActual();
+    // 子浪预测图：历史段绘制真实均线曲线；未来段无真实价格，均线不应存在（避免画成水平直线误导）。
+    var _maColor = { 'MA20': '#e6a23c', 'MA60': '#7b61c4', 'MA120': '#409eff', 'MA250': '#b0b8c8' };
+    var _maNames = ['MA20', 'MA60', 'MA120', 'MA250'];
+    var _maKeys = ['ma20', 'ma60', 'ma120', 'ma250'];
+    var maSeries = [];
+    for (var _mi = 0; _mi < _maNames.length; _mi++) {
+      var _maArr = D.kline[_maKeys[_mi]];
+      var _maPts = [];
+      if (_maArr) {
+        for (var _ki = 0; _ki < D.kline.dates.length; _ki++) {
+          if (D.kline.dates[_ki] >= '2026-05-01') {
+            var _mv = _maArr[_ki];
+            if (_mv != null && isFinite(_mv)) _maPts.push([toTs(D.kline.dates[_ki]), _mv]);
+          }
+        }
+      }
+      if (_maPts.length) {
+        maSeries.push({ name: _maNames[_mi], type: 'line', data: _maPts, symbol: 'none', z: 2,
+          lineStyle: { color: _maColor[_maNames[_mi]], width: 1.1 }, itemStyle: { color: _maColor[_maNames[_mi]] } });
+      }
+    }
+    // 提取各 MA 末个非空值，纳入下方三模式 Y 轴范围，避免极端数据下均线被裁切到可视区外
+    var _maLast = [];
+    for (var _mj = 0; _mj < _maKeys.length; _mj++) {
+      var _arr = D.kline[_maKeys[_mj]];
+      if (_arr) { for (var _jj = _arr.length - 1; _jj >= 0; _jj--) { if (_arr[_jj] != null && isFinite(_arr[_jj])) { _maLast.push(_arr[_jj]); break; } } }
+    }
+    // RSI(14) 轨道：底部独立 grid 展示，仅作情绪校验层（与全景图主图一致）
+    var _rsiPts = [];
+    for (var _ri = 0; _ri < D.kline.dates.length; _ri++) {
+      var _rv = D.kline.rsi[_ri];
+      _rsiPts.push([toTs(D.kline.dates[_ri]), (_rv == null || !isFinite(_rv)) ? null : _rv]);
+    }
+    function _rsiXAxis(min, max, fmt) {
+      return { type: 'value', min: min, max: max, gridIndex: 1, axisLabel: { fontSize: 11, formatter: fmt }, splitLine: { show: false } };
+    }
+    function _rsiYAxis() {
+      return { type: 'value', scale: true, min: 0, max: 100, splitNumber: 2, gridIndex: 1, axisLabel: { fontSize: 11 } };
+    }
+    function _rsiSeries() {
+      var _lastRsiPt = _rsiPts[_rsiPts.length - 1];
+      for (var _k = _rsiPts.length - 1; _k >= 0; _k--) { if (_rsiPts[_k][1] != null) { _lastRsiPt = _rsiPts[_k]; break; } }
+      return { name: 'RSI(14)', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: _rsiPts, symbol: 'none', connectNulls: true, lineStyle: { color: '#7b61c4', width: 1.5 },
+        markPoint: {
+          symbol: 'circle', symbolSize: 7,
+          itemStyle: { color: '#7b61c4', borderColor: '#fff', borderWidth: 1.5 },
+          label: { show: true, formatter: '{c}', color: '#7b61c4', fontSize: 12, fontWeight: 'bold', position: 'right' },
+          data: [{ coord: [_lastRsiPt[0], _lastRsiPt[1]], value: _lastRsiPt[1] }]
+        },
+        markLine: { symbol: 'none', data: [
+          { yAxis: 70, lineStyle: { color: RED, type: 'dashed', width: 1 }, label: { formatter: '超买 70', fontSize: 11, fontWeight: 'bold', color: RED, position: 'insideEndTop', align: 'right' } },
+          { yAxis: 50, lineStyle: { color: '#9aa3b2', type: 'dotted', width: 1 }, label: { formatter: '多空中轴 50', fontSize: 11, color: '#9aa3b2', position: 'insideEndTop', align: 'right', show: !MOB } },
+          { yAxis: 30, lineStyle: { color: GREEN, type: 'dashed', width: 1 }, label: { formatter: '超卖 30', fontSize: 11, fontWeight: 'bold', color: GREEN, position: 'insideEndTop', align: 'right' } }
+        ] } };
+    }
+    if (mode === 'strong') {
+      var F = D.subForecast;
+      var MOB = IS_MOB();
+      var proj = F.points.map(function (p) { return [toTs(p.date), p.price]; });
+      // 置信带：与子浪目标位表「区间(±σ)」逐点同源(波动率匹配带)，不再用单一历史离散度 calib.bandPct；
+      // 近端子浪(子浪ⅰ/ⅱ)带更窄(4.8%/6.8%)，远端子浪ⅴ≈10%，与表格完全一致(R 一致性+消除"带太宽"误读)。
+      // 去除端点 taper：端点(浪⑤起/子浪ⅴ≡卖①)也展示真实触达带，与表格对齐。
+      var _nPts = F.points.length, _bandLow = [], _bandHi = [];
+      for (var _k = 0; _k < _nPts; _k++) {
+        var _pp = F.points[_k].price;
+        var _bp = (F.points[_k].bandPct != null) ? F.points[_k].bandPct
+                : ((F.calib && F.calib.bandPct) ? F.calib.bandPct : 8.0);
+        var _b = _pp * (_bp / 100);
+        _bandLow.push([toTs(F.points[_k].date), _pp - _b]);
+        _bandHi.push([toTs(F.points[_k].date), _pp + _b]);
+      }
+      var sideStyle = { buy: ['triangle', GREEN], sell: ['invertedTriangle', RED], hold: ['circle', NAVY] };
+      var _lastPtIdx = F.points.length - 1;
+      var marks = F.points.map(function (p, _pi) {
+        var ss = sideStyle[p.side] || sideStyle.hold;
+        var pos = p.side === 'sell' ? 'bottom' : 'top';
+        // 终点卖出位于整条子浪路径的最高处，标签若仍挂点下方，会与前一点（买③/子浪ⅳ）
+        // 的标签横向叠印；终点上方是空域，改挂上方既彻底避让，也更贴合"向上目标位"的读图直觉。
+        if (p.side === 'sell' && _pi === _lastPtIdx) pos = 'top';
+        var _showLabel = (!MOB || _pi === 0 || _pi === _lastPtIdx);
+        return { coord: [toTs(p.date), p.price], value: (p.tag ? p.tag + ' ' : '') + p.label + ' ' + p.price, symbol: ss[0], symbolSize: p.side === 'hold' ? 6 : 14, itemStyle: { color: ss[1] }, label: { show: _showLabel, position: pos, fontSize: 11, fontWeight: p.side === 'hold' ? 'normal' : 'bold', color: ss[1], distance: p.side === 'sell' ? 18 : 14 } };
+      });
+      // 真实锚定买②参考：用浪③同浪级实测子浪ⅱ回撤(22%)重算的子浪ⅱ底，作为模型(61.8%)的
+      // 数据锚定替代参考。仅展示、不改模型基线(R85 无证据不扭曲基线)；模型仍用端点锁定路径。
+      // 【修复】_realIi 须在本段先计算，否则下方 if(_realIi!=null) 取的是 var 提升后的 undefined，
+      // 导致「真实锚定买②」pin 标记永远被跳过（hoisting 前置使用缺陷）。
+      var _rr = F.realRef || {};
+      var _i1 = (F.points[1] && F.points[1].price) || null;
+      var _i0 = (F.points[0] && F.points[0].price) || null;
+      var _realRet = (_rr.wave3Sub2Ret != null) ? _rr.wave3Sub2Ret / 100 : 0.22;
+      var _realIi = (_i1 != null && _i0 != null) ? Math.round(_i1 - (_i1 - _i0) * _realRet) : null;
+      var _modelIi = (F.rows && F.rows[1]) ? F.rows[1].target : null;
+      // 真实锚定买②参考标记（绿色 pin，与模型买②并排对比，仅参考不覆盖模型）
+      // 关闭 pin 文字：右侧 markLine 已标注「真实锚定买② 3971 (参考)」，避免与「买② 子浪ⅱ」重叠。
+      if (_realIi != null) {
+        marks.push({ coord: [toTs(F.points[2].date), _realIi], value: '真实锚定买② ' + fmt2(_realIi), symbol: 'pin', symbolSize: 40, itemStyle: { color: '#2f9e44' }, label: { show: false } });
+      }
+      var s1p = D.tradePlan.sellTargets[0].price;
+      var s1Label = F.points.some(function (p) { return Math.abs(p.price - s1p) < 0.01; }) ? '' : '卖① ' + s1p;
+      var lastPoint = F.points[F.points.length - 1];
+      var maxTs = toTs(lastPoint.date) + 30 * 24 * 60 * 60 * 1000;
+      var allPrices = F.points.map(function (p) { return p.price; }).concat(actual.map(function (a) { return a[1]; })).concat(_bandLow.map(function (b) { return b[1]; })).concat(_bandHi.map(function (b) { return b[1]; })).concat([D.tradePlan.stopLine.price, s1p]).concat(_maLast);
+      if (_realIi != null) allPrices = allPrices.concat([_realIi]);
+      var _sfMin = Math.min.apply(null, allPrices), _sfMax = Math.max.apply(null, allPrices);
+      var _yMin = Math.floor(_sfMin / 100) * 100 - 100, _yMax = Math.ceil(_sfMax / 100) * 100 + 100, _yInterval = (_yMax - _yMin) > 800 ? 200 : 100;
+      c.setOption({ textStyle: { fontFamily: CHART_FONT, color: '#242a35' }, tooltip: { trigger: 'axis', formatter: function (params) { if (!params || !params.length) return ''; var _d = (params[0] && params[0].value && params[0].value[0] != null) ? _fmt(params[0].value[0]) : ''; var res = _d + '<br/>'; params.forEach(function (p) { if (!p || !p.value) return; if (p.seriesName && p.seriesName.indexOf('_band') === 0) return; if (Array.isArray(p.value) && p.value[1] != null && isFinite(p.value[1])) { res += p.marker + p.seriesName + ': ' + p.value[1].toFixed(2) + '<br/>'; } }); return res; } },
+        legend: { data: ['实际收盘'].concat(_maNames).concat(['浪⑤子浪推演', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
+        grid: [
+          { left: 80, right: 60, top: 44, bottom: '42%' },
+          { left: 80, right: 60, top: '60%', bottom: 55 }
+        ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: maxTs, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), maxTs, function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; }) ],
+        yAxis: [ { type: 'value', min: _yMin, max: _yMax, interval: _yInterval, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
+        series: [
+          { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
+        ].concat(maSeries).concat([
+          { name: '_band', type: 'custom', silent: true, z: 1, renderItem: function (params, api) { var n = _bandLow.length, lo = [], hi = []; for (var i = 0; i < n; i++) { lo.push(api.coord(_bandLow[i])); hi.push(api.coord(_bandHi[i])); } var poly = lo.concat(hi.slice().reverse()); return { type: 'polygon', shape: { points: poly }, style: { fill: 'rgba(56,128,220,0.30)', stroke: 'rgba(56,128,220,0.55)', lineWidth: 1 } }; }, data: [0], tooltip: { show: false } },
+          { name: '浪⑤子浪推演', type: 'line', data: proj, symbol: 'circle', symbolSize: 6, lineStyle: { color: NAVY, width: 2, type: 'dashed' }, itemStyle: { color: NAVY }, markPoint: { data: marks, labelLayout: { hideOverlap: true } }, markLine: { symbol: 'none', labelLayout: { hideOverlap: true }, data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideStartBottom', fontSize: 11, color: ORANGE } }, { yAxis: s1p, lineStyle: { type: 'dashed', color: RED, width: 1 }, label: { formatter: s1Label, position: 'insideEndTop', fontSize: 10, color: RED, align: 'right' } }, { yAxis: _realIi, lineStyle: { type: 'dotted', color: GREEN, width: 1.2 }, label: { formatter: _realIi != null ? ('真实锚定买② ' + _realIi + ' (参考)') : '', show: !MOB, position: 'insideEndBottom', fontSize: 10, color: GREEN, align: 'right' } } ] } }
+        ]).concat([_rsiSeries()]) });
+    } else if (mode === 'base') {
+      var bp = (SS.base && SS.base.path) || [];
+      var bproj = bp.map(function (pt) { return [toTs(pt[0]), pt[1]]; });
+      var allB = actual.map(function (a) { return a[1]; }).concat(bproj.map(function (p) { return p[1]; })).concat([D.tradePlan.stopLine.price]).concat(_maLast);
+      var bMin = Math.min.apply(null, allB), bMax = Math.max.apply(null, allB);
+      var bYMin = Math.floor(bMin / 100) * 100 - 100, bYMax = Math.ceil(bMax / 100) * 100 + 100, bYInt = (bYMax - bYMin) > 800 ? 200 : 100;
+      var bEnd = bproj[bproj.length - 1]; var bMid = bproj[1];
+      c.setOption({ textStyle: { fontFamily: CHART_FONT, color: '#242a35' }, tooltip: { trigger: 'axis', formatter: function (params) { if (!params || !params.length) return ''; var _d = (params[0] && params[0].value && params[0].value[0] != null) ? _fmt(params[0].value[0]) : ''; var res = _d + '<br/>'; params.forEach(function (p) { if (!p || !p.value) return; if (Array.isArray(p.value) && p.value[1] != null && isFinite(p.value[1])) { res += p.marker + p.seriesName + ': ' + p.value[1].toFixed(2) + '<br/>'; } }); return res; } },
+        legend: { data: ['实际收盘'].concat(_maNames).concat(['基准走势(非子浪)', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
+        grid: [
+          { left: 80, right: 60, top: 44, bottom: '42%' },
+          { left: 80, right: 60, top: '60%', bottom: 55 }
+        ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: bEnd[0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), bEnd[0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
+        yAxis: [ { type: 'value', min: bYMin, max: bYMax, interval: bYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
+        series: [
+          { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
+        ].concat(maSeries).concat([
+          { name: '基准走势(非子浪)', type: 'line', data: bproj, symbol: 'circle', symbolSize: 5, lineStyle: { color: NAVY, width: 2, type: 'dashed' }, itemStyle: { color: NAVY },
+            markPoint: { data: [ { coord: bMid, value: '浪④磨底', symbol: 'pin', symbolSize: 50, itemStyle: { color: '#67a867' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
+            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideStartBottom', fontSize: 11, color: ORANGE } } ] } }
+        ]).concat([_rsiSeries()]) });
+    } else {
+      var rp = (SS.risk && SS.risk.path) || [];
+      var rproj = rp.map(function (pt) { return [toTs(pt[0]), pt[1]]; });
+      var allR = actual.map(function (a) { return a[1]; }).concat(rproj.map(function (p) { return p[1]; })).concat([D.tradePlan.stopLine.price]).concat(_maLast);
+      var rMin = Math.min.apply(null, allR), rMax = Math.max.apply(null, allR);
+      var rYMin = Math.floor(rMin / 100) * 100 - 100, rYMax = Math.ceil(rMax / 100) * 100 + 100, rYInt = (rYMax - rYMin) > 800 ? 200 : 100;
+      var rBrk = rproj[1];
+      c.setOption({ textStyle: { fontFamily: CHART_FONT, color: '#242a35' }, tooltip: { trigger: 'axis', formatter: function (params) { if (!params || !params.length) return ''; var _d = (params[0] && params[0].value && params[0].value[0] != null) ? _fmt(params[0].value[0]) : ''; var res = _d + '<br/>'; params.forEach(function (p) { if (!p || !p.value) return; if (Array.isArray(p.value) && p.value[1] != null && isFinite(p.value[1])) { res += p.marker + p.seriesName + ': ' + p.value[1].toFixed(2) + '<br/>'; } }); return res; } },
+        legend: { data: ['实际收盘'].concat(_maNames).concat(['风险下行(子浪失效)', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
+        grid: [
+          { left: 80, right: 60, top: 44, bottom: '42%' },
+          { left: 80, right: 60, top: '60%', bottom: 55 }
+        ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
+        yAxis: [ { type: 'value', min: rYMin, max: rYMax, interval: rYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
+        series: [
+          { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
+        ].concat(maSeries).concat([
+          { name: '风险下行(子浪失效)', type: 'line', data: rproj, symbol: 'circle', symbolSize: 5, lineStyle: { color: '#c23531', width: 2, type: 'dashed' }, itemStyle: { color: '#c23531' },
+            markPoint: { data: [ { coord: rBrk, value: '跌破铁律·失效', symbol: 'pin', symbolSize: 62, itemStyle: { color: '#c23531' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
+            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideStartTop', fontSize: 11, color: ORANGE } } ] } }
+        ]).concat([_rsiSeries()]) });
+    }
+    var dbgEl = document.getElementById('subFDebug');
+    if (dbgEl) {
+      var dbg = (mode === 'strong' && D.subForecast) ? D.subForecast.points.map(function (p) { return p.label + '=' + p.date; }).join(' / ') : (mode === 'base' ? '基准走势(非子浪)' : '风险下行(子浪失效)');
+      var _now = new Date();
+      var _nowStr = _now.getFullYear() + '-' + (String(_now.getMonth() + 1).padStart(2, '0')) + '-' + (String(_now.getDate()).padStart(2, '0'));
+      dbgEl.textContent = '【调试】' + mode + '（来自 data-' + _nowStr + '）：' + dbg;
+    }
+    // 子浪图统一开启时间轴缩放（与 chart1/chart2 交互一致），覆盖 strong/base/risk 三模式
+    c._zoomX = [0, 1];
+    c.setOption({ dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, _sliderZoom(c._zoomX)] });
+  }
+
+  function renderSubFTable(mode) {
+    var tbl = document.getElementById('subFTable');
+    var cal = document.getElementById('subFCalib');
+    var title = document.getElementById('subFTableTitle');
+    if (!tbl || !cal || !title) return;
+    if (mode === 'strong') {
+      title.textContent = '浪⑤子浪目标位（基准=卖①保守口径细分）';
+      var F = D.subForecast;
+      var actCls = { buy: 'num-green', sell: 'num-red', hold: '' };
+      var rr = F.realRef || {};
+      var _i1 = F.points[1] ? F.points[1].price : null;
+      var _i0 = F.points[0] ? F.points[0].price : null;
+      var _realRet = (rr.wave3Sub2Ret != null) ? rr.wave3Sub2Ret / 100 : 0.22;
+      var _realIi = (_i1 != null && _i0 != null) ? Math.round(_i1 - (_i1 - _i0) * _realRet) : null;
+      var _modelIi = (F.rows && F.rows[1]) ? F.rows[1].target : null;
+      tbl.innerHTML = '<tr><th>子浪</th><th>模型目标位</th><th>真实锚定参考</th><th>区间(±σ)</th><th>概率</th><th class="c-l">推导依据</th><th class="c-l">操作参考</th></tr>' +
+        F.rows.map(function (r) {
+          var isTop = r.wave === '子浪ⅴ'; var pcls = r.probSrc === '回测实证' ? 'num-green' : '';
+          var refCell = (r.wave === '子浪ⅱ' && _realIi != null)
+            ? ('<td class="num-green"><b>' + fmt2(_realIi) + '</b> <span style="color:#98a0ad;font-size:11px">真实锚定</span></td>')
+            : '<td style="color:#c8ccd4">—</td>';
+          var _modelCell = (r.wave === '子浪ⅱ')
+            ? ('<td class="' + (isTop ? 'num-red' : '') + '"><b>' + fmt2(r.target) + '</b> <span style="color:#c8a03a;font-size:11px">(模型偏深)</span></td>')
+            : ('<td class="' + (isTop ? 'num-red' : '') + '"><b>' + fmt2(r.target) + '</b></td>');
+          return '<tr><td><b>' + r.wave + '</b></td>' + _modelCell + refCell + '<td>' + fmt2(r.lo) + ' ~ ' + fmt2(r.hi) + ' <span style="color:#98a0ad">(±' + r.bandPct + '%)</span></td><td class="' + pcls + '"><b>' + r.prob + '%</b> <span style="color:#98a0ad;font-size:11px">' + r.probSrc + '</span></td><td class="c-l">' + r.basis + '</td><td class="' + (actCls[r.side] || '') + ' c-l"><b>' + r.action + '</b></td></tr>';
+        }).join('')
+        + '<tr style="background:#f4faf4"><td colspan="7" class="c-l" style="color:#2f7d2f;font-size:12px">📐 <b>真实锚定买② ' + (_realIi != null ? _realIi : '?') + '</b>：用唯一真实同浪级样本(浪③)实测子浪ⅱ回撤 ' + (rr.wave3Sub2Ret != null ? rr.wave3Sub2Ret : 22) + '% 重算，比模型(按 ' + (F.calib ? Math.round(F.calib.iiRet * 100) : 62) + '%' + (F.calib && F.calib.iiRet >= 0.6 ? '·当前高波动regime触顶' : '') + '→' + (_modelIi != null ? _modelIi : '?') + ') 浅约 ' + ((_modelIi != null && _realIi != null) ? (_modelIi - _realIi) : '?') + ' 点。仅 1 样本故不覆盖模型，作回踩加仓的更浅参考位。</td></tr>';
+      var cb = F.calib || {}, cc = F.crossCheck || {};
+      var mae = cb.baselineMaeEmp != null ? ('经验基线MAE ' + fmt2(cb.baselineMaeEmp)) : ('斐波那契基线MAE ' + fmt2(cb.baselineMaeFib));
+      var calTxt = '子浪校准（R101）：比率来源【' + cb.ratioSrc + '】 · 同浪级经验样本 ' + cb.empSamples + ' · 回撤regime缩放 ' + fmt2(cb.regimeMult) + '×（HV20比率 ' + fmt2(cb.volRatio) + '） · 浪⑤截断收缩 ' + (cb.truncProbAvailable ? ((cb.truncProb * 100).toFixed(0) + '%') : '未启用') + ' · 子浪触达带 波动率匹配(含horizon)，与概率带一致(R89/R105)；历史离散度参考 ' + fmt2(cb.bandPct) + '% · 时间经验权重 ' + fmt2(cb.timeWeightEmp) + ' · ' + mae;
+      var ccTxt = !cc.available ? ('ℹ️ ' + cc.note) : (cc.warn ? ('⚠️ ' + cc.note) : ('✔️ ' + cc.note));
+      var ccCls = !cc.available ? '' : (cc.warn ? 'num-red' : 'num-green');
+      // (已去重：rr/_i1/_i0/_realIi/_modelIi 统一在上方 830–835 行唯一定义；原此处重复声明且 fallback 默认值 0.22/0.5 不一致，会让表格与锚定卡算出不同的买②位——属真实冗余+不一致 bug，R163 修)
+      var rrTxt = rr.note ? ('🔍 ' + rr.note) : '';
+      var rrAnchor = (_realIi != null && _modelIi != null && F.calib)
+        ? ('📐 真实浪③锚定子浪ⅱ底≈<b>' + fmt2(_realIi) + '</b>（按真实回撤' + rr.wave3Sub2Ret + '%，模型按' + Math.round(F.calib.iiRet * 100) + '%→' + fmt2(_modelIi) + '）；真实观测更浅，买②可参考更浅回踩位')
+        : '';
+      var _timeNote = '⏱ 时间轴(各子浪到达日期)为历史摆动几何外推，非精确预测：唯一真实同浪级样本(浪③)回测显示触达天数 MAPE≈33%，中等幅度子浪可能偏早约 30–60%（延长浪内部回调使实际更慢）。';
+      // R163: 时间维度经验修正触达窗（守纪律：不改引擎、不污染 Brier；expDays 仅展示/回测归档用）
+      var _anchor = (F.points && F.points[0] && F.points[0].date) ? F.points[0].date : null;
+      var _vPt = null;
+      for (var _m = 0; _m < F.points.length; _m++) {
+        if (F.points[_m].wave === '子浪ⅴ' || (F.points[_m].label && /子浪.?ⅴ/.test(F.points[_m].label || ''))) { _vPt = F.points[_m]; break; }
+      }
+      if (!_vPt && F.points.length) _vPt = F.points[F.points.length - 1];
+      var _horizCorr = '';
+      if (_anchor && _vPt && _vPt.expDays != null) {
+        // R208: 触达时间参考改用 addBizDays(已排 2026 休市+周末)，与卖点标记同源，
+        // 不再用自然日 _addDays(会落在国庆/中秋等假期，误导)。
+        var _raw = addBizDays(_anchor, _vPt.expDays);
+        var _corr = addBizDays(_anchor, Math.round(_vPt.expDays * 1.5));
+        _horizCorr = '⏱ 触达时间参考：子浪ⅴ几何外推≈<b>' + _raw + '</b>；经验修正(×1.5·仅浪③单样本·低置信)≈<b>' + _corr + '</b>。中等幅度子浪模型常偏早30–60%，勿机械按日布局。';
+      }
+      cal.innerHTML = calTxt + '<br><span class="' + ccCls + '">' + ccTxt + '</span>'
+        + (rrTxt ? '<br><span style="color:#b8872a">' + rrTxt + '</span>' : '')
+        + (rrAnchor ? '<br><span style="color:#1f6fb2">' + rrAnchor + '</span>' : '')
+        + '<br><span style="color:#9a6a00">' + _timeNote + '</span>'
+        + (_horizCorr ? '<br><span style="color:#b8872a">' + _horizCorr + '</span>' : '');
+    } else if (mode === 'base') {
+      title.textContent = '浪⑤子浪目标位（基准情景 · 待激活）';
+      var wk = (SS.w4Low != null ? SS.w4Low.toFixed(0) : '');
+      tbl.innerHTML = '<tr><th>项目</th><th>状态</th><th class="c-l">说明</th></tr>' +
+        '<tr><td><b>当前情景</b></td><td><b>基准</b></td><td class="c-l">浪④于 3650–' + wk + ' 区间磨底（9/30≈3700），浪⑤未启动</td></tr>' +
+        '<tr><td><b>子浪ⅰ~ⅴ</b></td><td>待激活</td><td class="c-l">需待浪④完成、浪⑤启动后由系统自动激活（每日更新随行情切换）</td></tr>' +
+        '<tr><td><b>基准走势</b></td><td>见上方图</td><td class="c-l">当前价 → 9/30≈3700 磨底 → 未来浪⑤目标（非子浪细分）</td></tr>';
+      cal.innerHTML = (SS.base && SS.base.note ? SS.base.note : '') + '<br><span style="color:#b8872a">注：下方子浪校准为「强势」情景完整校准，仅作参照；基准下子浪未启动，无独立校准。</span>';
+    } else {
+      title.textContent = '浪⑤子浪目标位（风险情景 · 失效）';
+      var kl = (SS.keyLine != null ? SS.keyLine.toFixed(2) : '');
+      tbl.innerHTML = '<tr><th>项目</th><th>状态</th><th class="c-l">说明</th></tr>' +
+        '<tr><td><b>当前情景</b></td><td><b style="color:#c23531">风险</b></td><td class="c-l">收盘有效跌破铁律线 ' + kl + '，浪⑤数浪证伪</td></tr>' +
+        '<tr><td><b>子浪ⅰ~ⅴ</b></td><td style="color:#c23531">失效</td><td class="c-l">浪⑤数浪失败，子浪推演不展示；以铁律线为风控基准</td></tr>' +
+        '<tr><td><b>风险路径</b></td><td>见上方图</td><td class="c-l">下行至 3400 区域，仅供风控参考，不构成交易依据</td></tr>';
+      cal.innerHTML = (SS.risk && SS.risk.note ? SS.risk.note : '');
+    }
+  }
+
+  function renderSubF(mode) {
+    renderSubFBanner(mode);
+    renderSubFChart(mode);
+    renderSubFTable(mode);
+  }
+
+  // 初始化：默认按自动判定 activeScenario，支持手动预览三套；切换时联动 p3/p5 全看板
+  var _mode = (SS.active === 'base' || SS.active === 'risk') ? SS.active : 'strong';
+  var _sel = document.getElementById('scenarioSel');
+  function _onScn(mode) {
+    CURRENT_SCENARIO = mode;
+    renderSubF(mode);
+    if (window.applyScenarioC2) window.applyScenarioC2(mode);
+    if (window.applyScenarioPlan) window.applyScenarioPlan(mode);
+  }
+  if (_sel) {
+    _sel.value = _mode;
+    renderSubF(_mode);
+    if (window.applyScenarioC2) window.applyScenarioC2(_mode);  // 初始化即联动 p3 高亮（p5 已自初始化）
+    _sel.addEventListener('change', function () { _onScn(this.value); });
+  } else {
+    renderSubF(_mode);
+  }
+})();
+
+/* ---------- 统一 resize（移动端旋转/缩放不乱） ---------- */
+function _resizeAll() {
+  charts.forEach(function (c) {
+    try { c.resize(); } catch (e) {}
+    _zoomFor(c);  // 横竖屏切换后按当前屏宽重新套用响应式滚动条
+  });
+}
+window.addEventListener('resize', _resizeAll);
+// 旋转屏幕（竖屏↔横屏）部分浏览器不触发 resize，显式补一次
+window.addEventListener('orientationchange', function () { setTimeout(_resizeAll, 200); });
+
+/* ---------- 表格组 ---------- */
+(function () {
+  function _wpp(kw) { var p = D.wavePoints.find(function (x) { return x.label.indexOf(kw) === 0; }); return p ? p.price : NaN; }
+  document.getElementById('ratioTable').innerHTML =
+    '<tr><th>校验项</th><th>实际值</th><th>经典理论</th><th>判定</th></tr>' +
+    D.ratioCheck.map(function (r) {
+      return '<tr><td>' + r.item + '</td><td><b>' + r.actual + '</b></td><td>' + r.theory + '</td><td class="' + (r.ok ? 'ok' : 'mid') + '">' + r.verdict + '</td></tr>';
+    }).join('');
+
+  var maxV = Math.max.apply(null, D.volByWave.map(function (v) { return v.vol; })) || 1;
+  document.getElementById('volTable').innerHTML =
+    '<tr><th>浪段</th><th>日均量(万手)</th><th>相对水平</th></tr>' +
+    D.volByWave.map(function (v) {
+      var pct = Math.round(v.vol / maxV * 100);
+      return '<tr><td>' + v.wave + '</td><td><b>' + v.vol + '</b></td><td><div style="background:#eef1f6;border-radius:3px;height:10px;width:120px;display:inline-block;vertical-align:middle"><div style="background:' + NAVY + ';height:10px;border-radius:3px;width:' + pct + '%"></div></div></td></tr>';
+    }).join('');
+
+  document.getElementById('targetTable').innerHTML =
+    '<tr><th>口径</th><th>点位</th><th>类型</th></tr>' +
+    D.targets.map(function (t) {
+      return '<tr><td>' + t.name + '</td><td class="num-red">' + fmt2(t.price) + '</td><td><span class="tag tag-t">目标</span></td></tr>';
+    }).join('');
+
+  document.getElementById('fibTable').innerHTML =
+    '<tr><th>支撑位（浪③ ' + _wpp("浪2").toFixed(2) + '→' + _wpp("浪3").toFixed(2) + ' 及五年区间）</th><th>点位</th><th>状态</th></tr>' +
+    D.supports.map(function (s) {
+      var st = D.lastClose >= s.price ? '<span class="num-green">在其上方</span>' : '<span class="num-red">已跌破</span>';
+      return '<tr><td>' + s.name + '</td><td><b>' + fmt2(s.price) + '</b></td><td>' + (s.key ? '<span class="tag tag-k">多空分界</span>' : st) + '</td></tr>';
+    }).join('');
+
+  // subFTable / subFCalib 已由 renderSubF（情景自适应）渲染，此处不再重复
+
+
+})();
+
+/* ---------- 面板8：买卖参考框架 ---------- */
+(function () {
+  var tp = D.tradePlan;
+  document.getElementById('buyTable').innerHTML =
+    '<tr><th>参考位</th><th>区间 / 点位</th><th class="c-l">触发条件</th></tr>' +
+    tp.buyZones.map(function (b) {
+      return '<tr><td><span class="tag tag-s">买</span> ' + b.name + '</td>' +
+        '<td class="num-green"><b>' + fmt2(b.lo) + ' ~ ' + fmt2(b.hi) + '</b></td><td class="c-l">' + b.condition + '</td></tr>';
+    }).join('') +
+    '<tr><td><span class="tag tag-k">风控</span> ' + tp.stopLine.name + '</td>' +
+    '<td><b>' + fmt2(tp.stopLine.price) + '</b></td><td class="c-l">收盘有效跌破 → 减仓/清仓</td></tr>';
+
+  document.getElementById('sellTable').innerHTML =
+    '<tr><th>参考位</th><th>点位</th><th>区间(±σ)即触发带</th><th>触发概率</th><th class="c-l">触发方式</th></tr>' +
+    tp.sellTargets.map(function (s) {
+      var pcls = s.probSrc === '回测实证' ? 'num-green' : '';
+      return '<tr><td><span class="tag tag-t">卖</span> ' + s.name + '</td>' +
+        '<td class="num-red"><b>' + fmt2(s.price) + '</b></td>' +
+        '<td>' + fmt2(s.lo) + ' ~ ' + fmt2(s.hi) + ' <span style="color:#98a0ad">(±' + s.bandPct + '%)</span></td>' +
+        '<td class="' + pcls + '"><b>' + s.prob + '%</b> <span style="color:#98a0ad;font-size:11px">' + s.probSrc + '</span></td>' +
+        '<td class="c-l"><span class="tag-fire">触达即触发</span> ' + s.condition + '</td></tr>';
+    }).join('');
+
+  function renderPlanNote(mode) {
+    var el = document.getElementById('planNote');
+    if (!el) return;
+    var lastC = D.lastClose, keyPrice = tp.stopLine.price;
+    var belowKey = lastC < keyPrice;
+    var distKey = D.distances.toKeyLine;
+    var distS1 = (tp.sellTargets[0].price - lastC) / lastC * 100;
+    var actionable = lastC <= tp.buyZones[0].hi && lastC >= keyPrice;
+    var zoneTxt = belowKey ? ('<b style="color:#c23531">已跌破铁律线（风控位 ' + keyPrice.toFixed(2) + '），数浪证伪，转防御</b>') : (actionable ? '<b style="color:#2f9e44">买点参考区内</b>' : '买点参考区上方，等待回踩');
+    var keyTxt = belowKey ? '<b style="color:#c23531">已跌破，数浪证伪</b>' : '缓冲 <b>' + distKey.toFixed(2) + '%</b>，跌破即转防御';
+    var s1Txt = distS1 >= 0 ? '上行空间 <b>+' + distS1.toFixed(2) + '%</b>' : '已超出目标 <b>' + Math.abs(distS1).toFixed(2) + '%</b>';
+    var scnName = mode === 'strong' ? '强势（浪⑤已启动）' : (mode === 'base' ? '基准（浪④磨底·子浪待激活）' : '风险（跌破铁律·数浪证伪）');
+    var scnBar = mode === 'strong'
+      ? '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12.5px;background:#fff7e6;border:1px solid #f0d9a8;color:#7a5a1e"><b>当前情景：' + scnName + '</b> · 浪⑤子浪与目标区有效，按完整框架操作。</div>'
+      : (mode === 'base'
+        ? '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12.5px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f"><b>当前情景：' + scnName + '</b> · 浪⑤尚未启动，卖①~③为待激活目标；买点参考区与铁律线仍适用，子浪细分待自动激活。</div>'
+        : '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12.5px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b"><b>当前情景：' + scnName + '</b> · 浪⑤数浪证伪，卖出目标失效；转防御，仅以铁律线 ' + keyPrice.toFixed(2) + ' 与下方支撑为风控。</div>');
+    el.innerHTML = scnBar +
+      '<div class="sub-h">当前如何使用</div>' +
+      '<div style="font-size:13px;line-height:1.9;color:#4a5261">' +
+      '<div>• 现价 <b>' + lastC.toFixed(2) + '</b> 处于 ' + zoneTxt + '（' + fmt2(tp.buyZones[0].lo) + '~' + fmt2(tp.buyZones[0].hi) + '）。</div>' +
+      '<div>• 距风控位 ' + keyPrice.toFixed(2) + ' ' + keyTxt + '。</div>' +
+      '<div>• 浪⑤首目标 ' + tp.sellTargets[0].price.toFixed(2) + '（卖①）距现价 ' + s1Txt + '。</div>' +
+      '<div style="margin-top:10px;padding:10px 12px;background:#f2f4f8;border-radius:8px;font-size:12px;color:#7c8494">' +
+      '用法：铁律线上方、价格进入绿色买点参考区时分批低吸；浪⑤推进至红色目标区时分批减仓；有效跌破 ' + keyPrice.toFixed(2) + ' 铁律线则数浪证伪、第一时间防御。子浪图与推演图已用 ▲/▼ 标出历史与推演买卖点供对照。卖出目标与子浪目标均给出「区间(±σ)」与「概率」：区间由近期波动率推导的触达带，概率在样本足够时切换为回测实证命中率。</div>' +
+      '<div style="margin-top:10px;padding:10px 12px;background:#fdf6f0;border-radius:8px;font-size:12px;color:#7c8494">' +
+      '<b style="color:#b8872a">机械化出场阶梯（移动止盈）</b><br>' +
+      tp.trailingStop.rules.map(function (r) {
+        return '· ' + r.trigger + '（' + (r.price != null ? r.price.toFixed(2) : '—') + '）→ ' + r.action;
+      }).join('<br>') +
+      '</div>' +
+      '</div>';
+  }
+  renderPlanNote(CURRENT_SCENARIO);
+  window.applyScenarioPlan = function (mode) { renderPlanNote(mode); };
+})();
+
+/* ---------- 面板10：预测回测命中率闭环 ---------- */
+(function () {
+  var bt = D.backtest;
+  var tbl = document.getElementById('btTable');
+  var foot = document.getElementById('btFoot');
+  if (!bt) {
+    tbl.innerHTML = '<tr><td>回测数据缺失（请重新运行 build_data.py）</td></tr>';
+    return;
+  }
+  var catName = { sellTarget: '卖出目标', subwave: '子浪预测' };
+  var rows = bt.summary.map(function (r) {
+    var rateHtml;
+    if (r.cold || r.hitRate === null) {
+      rateHtml = '<span style="color:#98a0ad">样本不足</span>';
+    } else if (r.hitRate >= 60) {
+      rateHtml = '<b class="num-green">' + r.hitRate + '%</b>';
+    } else if (r.hitRate >= 40) {
+      rateHtml = '<b style="color:#b8872a">' + r.hitRate + '%</b>';
+    } else {
+      rateHtml = '<b class="num-red">' + r.hitRate + '%</b>';
+    }
+    var days = r.avgDays === null ? '—' : r.avgDays + ' 天';
+    var status = r.cold ? '样本采集中' : (r.hitRate >= 60 ? '较可靠' : (r.hitRate >= 40 ? '待观察' : '偏弱'));
+    return '<tr><td><b>' + (catName[r.cat] || r.cat) + '</b> · ' + r.key + '</td>' +
+      '<td>' + r.n + '</td><td>' + rateHtml + '</td><td>' + days + '</td><td>' + status + '</td></tr>';
+  }).join('');
+  if (!rows) {
+    rows = '<tr><td colspan="5">样本采集中：目标位已存档，需其后 ' + bt.horizon +
+      ' 个交易日观察期累积命中数据后方展示比率</td></tr>';
+  }
+  tbl.innerHTML = '<tr><th>预测目标</th><th>样本(已评估)</th><th>命中率</th><th>平均触达</th><th>状态</th></tr>' + rows;
+  var coldNote = bt.coldStart
+    ? ' 当前处于冷启动：已存档 ' + bt.totalLogged + ' 条，已到观察期 ' + bt.totalEvaluated +
+      ' 条（需 ≥ ' + bt.minSample + ' 条方展示比率）。'
+    : ' 已评估样本 ' + bt.totalEvaluated + ' 条。';
+  // 概率列来源文案随 coldStart 动态切换：冷启动期显示"波动率估算"，
+  // 一旦 coldStart=False（样本足够、回测实证命中率已填充）自动改为"回测实证命中率"，
+  // 避免写死"冷启动"文案在状态切换后仍残留、与运行时不符（R31 修复）
+  var probNote = bt.coldStart
+    ? ' 卖出目标与子浪目标的「概率」列当前为<b>波动率估算</b>（冷启动），待各目标已评估样本 ≥ ' + bt.minSample + ' 条后自动升级为<b>回测实证命中率</b>。'
+    : ' 卖出目标与子浪目标的「概率」列已切换为<b>回测实证命中率</b>（基于已评估样本；样本不足者仍显示波动率估算）。';
+  foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
+    ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote;
+})();
+
+/* ---------- 面板4：板块/指数联动（趋势交叉验证）---------- */
+(function () {
+  var host = document.getElementById('linkTable');
+  var warn = document.getElementById('linkWarn');
+  var sumEl = document.getElementById('linkSummary');
+  if (!host) return;
+  var r = D.resonance || {};
+  var det = (r.details || []).slice();
+  // 按近20日收益降序：领涨在前(红)、领跌在后(绿) —— A股约定 涨红跌绿
+  det.sort(function (a, b) { return (b.ret20 || 0) - (a.ret20 || 0); });
+  var rows = det.map(function (d) {
+    var up = (d.ret20 || 0) >= 0;
+    var cls = up ? 'num-red' : 'num-green';
+    var bc = up ? RED : GREEN;
+    var sign = up ? '+' : '';
+    var isSh = d.name === '上证指数';
+    var bar = Math.min(Math.abs(d.ret20) / 15 * 100, 100);
+    return '<tr' + (isSh ? ' style="background:#f3f5fa;font-weight:bold"' : '') + '>' +
+      '<td>' + (isSh ? '🔶 ' : '') + d.name + (isSh ? ' <span style="color:#98a0ad;font-size:11px">(基准)</span>' : '') + '</td>' +
+      '<td class="' + cls + '"><b>' + sign + (d.ret20 != null ? d.ret20.toFixed(2) : '—') + '%</b></td>' +
+      '<td style="width:42%"><div style="height:8px;background:#eef0f4;border-radius:4px;overflow:hidden"><i style="width:' + bar + '%;background:' + bc + ';display:block;height:100%"></i></div></td>' +
+      '</tr>';
+  }).join('');
+  host.innerHTML = '<tr><th>指数</th><th>近20日</th><th>强度</th></tr>' +
+    (rows || '<tr><td colspan="3" style="color:#98a0ad">无可用指数数据</td></tr>');
+  // 广度摘要 + 缺失告警
+  var bt = r.breadth != null ? r.breadth : 0;
+  var bmag = r.breadthMag != null ? r.breadthMag : 0;
+  var avail = r.breadthAvailable != null ? r.breadthAvailable : 0;
+  var total = r.breadthTotal != null ? r.breadthTotal : 0;
+  var miss = r.breadthMissing || [];
+  var dirTxt = bt > 0.05 ? '上行确认（势齐）' : (bt < -0.05 ? '下行 / 背离（势散）' : '中性背离');
+  if (sumEl) {
+    sumEl.innerHTML = '广度系数 <b>' + bt.toFixed(2) + '</b>（' + dirTxt + '）｜ 幅度强度 <b>' + bmag.toFixed(2) +
+      '</b> ｜ 确认宽基 <b>' + avail + '/' + total + '</b>（沪深300/创业板指/上证50/中证500/科创50）。上证自身单列供背离对照。';
+  }
+  if (warn) {
+    if (miss.length) {
+      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
+        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），共振信号已<b>自动降级</b>：广度按可用宽基比例缩放，<b>请勿据此满置信判断</b>。待每日管线（18:30）重拉成功后可恢复。</div>';
+    } else {
+      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 确认宽基数据齐全，共振信号有效。</div>';
+    }
+  }
+  // 风格/市值轮动（R168）：用已有 5 只宽基天然代理的风格强弱，提示资金挤向哪类
+  var stEl = document.getElementById('linkStyle');
+  if (stEl) {
+    var st = r.style || {};
+    var grps = st.groups || [];
+    var gRows = grps.map(function (g) {
+      var v = g.ret20, up = (v != null && v >= 0), cls = up ? 'num-red' : 'num-green';
+      var sign = (v != null && v >= 0) ? '+' : '';
+      return '<tr><td>' + (g.group || '') + ' <span style="color:#98a0ad;font-size:11px">(' + (g.name || '') + ')</span></td>' +
+        '<td class="' + cls + '"><b>' + (v != null ? (sign + v.toFixed(2) + '%') : '—') + '</b></td></tr>';
+    }).join('');
+    var _diff = function (v, txt) {
+      if (v == null) return '<span style="color:#98a0ad">对照 ' + (txt || '') + '：数据不足</span>';
+      var _up = v >= 0, _cls = _up ? 'num-red' : 'num-green', _s = _up ? '+' : '';
+      return '对照 <b>' + _s + v.toFixed(2) + 'pp</b> <span class="' + _cls + '">' + (txt || '') + '</span>';
+    };
+    stEl.innerHTML =
+      '<div style="font-weight:600;margin-bottom:6px;font-size:13px">风格 / 市值轮动（资金挤向哪类）</div>' +
+      '<table style="margin-bottom:8px">' +
+      '<tr><th>风格</th><th>近20日</th></tr>' + (gRows || '<tr><td colspan="2" style="color:#98a0ad">无可用数据</td></tr>') +
+      '</table>' +
+      '<div style="font-size:12.5px;line-height:1.9">' +
+      '• 价值↔成长：' + _diff(st.valueVsGrowth, st.valueVsGrowthTxt) + '<br/>' +
+      '• 大盘↔中盘：' + _diff(st.largeVsMid, st.largeVsMidTxt) + '<br/>' +
+      '• 硬科技(科创50)近20日：<b>' + (st.techRet20 != null ? (st.techRet20 >= 0 ? '+' : '') + st.techRet20.toFixed(2) + '%' : '—') + '</b>' +
+      '</div>';
+  }
+})();
+
+/* ---------- 面板5：跨市场联动（港股+美股趋势交叉验证）---------- */
+(function () {
+  var host = document.getElementById('xmTable');
+  var warn = document.getElementById('xmWarn');
+  var sumEl = document.getElementById('xmSummary');
+  if (!host) return;
+  var r = D.crossMarket || {};
+  // 上证自身作为背离对照基准行（置顶、高亮）；外部市场按近20日收益降序(领涨红/领跌绿)
+  var shR20 = (r.shRet20 != null) ? r.shRet20 : null;
+  var rowsData = [];
+  if (shR20 != null) rowsData.push({ name: "上证指数", ret20: shR20, isSh: true });
+  var det = (r.details || []).slice();
+  det.sort(function (a, b) { return (b.ret20 || 0) - (a.ret20 || 0); });
+  rowsData = rowsData.concat(det);
+  var rows = rowsData.map(function (d) {
+    var up = (d.ret20 || 0) >= 0;
+    var cls = up ? 'num-red' : 'num-green';
+    var bc = up ? RED : GREEN;
+    var sign = up ? '+' : '';
+    var isSh = !!d.isSh;
+    var bar = Math.min(Math.abs(d.ret20) / 15 * 100, 100);
+    return '<tr' + (isSh ? ' style="background:#f3f5fa;font-weight:bold"' : '') + '>' +
+      '<td>' + (isSh ? '🔶 ' : '') + d.name + (isSh ? ' <span style="color:#98a0ad;font-size:11px">(基准)</span>' : '') + '</td>' +
+      '<td class="' + cls + '"><b>' + sign + (d.ret20 != null ? d.ret20.toFixed(2) : '—') + '%</b></td>' +
+      '<td style="width:42%"><div style="height:8px;background:#eef0f4;border-radius:4px;overflow:hidden"><i style="width:' + bar + '%;background:' + bc + ';display:block;height:100%"></i></div></td>' +
+      '</tr>';
+  }).join('');
+  host.innerHTML = '<tr><th>市场</th><th>近20日</th><th>强度</th></tr>' +
+    (rows || '<tr><td colspan="3" style="color:#98a0ad">无可用跨市场数据</td></tr>');
+  // 广度摘要 + 缺失告警
+  var bt = r.breadth != null ? r.breadth : 0;
+  var bmag = r.breadthMag != null ? r.breadthMag : 0;
+  var avail = r.breadthAvailable != null ? r.breadthAvailable : 0;
+  var total = r.breadthTotal != null ? r.breadthTotal : 0;
+  var miss = r.breadthMissing || [];
+  var dirTxt = bt > 0.05 ? '上行确认（势齐）' : (bt < -0.05 ? '下行 / 背离（势散）' : '中性背离');
+  if (sumEl) {
+    sumEl.innerHTML = '跨市场广度系数 <b>' + bt.toFixed(2) + '</b>（' + dirTxt + '）｜ 幅度强度 <b>' + bmag.toFixed(2) +
+      '</b> ｜ 确认市场 <b>' + avail + '/' + total + '</b>（恒生/恒生科技/标普500/纳斯达克）。上证自身近20日 <b>' +
+      (shR20 != null ? (shR20 >= 0 ? '+' : '') + shR20.toFixed(2) + '%' : '—') + '</b> 供背离对照（美股为上一交易日）。';
+  }
+  if (warn) {
+    if (miss.length) {
+      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
+        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），跨市场信号已<b>自动降级</b>：广度按可用市场比例缩放，<b>请勿据此满置信判断</b>。待每日管线（18:30）重拉成功后可恢复。</div>';
+    } else {
+      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 跨市场数据齐全，信号有效。</div>';
+    }
+  }
+})();
+</script>
+</body>
+</html>

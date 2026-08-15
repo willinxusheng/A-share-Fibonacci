@@ -1,0 +1,9 @@
+{
+  "asOf": "2026-08-14",
+  "horizon": 30,
+  "minSample": 3,
+  "totalLogged": 81,
+  "totalEvaluated": 0,
+  "coldStart": true,
+  "summary": []
+}
