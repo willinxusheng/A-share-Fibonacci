@@ -396,7 +396,11 @@ function _zoomFor(c) {
   try { c.setOption({ dataZoom: [ { type: 'inside', xAxisIndex: c._zoomX, start: 0, end: 100 }, _sliderZoom(c._zoomX) ] }); } catch (e) {}
 }
 // 看板级当前情景状态（情景联动全看板）：自动判定 active + 映射到 D.scenarios 索引
-var SS = D.scenarioSwitch || { active: 'strong', lastClose: D.lastClose, keyLine: (D.tradePlan && D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0), w4Low: (D.wavePoints ? D.wavePoints[D.wavePoints.length - 1].price : 0), base: {}, risk: {} };
+// 浪④低点须按 label 精确查找（与全文 _wp("浪4") 一致），不可取 wavePoints 末元素——
+// build_data 一旦在末尾追加任何点（浪⑤目标/卖点/双底补充），length-1 即错位，w4Low 取错会
+// 连带横幅"浪④底"、基准/风险阈值、子浪图全部偏移，且门禁静态+沙箱检测抓不到（仅取值偏移不崩）。
+function _findW4() { for (var _i = 0; _i < (D.wavePoints || []).length; _i++) { if ((D.wavePoints[_i].label || '').indexOf('浪4') === 0) return D.wavePoints[_i].price; } return NaN; }
+var SS = D.scenarioSwitch || { active: 'strong', lastClose: D.lastClose, keyLine: (D.tradePlan && D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0), w4Low: _findW4(), base: {}, risk: {} };
 var CURRENT_SCENARIO = SS.active;  // 自动判定值（每日更新跟随行情）
 var SCN_IDX = { base: 0, strong: 1, risk: 2 };  // scenarioSwitch.active → D.scenarios 索引
 // 铁律线单一真值（取自 tradePlan.stopLine.price），注入到文案（避免与 KEY_LINE 双份真值脱节）

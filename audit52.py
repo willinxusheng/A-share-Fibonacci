@@ -85,7 +85,7 @@ NESTED_PATHS = [
 
 def _load_data():
     src = open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read()
-    return json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;", src, re.S).group(1))
+    return json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?", src, re.S).group(1))
 
 
 def _check_path(obj, path):
@@ -164,7 +164,7 @@ const vm = require('vm');
 const path = require('path');
 const BASE = process.argv[2];
 const ds = fs.readFileSync(path.join(BASE,'data','data.js'),'utf-8');
-const m = ds.match(/window\.FIB_DATA\s*=\s*(\{[\s\S]*\})\s*;/);
+const m = ds.match(/window\.FIB_DATA\s*=\s*(\{[\s\S]*\})\s*;?/);
 const dataObj = JSON.parse(m[1]);
 const html = fs.readFileSync(path.join(BASE,'index.html'),'utf-8');
 // R审计加固：解析 HTML 真实 id，未知 id 真实返回 null（对齐浏览器），
