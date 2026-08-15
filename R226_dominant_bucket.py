@@ -34,8 +34,8 @@ def _hb(H):
     if H <= 40:
         return "短(<=40)"
     if H <= 90:
-        return "中(60-90)"
-    return "长(>=120)"
+        return "中(40-90]"
+    return "长(>90)"
 
 
 def _rb(r):
