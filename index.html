@@ -703,7 +703,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           symbol: 'circle', symbolSize: 7,
           itemStyle: { color: '#7b61c4', borderColor: '#fff', borderWidth: 1.5 },
           label: { show: true, formatter: '{c}', color: '#7b61c4', fontSize: 12, fontWeight: 'bold', position: 'right' },
-          data: [{ coord: [D.kline.rsi.length - 1, D.kline.rsi[D.kline.rsi.length - 1]], value: fmt2(D.kline.rsi[D.kline.rsi.length - 1]) }]
+          data: [{ coord: [D.kline.dates[D.kline.dates.length - 1], D.kline.rsi[D.kline.rsi.length - 1]], value: fmt2(D.kline.rsi[D.kline.rsi.length - 1]) }]
         },
         markLine: { symbol: 'none', data: [
           { yAxis: 70, lineStyle: { color: RED, type: 'dashed', width: 1 }, label: { formatter: '超买 70', fontSize: 11, fontWeight: 'bold', color: RED, position: 'insideEndTop', align: 'right' } },
