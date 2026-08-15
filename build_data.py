@@ -234,9 +234,9 @@ def main():
     # 消除"22%"硬编码字面与三处重复计算（浪型若重校订，三处自动同步，不会"注释写22%但比例已变"）
     _sw_i1 = sub_wave_points[1]["price"]; _sw_i2 = sub_wave_points[2]["price"]; _sw_b = sub_wave_points[0]["price"]
     SUB_RET = (_sw_i1 - _sw_i2) / (_sw_i1 - _sw_b) * 100
-    # 子浪 zigzag 起点对齐人工校订的"浪③起"(2025-04-07)，避免首 pivot 落在标注日前
-    # 造成图3视觉错位（旧值 2025-04-01 早于标注日 6 个交易日）
-    seg = df[df.index >= "2025-04-07"]
+    # 子浪 zigzag 起点对齐 wave_points[7]（浪③起/浪②底，单一真值派生），避免首 pivot 落在标注日前
+    # 造成图3视觉错位；从 wave_points 派生，浪型重校订改日期时自动跟随，不写死双份真值
+    seg = df[df.index >= wave_points[7]["date"]]
     sub_zigzag = [{"date": p["index"].strftime("%Y-%m-%d"), "price": r2(p["price"]), "type": p["type"]}
                   for p in zigzag_pct(seg, 0.05)]
 
@@ -530,7 +530,7 @@ def main():
                 return False
         return False
 
-    def _common_base(*paths, min_date="2024-09-18"):
+    def _common_base(*paths, min_date=wave_points[5]["date"]):
         """三指数共同拥有的、不早于 min_date 的最早日。
         保证归一化统一以同一交易日为 100 起点，避免各自 iloc[0] 取不同日
         导致广度对照静默错位（未来任一日数据窗口被不等裁剪时尤其危险）。"""
