@@ -65,11 +65,18 @@ def fetch_one(name, fn, secid):
 def main():
     print("== 拉取跨指数日线原始数据 ==")
     ok = 0
+    main_ok = False  # 仅主指数(上证 sh000001)的成败决定整体退出码
     for name, fn, secid in INDICES:
         if fetch_one(name, fn, secid):
             ok += 1
+            if fn == "sh000001_raw.md":
+                main_ok = True
     print("完成：%d/%d 成功。" % (ok, len(INDICES)))
-    sys.exit(0 if ok == len(INDICES) else 1)
+    # 仅主指数致命失败才非零退出；副指数失败不阻断更新——
+    # 副指数共振 breadth 将走→0 兜底，由 preflight 以告警提示（不致命）。
+    # 此前 (ok==len) 的判据会把副指数偶发网络抖动误判为整体失败，
+    # 导致 CI 直接停止 job、连主指数正常的新数据都不更新。
+    sys.exit(0 if main_ok else 1)
 
 
 if __name__ == "__main__":

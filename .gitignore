@@ -15,6 +15,8 @@ _num_check.js
 _reason_chk.js
 _idx_cache/
 data/.idx_cache/
+# preflight 调试报告（含时间戳，每次运行都变化，CI 的 git add data/ 会误提交）
+data/_preflight_report.txt
 
 # 系统/编辑器
 .DS_Store
