@@ -114,8 +114,7 @@ done
 - **手动**：双击 `push_to_github.bat`（Windows）或在 Mac 上 `git add -A && git commit -m "..." && git push`
 - **自动**（Windows 本机定时任务，绕过沙箱 443 限制）：
   ```bat
-  schtasks /create /sc daily /st 19:05 /tn "AshareFibAutoPush" ^
-    /tr "C:\...\A-share-Fibonacci\push_silent.bat" /f
+  schtasks /create /sc daily /st 19:05 /tn "AshareFibAutoPush" /tr "C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\a-share-fib-wave\push_silent.bat" /f
   ```
   SSH key 无 passphrase，可无人值守。`push_silent.bat` 日志落 `%TEMP%/ashare_push.log`。
 
