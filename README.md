@@ -60,8 +60,9 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 确认 elliott_wave 可被定位（装了 WorkBuddy + wb-finance-skill 后自动找到）
-python -c "from elliott_wave import SignalEngine; print('elliott_wave OK')"
+# 验证 elliott_wave 可被定位：直接运行 analyze.py（其启动时会自动探测并注入 wb-finance-skill 路径）
+python analyze.py   # 首行无 ModuleNotFoundError 即定位成功
+# 注意：不要单独 `python -c "from elliott_wave import ..."` —— 该 import 依赖 analyze.py 运行时注入的 sys.path，脱离上下文会失败
 ```
 
 ---
