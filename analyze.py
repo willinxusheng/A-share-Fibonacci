@@ -56,8 +56,12 @@ def _locate_skill_scripts():
     for p in cache_hits:
         if os.path.isdir(p):
             return p
-    # 兜底：保留原硬编码路径（兼容历史环境）
-    return r"D:\WorkBuddy\resources\app.asar.unpacked\resources\builtin-skills\wb-finance-skill\scripts\price-action"
+    # 兜底：所有探测均失败 → 明确报错，避免静默指向不存在的 D:\ 路径导致后续 ImportError 难以排查
+    raise FileNotFoundError(
+        "未找到 wb-finance-skill/price-action 脚本目录。已探测: "
+        + ", ".join(c for c in candidates if c)
+        + "；以及插件缓存 ~/.workbuddy/plugins/cache/workbuddy-builtin/skill-wb-finance-skill/*/scripts/price-action。"
+        + "请确认 WorkBuddy 已安装 wb-finance-skill，或设置环境变量 WORKBUDDY_HOME 指向安装根。")
 
 
 SKILL_SCRIPTS = _locate_skill_scripts()
