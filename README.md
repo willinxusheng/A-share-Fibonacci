@@ -163,3 +163,22 @@ done
 - **R85 优化纪律**：引擎层"准确度提升"改动须先 walk-forward OOS 复验、确降均值 Brier 才部署，严禁盲改。已验最优组合：等权 + 20 日 MA 趋势态 + vol 带 (0.75,1.25) + band 边缘对齐。
 - **五门禁**：`validate / audit49 / audit50 / audit51 / audit52` 必须各自 `EXIT=0` 才算安全闸通过。
 - **输出末尾须带免责声明**。
+
+---
+
+## 9. 换 Mac 总流程（WorkBuddy 大脑 + GitHub 仓库）
+
+分两层，独立处理，换机都要做：
+
+### A. WorkBuddy AI 大脑（记忆 / 技能 / 自动化 / 设置）— 云同步自动恢复
+1. Mac 安装 WorkBuddy，登录**同一账号**（willinxusheng@163.com）。
+2. 云同步（edge-sync）自动拉回 `.workbuddy/` 大脑目录：SOUL / IDENTITY / USER / MEMORY.md、memory/、skills/、workbuddy.db（含自动化定义）、settings.json。
+3. ⚠️ 注意：自动化定义虽回来，但其 `cwd` 仍指向 Windows 路径、运行依赖的本地引擎 / PortableGit / SSH key **不随同步**；需在 Mac 重新指向仓库并配环境（见 B）。
+
+### B. GitHub 项目仓库（引擎 + 看板 + 数据）— 需手动 clone
+1. 配 SSH key：`ssh-keygen -t ed25519 -C "willinxusheng@163.com"`，公钥贴 GitHub → Settings → SSH and GPG keys；`ssh -T git@github.com` 验证 `Hi willinxusheng!`。
+2. `git clone git@github.com:willinxusheng/A-share-Fibonacci.git`（默认目录 `A-share-Fibonacci`）。
+3. 按第 3 节建 venv + `pip install -r requirements.txt`；确保 WorkBuddy + wb-finance-skill 在 Mac 存在（analyze.py 自动探测）。
+4. 挂 launchd 自动推送（第 6 节）。
+
+> 关系：WorkBuddy 云同步管"AI 大脑"，GitHub 管"项目代码 + 看板数据"，两者独立，换机都要做。Windows 的 schtasks 不会迁移，用第 6 节的 launchd 替代。
