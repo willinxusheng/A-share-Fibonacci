@@ -24,8 +24,17 @@ def _locate_skill_scripts():
     迁到了两处新位置，旧路径已不存在（实测 2026-08-14 本机 ModuleNotFoundError）：
       ① 应用内  resources/app.asar.unpacked/resources/plugins/workbuddy-builtin/skills/wb-finance-skill
       ② 用户插件缓存  ~/.workbuddy/plugins/cache/workbuddy-builtin/skill-wb-finance-skill/<版本号>
-    两者都加入探测；插件缓存按版本号倒序取最新。"""
+    两者都加入探测；插件缓存按版本号倒序取最新。
+
+    RCI（云端 CI 自包含）：把 price-action 副本随仓库纳入 lib/price-action/，
+    使 GitHub Actions 等云端 runner 在没有任何 WorkBuddy 安装时也能导入
+    elliott_wave.py。仓库内副本优先于一切本机路径探测——保证 CI 与本地行为一致、
+    且不受重装/换机影响。"""
     import glob as _glob
+    # 仓库内自带副本：最高优先级（CI 与本地统一用版本受控的副本）
+    repo_local = os.path.join(BASE, "lib", "price-action")
+    if os.path.isdir(repo_local):
+        return repo_local
     env = os.environ.get("WORKBUDDY_HOME")
     candidates = [
         env,

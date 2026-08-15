@@ -1,0 +1,93 @@
+# -*- coding: utf-8 -*-
+# A-share-Fibonacci 云端每日自动更新工作流（方案：不依赖任何常开客户端）
+#
+# 作用：在 GitHub 云端 runner 上完整跑通看板管线，并把最新数据 (data/) 提交回 main 分支。
+#       GitHub Pages 从 main /(root) 直接托管 index.html + data/data.js，
+#       因此只要本工作流成功跑通并 push，线上看板即自动更新——本地电脑关机也无妨。
+#
+# 前提（用户一次性操作，见文末说明）：
+#   1) 仓库 Settings → Pages → Build and deployment:
+#        Source = "Deploy from a branch", Branch = main, Folder = /(root)
+#   2) 若 main 分支开启了"Require a pull request before merging"等保护规则，
+#      需允许本工作流推送（或暂时对 main 关闭该保护），否则 push 会被拒。
+#
+# 不确定项：eastmoney 公开接口 (push2his.eastmoney.com) 在 GitHub 海外 runner 上
+#   的可达性无法预判，须首跑实测。若取数失败，preflight/validate 的新鲜度闸门会
+#   让本工作流以非零状态失败（不提交、不破坏线上旧数据），属预期内的安全失败。
+
+name: Daily A-share Fibonacci update
+
+on:
+  schedule:
+    # 北京时间工作日 18:30 = UTC 10:30；GitHub cron 为 UTC，周一至周五 = 1-5
+    - cron: "30 10 * * 1-5"
+  workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
+
+# 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署）
+permissions:
+  contents: write
+
+concurrency:
+  group: a-share-fib-daily
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pandas
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"   # audit52 的 node 沙箱运行时依赖 PATH 中的 node
+
+      - name: Fetch indices (eastmoney)
+        run: python fetch_indices.py
+
+      - name: Preflight data sanity
+        run: python preflight.py   # 主指数致命问题 -> exit 1，中止后续步骤
+
+      - name: Analyze (Elliott wave)
+        run: python analyze.py     # 使用仓库内 lib/price-action 副本（CI 自包含）
+
+      - name: Build data.js (single source of truth)
+        run: python build_data.py
+
+      - name: Gatekeepers (validate + audit49..52)
+        run: |
+          set -e
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py; do
+            echo "=== $s ==="
+            python "$s"
+          done
+
+      - name: Commit & push data back to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 仅提交生成物（数据快照），不动源码
+          git add data/
+          if git diff --cached --quiet; then
+            echo "⏭️ 数据无变化，跳过提交（市场休市或取数与上次一致）"
+          else
+            git commit -m "chore: daily data refresh (auto via GitHub Actions)"
+            git push
+            echo "✅ 已推送最新数据到 main，Pages 将自动重新部署"
+          fi
