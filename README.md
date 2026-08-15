@@ -1,4 +1,4 @@
-# A股斐波那契波浪看板（a-share-fib-wave）
+# A股斐波那契波浪看板（A-share-Fibonacci）
 
 上证指数 5 年艾略特波浪 + 斐波那契分析引擎，产出单源真值 `data/data.js` 驱动前端 `index.html` 看板，并附带回测闭环与多重质量门禁。
 

@@ -9,7 +9,7 @@ import json, re, math, sys
 import numpy as np
 import pandas as pd
 
-BASE = "C:/Users/Administrator/WorkBuddy/2026-08-04-23-16-18/a-share-fib-wave"
+BASE = "C:/Users/Administrator/WorkBuddy/2026-08-04-23-16-18/A-share-Fibonacci"
 sys.path.insert(0, BASE)
 
 # ---------- (A) 子浪ⅱ回撤偏差量化 ----------
