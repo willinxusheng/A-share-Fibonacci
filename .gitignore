@@ -18,3 +18,10 @@ data/.idx_cache/
 Thumbs.db
 .idea/
 .vscode/
+
+# 打包产物（手动上传 GitHub 用，不进版本库）
+a-share-fib-wave_upload.zip
+*.zip
+
+# WorkBuddy 项目大脑目录（含本地记忆/自动化配置，禁止入库）
+.workbuddy/

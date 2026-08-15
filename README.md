@@ -29,7 +29,7 @@ a-share-fib-wave/
 │   └── sh000001_raw.md / *.csv
 ├── R159~R232_*.py      # 历次核查/体检脚本（只读，不改生产）
 ├── push_to_github.bat / push_silent.bat  # Windows 一键/自动推送到 GitHub（SSH）
-└── .workbuddy/         # 项目级自动化 + 记忆（非代码依赖）
+└── .workbuddy/         # 项目级 WorkBuddy 数据（已 gitignore，不入库，勿手动提交）
 ```
 
 ---
