@@ -1,0 +1,4 @@
+# A股斐波那契波浪看板 - Python 依赖
+# 安装：pip install -r requirements.txt
+numpy>=2.0
+pandas>=2.0
