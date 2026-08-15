@@ -22,9 +22,9 @@ src = open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read()
 D = json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?\s*$", src, re.S).group(1))
 
 dates = D["kline"]["dates"]
-ohlc = D["kline"]["ohlc"]                      # [open, high, low, close]
-close = np.array([x[3] for x in ohlc], dtype=float)
-high = np.array([x[1] for x in ohlc], dtype=float)
+ohlc = D["kline"]["ohlc"]                      # build_data 生成顺序 [open, close, low, high]
+close = np.array([x[1] for x in ohlc], dtype=float)
+high = np.array([x[3] for x in ohlc], dtype=float)
 low = np.array([x[2] for x in ohlc], dtype=float)
 df = pd.DataFrame({"close": close, "high": high, "low": low},
                   index=pd.to_datetime(dates))
