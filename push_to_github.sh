@@ -6,6 +6,10 @@ set -u
 # launchd 默认 PATH 极简，未必含 brew 安装的 git/ssh；扩充后保证可找到
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
+# launchd 非交互环境下 SSH key 往往未加载到 ssh-agent（GUI 登录的 keychain 与 launchd agent 不同），
+# 不预加载则 git push 会因找不到 key 静默失败。两条命令兼容新旧 macOS 的 ssh-add 参数。
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519 2>/dev/null || ssh-add ~/.ssh/id_ed25519 2>/dev/null || true
+
 # 自动定位脚本所在目录即仓库根（无需写死路径）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
