@@ -1,0 +1,5 @@
+# 跨平台换行一致性：脚本类强制 LF（Mac/Linux bash 不能容忍 CRLF），bat 强制 CRLF（cmd 友好）
+*.sh text eol=lf
+*.plist text eol=lf
+*.bat text eol=crlf
+*.py text eol=lf

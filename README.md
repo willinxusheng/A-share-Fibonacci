@@ -131,8 +131,10 @@ done
 > # 2. 给脚本加执行权限
 > chmod +x push_to_github.sh
 >
-> # 3. 安装 launchd 定时任务（每日 19:05，改 plist 里的 YOUR_USER 为你的实际用户名）
-> sed -i '' 's/YOUR_USER/你的用户名/g' com.user.ashare.autopush.plist
+> # 3. 安装 launchd 定时任务（每日 19:05）。先把 plist 里两处路径改成你 Mac 上 clone 出的实际绝对路径
+> #    （第3节 clone 默认目录是 ~/A-share-Fibonacci；若你放在别处，改成实际路径）
+> #    用 # 作分隔符避免路径里的 / 冲突
+> sed -i '' 's#/Users/YOUR_USER/A-share-Fibonacci#/Users/你的用户名/A-share-Fibonacci#g' com.user.ashare.autopush.plist
 > cp com.user.ashare.autopush.plist ~/Library/LaunchAgents/
 > launchctl load ~/Library/LaunchAgents/com.user.ashare.autopush.plist
 >
