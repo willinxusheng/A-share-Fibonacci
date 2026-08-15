@@ -62,7 +62,7 @@ pip install -r requirements.txt
 
 # 验证 elliott_wave 可被定位：直接运行 analyze.py（其启动时会自动探测并注入 wb-finance-skill 路径）
 python analyze.py   # 首行无 ModuleNotFoundError 即定位成功
-# 注意：不要单独 `python -c "from elliott_wave import ..."` —— 该 import 依赖 analyze.py 运行时注入的 sys.path，脱离上下文会失败
+# 注意：不要脱离 analyze.py 单独做该模块的导入验证 —— 路径注入只在 analyze.py 运行时发生，脱离上下文必然失败
 ```
 
 ---
