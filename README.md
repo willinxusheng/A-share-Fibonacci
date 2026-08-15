@@ -9,7 +9,7 @@
 ## 1. 目录结构
 
 ```
-a-share-fib-wave/
+A-share-Fibonacci/   # git clone 出的仓库目录名（本仓库 GitHub 名）
 ├── analyze.py          # 取数解析 + zigzag 摆动 → 波浪结构识别（依赖 wb-finance-skill 的 elliott_wave.py）
 ├── build_data.py       # 波浪/概率 binder/子浪/买卖框架 → 产出 data/data.js（单源真值）
 ├── backtest.py         # 回测闭环（archive → evaluate → aggregate）
@@ -116,7 +116,9 @@ done
 - **手动**：双击 `push_to_github.bat`（Windows）或在 Mac 上 `git add -A && git commit -m "..." && git push`
 - **自动**（Windows 本机定时任务，绕过沙箱 443 限制）：
   ```bat
-  schtasks /create /sc daily /st 19:05 /tn "AshareFibAutoPush" /tr "C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\a-share-fib-wave\push_silent.bat" /f
+  rem 把 /tr 的路径换成你机器上 push_silent.bat 的真实完整路径
+  rem （git clone 出的仓库目录默认是 A-share-Fibonacci，不是下面的示例名）
+  schtasks /create /sc daily /st 19:05 /tn "AshareFibAutoPush" /tr "C:\Users\你的用户名\A-share-Fibonacci\push_silent.bat" /f
   ```
   SSH key 无 passphrase，可无人值守。`push_silent.bat` 日志落 `%TEMP%/ashare_push.log`。
 
