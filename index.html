@@ -1085,10 +1085,19 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     }
     var dbgEl = document.getElementById('subFDebug');
     if (dbgEl) {
-      var dbg = (mode === 'strong' && D.subForecast) ? D.subForecast.points.map(function (p) { return p.label + '=' + p.date; }).join(' / ') : (mode === 'base' ? '基准走势(非子浪)' : '风险下行(子浪失效)');
-      var _now = new Date();
-      var _nowStr = _now.getFullYear() + '-' + (String(_now.getMonth() + 1).padStart(2, '0')) + '-' + (String(_now.getDate()).padStart(2, '0'));
-      dbgEl.textContent = '【调试】' + mode + '（来自 data-' + _nowStr + '）：' + dbg;
+      var _qs = (typeof location !== 'undefined' && location.search) || (typeof window !== 'undefined' && window.location && window.location.search) || '';
+      var _ls = (typeof localStorage !== 'undefined' && localStorage.getItem) ? localStorage.getItem('debug') : null;
+      var _debugOn = /[?&]debug=1\b/.test(_qs) || _ls === '1';
+      if (_debugOn) {
+        var dbg = (mode === 'strong' && D.subForecast) ? D.subForecast.points.map(function (p) { return p.label + '=' + p.date; }).join(' / ') : (mode === 'base' ? '基准走势(非子浪)' : '风险下行(子浪失效)');
+        var _now = new Date();
+        var _nowStr = _now.getFullYear() + '-' + (String(_now.getMonth() + 1).padStart(2, '0')) + '-' + (String(_now.getDate()).padStart(2, '0'));
+        dbgEl.textContent = '【调试】' + mode + '（来自 data-' + _nowStr + '）：' + dbg;
+        dbgEl.style.display = '';
+      } else {
+        dbgEl.textContent = '';
+        dbgEl.style.display = 'none';
+      }
     }
     // 子浪图统一开启时间轴缩放（与 chart1/chart2 交互一致），覆盖 strong/base/risk 三模式
     c._zoomX = [0, 1];
