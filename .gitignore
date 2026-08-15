@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 *.pyo
+venv/
+.venv/
 
 # 临时/调试产物（非源码，不进版本库）
 _dbg_*.svg
