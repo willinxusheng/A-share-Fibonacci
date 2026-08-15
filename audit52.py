@@ -20,9 +20,35 @@ import sys
 import json
 import subprocess
 import tempfile
+import shutil
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-NODE_EXE = r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node.exe"
+
+
+def _find_node():
+    """跨平台定位 node 可执行文件。
+
+    R160: 原代码硬编码 Windows 绝对路径 NODE_EXE，在 Mac/Linux 上 os.path.exists 恒
+    False，导致第六守门员 _part_b_runtime（前端运行时沙箱崩溃检查）永远静默跳过——
+    即便 Mac 已装 node 也用不上，部署少了这道防护。改为探测：
+      1) 优先系统 PATH 中的 node（Mac 用 brew/nvm 装的、Linux 系统 node、Windows 均适用）；
+      2) 回退 WorkBuddy 管理的 node（Windows 绝对路径 + Mac/Linux 的 ~/.workbuddy 布局）。
+    返回 None 时调用方跳过运行时沙箱（与原 skip 分支语义一致）。
+    """
+    p = shutil.which("node")
+    if p:
+        return p
+    candidates = [
+        r"C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2\node.exe",
+        os.path.expanduser("~/.workbuddy/binaries/node/versions/22.22.2/node"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+NODE_EXE = _find_node()
 
 # 前端真实依赖的关键嵌套路径（R121 验证过）
 NESTED_PATHS = [
@@ -130,7 +156,7 @@ def _part_a(D, html):
 
 def _part_b_runtime():
     """node 沙箱执行 index.html 主脚本，捕获运行时错误。返回 (level, text)。"""
-    if not os.path.exists(NODE_EXE):
+    if not NODE_EXE or not os.path.exists(NODE_EXE):
         return "skip", "  -- node 不可用，跳过运行时沙箱检查（仅静态字段检查生效）"
     js = r"""
 const fs = require('fs');
