@@ -2,7 +2,6 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const realEcharts = require('echarts');
 const { createCanvas } = require('canvas');
 
 const ROOT = __dirname;
@@ -42,6 +41,8 @@ const document = {
   getElementById(id) { if (!_els[id]) _els[id] = makeEl(id); return _els[id]; },
   createElement(tag) { if (tag === 'canvas') return { getContext() { return canvasCtx(); } }; return makeEl(); },
   body: makeEl('body'),
+  // echarts 模块求值阶段会读 document.documentElement.style（env 探测），SSR 下需一个最小可用的元素
+  documentElement: { style: {}, clientWidth: 1000, clientHeight: 600, getElementsByTagName: function () { return []; } },
   addEventListener() {}, querySelector() { return null; }
 };
 
@@ -50,6 +51,16 @@ const windowObj = { devicePixelRatio: 1, addEventListener() {}, FIB_DATA: D, nav
 // ---------- 移动端验证开关（AUDIT_MOBILE=1）：用手机宽度渲染，验证 R211 响应式滚动条不重叠 ----------
 const MOB = process.env.AUDIT_MOBILE === '1';
 windowObj.innerWidth = MOB ? 375 : 1432;  // 让 index.html 的 IS_MOB() 命中对应分支
+
+// ---------- 必须【先】把 mock DOM / window 挂到全局，再 require echarts ----------
+// 根因(R233)：echarts 在模块求值阶段即访问全局 window（env.touchEventsSupported = 'ontouchstart' in window），
+// 旧代码 require 在最顶部、global.window 直到文件末尾才赋值，导致本脚本在 node 下永远
+// ReferenceError: window is not defined —— 标注重叠维度实际从未被运行时验证。
+// 修正顺序：mock DOM → 挂 global.window/document → require echarts。
+windowObj.document = document;
+global.window = windowObj;
+global.document = document;
+const realEcharts = require('echarts');
 
 // ---------- echarts wrapper that captures SVG per container id ----------
 // 真实桌面渲染宽度（.wrap max-width 1480 − 左右 padding 48 ≈ 1432 画布）；此前用 1000 过窄，
@@ -79,8 +90,6 @@ wrapper.init = function (dom, theme, opts) {
   return inst;
 };
 global.echarts = wrapper;
-global.document = document;
-global.window = windowObj;
 
 // ---------- extract inline script ----------
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf-8');
