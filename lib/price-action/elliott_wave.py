@@ -161,11 +161,12 @@ class SignalEngine:
         for i in range(start, start + count - 1):
             idx_a = swings[i]["index"]
             idx_b = swings[i + 1]["index"]
-            if hasattr(idx_a, "value") and hasattr(idx_b, "value"):
-                # 时间戳类型，用天数差估算
-                diff = abs((idx_b - idx_a).days)
-            else:
-                diff = abs(int(idx_b) - int(idx_a))
+            # 统一转 pandas.Timestamp 计算天数差——兼容 Timestamp / numpy.datetime64
+            # / datetime.datetime 三种输入。原 hasattr(idx,"value") 探测对 numpy.dtype64
+            # 会误判（无 .value），导致天数差走 int() 得到纳秒差、最小K线数检查静默
+            # 失效；对 datetime.datetime 则 int() 直接崩溃。pd.Timestamp 对 Timestamp
+            # 输入是恒等转换，不改变当前路径数值结果。
+            diff = abs((pd.Timestamp(idx_b) - pd.Timestamp(idx_a)).days)
             if diff < self.min_wave_bars:
                 return False
         return True
