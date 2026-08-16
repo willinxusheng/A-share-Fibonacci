@@ -92,10 +92,10 @@ const SS = D.scenarioSwitch || {};
 });
 
 console.log('state.cls =', D.state && D.state.cls);
-console.log('sellTargets =', (D.tradePlan.sellTargets || []).length,
-  ' buyZones =', (D.tradePlan.buyZones || []).length,
+console.log('sellTargets =', ((D.tradePlan && D.tradePlan.sellTargets) || []).length,
+  ' buyZones =', ((D.tradePlan && D.tradePlan.buyZones) || []).length,
   ' signals =', (D.signals || []).length,
-  ' kline.ohlc =', (D.kline && D.kline.ohlc || []).length);
+  ' kline.ohlc =', ((D.kline && D.kline.ohlc) || []).length);
 console.log('精确字段契约检查: ' + (issues.length
   ? ('发现 ' + issues.length + ' 处:\n- ' + issues.join('\n- '))
   : '全部通过 — 无 NaN / undefined / 越界，前端消费字段齐全，signals↔kline.ohlc 长度匹配'));

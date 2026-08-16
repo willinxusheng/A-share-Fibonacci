@@ -99,6 +99,16 @@ jobs:
           fi
           NODE_PATH="$RUNNER_TEMP/overlapdeps/node_modules" node _audit_overlap2.js
 
+      # 第 7 道闸门：data.js 前端契约硬检查（verify_contract.js，纯 Node 无第三方依赖）。
+      # 校验前端消费字段齐全且无 NaN/undefined/越界：state{text,cls}、tradePlan(stopLine/
+      # sellTargets/buyZones 价格数值)、scenarioSwitch 三分支(active/base/risk) + 强势情景真实
+      # 契约(D.scenarios[1]/subForecast)、signals[i]↔kline.ohlc[i] 长度匹配防前端越界读、
+      # wavePoints/subWavePoints 价格等。任一条违约即 EXIT≠0 使本步骤失败 → 阻断提交推送
+      # （安全失败，不污染线上旧数据）。默认读 <仓库根>/data/data.js（相对 __dirname 解析，
+      # 与 cwd 无关）；此处显式传参避免路径歧义。
+      - name: Contract check (data.js front-end contract, 7th gate)
+        run: node selfcheck/verify_contract.js data/data.js
+
       - name: Commit & push data back to main
         run: |
           git config user.name  "github-actions[bot]"
