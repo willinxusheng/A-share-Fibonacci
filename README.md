@@ -29,8 +29,8 @@ A-share-Fibonacci/   # git clone 出的仓库目录名（本仓库 GitHub 名）
 │   ├── backtest.json          # 回测聚合结果
 │   └── sh000001_raw.md / *.csv
 ├── R159~R232_*.py      # 历次核查/体检脚本（只读，不改生产）
-├── push_to_github.bat / push_silent.bat  # Windows 一键/自动推送到 GitHub（SSH）
-├── push_to_github.sh / com.user.ashare.autopush.plist  # Mac 版等价推送脚本 + launchd 模板
+├── push_to_github.bat / push_silent.bat  # Windows 一键/应急推送到 GitHub（SSH，仅手动用，勿设定时）
+├── push_to_github.sh / com.user.ashare.autopush.plist  # 仅手动/应急推送脚本 + 已废弃 launchd 模板（常态数据更新由 CI 负责，勿启用 launchd 自动推送）
 └── .workbuddy/         # 项目级 WorkBuddy 数据（已 gitignore，不入库，勿手动提交）
 ```
 
@@ -105,52 +105,40 @@ NODE_PATH=/path/to/node_modules node _audit_overlap2.js; echo "_audit_overlap2 E
 3. Save，约 1–2 分钟后访问 `https://willinxusheng.github.io/A-share-Fibonacci/`
 4. 仓库为 Private 时，该页面仅你登录 GitHub 后可见（自用足够，含交易逻辑不建议改 Public）
 
-### 方式 B：CloudStudio / WorkBuddy 部署
-看板代码未改动时，重新发布即得新链接；旧沙箱链接可能回收，以「设置 → 数据管理 → 我发布的应用」中当前有效地址为准。
+### 方式 B：CloudStudio / WorkBuddy 部署（已废弃）
+> ⚠️ **R234 起已废弃**：AgentOS / CloudStudio 两套平台不再使用。看板**唯一入口**为 GitHub Pages（`https://willinxusheng.github.io/A-share-Fibonacci/`），由 CI 自动同步，本机不开机也每日更新。请勿再发布或引用 CloudStudio 链接。
 
-> 数据是**静态快照**：GitHub Pages / CloudStudio 都不会自动更新。每日更新在 WorkBuddy 沙箱内跑，需把新 `data/data.js` 传到仓库 `data/` 下（见第 6 节）。
+> 数据由 CI 每日重建并自动发布：GitHub Pages 线上的 `data.js` 即仓库 `main` 分支根 `data/data.js`（CI 提交后 Pages 自动发布）。每日数据回写 `main` 统一由 CI 负责（见第 6 节），本机无需手动传。
 
 ---
 
-## 6. 自动推送到 GitHub（SSH，免密码/令牌）
+## 6. 推送到 GitHub（SSH，免密码/令牌）
 
-本机已生成 SSH key 并配好 `origin` 为 SSH 地址。每次程序更新后：
+### 常态数据更新：由 CI 独家负责（本机无需任何自动推送）
+> **架构铁律（R234/R237）**：`data/` 目录（看板数据 `data.js` 等）**唯一写入方是 GitHub Actions CI**（`daily.yml`，北京时间工作日 18:30 自动跑 取数→体检→分析→构建→六门禁→仅 `git add data/ && commit && push`）。**本机切勿**启用任何自动推送（launchd / schtasks / WorkBuddy 定时任务）去写 `data/`——否则会与 CI 并发双写 `main`，导致 push 被拒、数据竞争、或丢失当日更新。**换多少台电脑都一样：数据只信 CI，本机只读。**
 
-- **手动**：双击 `push_to_github.bat`（Windows）或在 Mac 上 `git add -A && git commit -m "..." && git push`
-- **自动**（Windows 本机定时任务，绕过沙箱 443 限制）：
-  ```bat
-  rem 把 /tr 的路径换成你机器上 push_silent.bat 的真实完整路径
-  rem （git clone 出的仓库目录默认是 A-share-Fibonacci，不是下面的示例名）
-  schtasks /create /sc daily /st 19:05 /tn "AshareFibAutoPush" /tr "C:\Users\你的用户名\A-share-Fibonacci\push_silent.bat" /f
-  ```
-  SSH key 无 passphrase，可无人值守。`push_silent.bat` 日志落 `%TEMP%/ashare_push.log`。
+### 何时需要本机推送
+- **源码改动**（改了 `.py`/`.js`/`.html`/`.yml`）：你手动 `git pull --rebase` → 编辑 → `git add <具体文件>` → `git commit` → `git push`。
+- **应急手动补数据**（仅当 CI 当日失败、你确需手工补一次）：用仓库带的 `push_to_github.sh`（Mac）/ `push_to_github.bat`（Windows），它们已限定为 `git add data/`（只同步数据、不碰源码/诊断残留）。**仅一次性手动跑，不要设成定时任务。**
 
-> **Mac 上等价自动化（换机后照搬即可）**：仓库已带 `push_to_github.sh` + `com.user.ashare.autopush.plist`，替代 Windows 的 schtasks。
->
-> ```bash
-> # 1. 配 SSH key（Mac 本地，一次）
-> ssh-keygen -t ed25519 -C "willinxusheng@163.com"
-> # 把 ~/.ssh/id_ed25519.pub 内容贴到 GitHub → Settings → SSH and GPG keys
-> ssh -T git@github.com   # 看到 Hi willinxusheng! 即成功
->
-> # 2. 给脚本加执行权限
-> chmod +x push_to_github.sh
->
-> # 3. 安装 launchd 定时任务（每日 19:05）。先把 plist 里两处路径改成你 Mac 上 clone 出的实际绝对路径
-> #    （第3节 clone 默认目录是 ~/A-share-Fibonacci；若你放在别处，改成实际路径）
-> #    用 # 作分隔符避免路径里的 / 冲突
-> sed -i '' 's#/Users/YOUR_USER/A-share-Fibonacci#/Users/你的用户名/A-share-Fibonacci#g' com.user.ashare.autopush.plist
-> cp com.user.ashare.autopush.plist ~/Library/LaunchAgents/
-> launchctl load ~/Library/LaunchAgents/com.user.ashare.autopush.plist
->
-> # 验证：手动跑一次 + 查日志
-> ./push_to_github.sh
-> tail /tmp/ashare_push.log
-> launchctl list | grep ashare
-> ```
-> 前提是 Mac 网络能连 `github.com:22`（SSH）。若哪天不想自动推：`launchctl unload ~/Library/LaunchAgents/com.user.ashare.autopush.plist`。
->
-> ⚠️ **换机要点**：Windows 的 schtasks 不会随云同步/仓库迁移到 Mac，必须按上面步骤在 Mac 上重建；WorkBuddy 内置自动化即便同账号恢复，其 cwd 仍是 Windows 路径、依赖的本地引擎/SSH key 不随同步，需重新指向 Mac 仓库并配环境。
+### 本机推送脚本定位（仅手动/应急，勿启用定时）
+- `push_to_github.sh` / `push_silent.bat` / `push_to_github.bat`：本地一键或补推脚本，已统一 `git add data/` 口径。
+- `com.user.ashare.autopush.plist`：Mac launchd **模板，已废弃**——**不要** `launchctl load` 它。它原本用于本地自动写 `data/`，与"CI 独家写 `data/`"铁律冲突；CI 上线后此模板仅作历史参考。
+- 历史 Windows `schtasks` 自动推送同理已废弃，**不要**重建。
+
+### 手动推送命令参考（应急 / 源码）
+```bash
+# 源码改动（日常）
+git pull --rebase origin main
+git add build_data.py _audit_overlap2.js   # 只 add 你改的具体文件
+git commit -m "描述"
+git push origin main
+
+# 应急补数据（仅 CI 失败且确需手工补一次，非定时）
+./push_to_github.sh        # Mac；内部 git add data/ 后推送
+# push_to_github.bat       # Windows 等价
+```
+> ⚠️ 首次使用确保本机已配 SSH key（见第 9 节 B）且能 `ssh -T git@github.com`（看到 `Hi willinxusheng!`）。SSH key 无 passphrase 方可无人值守**手动**跑；但"手动跑 ≠ 定时跑"——定时写 `data/` 一律交给 CI。
 
 ---
 
@@ -158,7 +146,7 @@ NODE_PATH=/path/to/node_modules node _audit_overlap2.js; echo "_audit_overlap2 E
 
 - `backtest.py` 闭环已接线：`archive`（按 date,key,cat 去重）→ `evaluate`（用记录自身日期的 vol regime 重算命中，避免前视泄漏）→ `aggregate`（写 `backtest.json`）。
 - 观察窗 = `max(30, expDays)` 交易日；最短周期目标约 **2026-09-15** 起开始有真实评估数据（此前 `totalEvaluated=0` 为冷启动，非 bug）。
-- 每日构建自动化（WorkBuddy 沙箱）会在工作日 18:30 累积数据；首次真实命中率复验由一次性自动化于 **2026-09-21 20:00** 触发。
+- 每日构建由 GitHub Actions CI（`daily.yml`）在工作日 18:30 跑（取数→体检→分析→构建→六门禁→仅回写 `data/`）；首次真实命中率复验由一次性自动化于 **2026-09-21 20:00** 触发。
 
 ---
 
@@ -184,6 +172,6 @@ NODE_PATH=/path/to/node_modules node _audit_overlap2.js; echo "_audit_overlap2 E
 1. 配 SSH key：`ssh-keygen -t ed25519 -C "willinxusheng@163.com"`，公钥贴 GitHub → Settings → SSH and GPG keys；`ssh -T git@github.com` 验证 `Hi willinxusheng!`。
 2. `git clone git@github.com:willinxusheng/A-share-Fibonacci.git`（默认目录 `A-share-Fibonacci`）。
 3. 按第 3 节建 venv + `pip install -r requirements.txt`；确保 WorkBuddy + wb-finance-skill 在 Mac 存在（analyze.py 自动探测）。
-4. 挂 launchd 自动推送（第 6 节）。
+4. 数据更新由 CI 自动负责（见第 6 节），**本机无需挂 launchd / 计划任务**；仅源码改动时按需手动 `git pull --rebase` → 改 → `git push`。
 
-> 关系：WorkBuddy 云同步管"AI 大脑"，GitHub 管"项目代码 + 看板数据"，两者独立，换机都要做。Windows 的 schtasks 不会迁移，用第 6 节的 launchd 替代。
+> 关系：WorkBuddy 云同步管"AI 大脑"，GitHub 管"项目代码 + 看板数据"，两者独立，换机都要做。**看板数据由 CI 独家每日更新，本机不挂任何自动推送**（Windows schtasks / Mac launchd 均已废弃，勿重建）。
