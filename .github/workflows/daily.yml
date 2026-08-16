@@ -51,7 +51,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install numpy pandas
+          pip install -r requirements.txt
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -79,15 +79,17 @@ jobs:
           done
 
       # 第 6 道闸门：标注重叠审计（真实 echarts SSR 渲染 + 文本包围盒判重）。
-      # 本地自动化原本跑这道，但旧版 daily.yml 漏了它，导致 CI 路径从不校验标注重叠。
-      # 依赖 canvas/echarts 原生包，安装失败属环境偶发（非代码问题）——故安装步骤
-      # continue-on-error：装不上就跳过（不阻断部署），装上了就硬跑（重叠>0 则 EXIT=1 拦部署）。
-      # 版本必须 pin 到本地验证过的 3.2.3 / 5.4.3，否则新版 echarts 渲染度量漂移会误报假阳性。
-      - name: Install overlap-audit deps (canvas + echarts, pinned)
+      # 旧版 daily.yml 漏了它，导致 CI 路径从不校验标注重叠；现已补回。
+      # 仅依赖 echarts（纯 JS，ubuntu-latest 可直接安装）；canvas 已改为 _audit_overlap2.js
+      # 内纯 JS 兜底（只用到 getContext('2d').measureText 估宽），无需原生 node-canvas，
+      # 故不再受 cairo/pango 系统库缺失影响——CI 也能真正跑此门禁（重叠>0 则 EXIT=1 拦部署）。
+      # echarts 版本必须 pin 到本地验证过的 5.4.3，否则新版渲染度量漂移会误报假阳性。
+      - name: Install overlap-audit deps (echarts only, pinned)
         id: overlapdeps
         continue-on-error: true
         run: |
-          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/overlapdeps" canvas@3.2.3 echarts@5.4.3
+          # 仅装 echarts（纯 JS）；canvas 已不需要（脚本内纯 JS 兜底）
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/overlapdeps" echarts@5.4.3
 
       - name: Overlap audit (chart label collision gate)
         run: |
