@@ -112,9 +112,15 @@ wrapper.init = function (dom, theme, opts) {
   const inst = realEcharts.init(null, null, { renderer: 'svg', ssr: true, width: w, height: h });
   const os = inst.setOption.bind(inst);
   inst.setOption = function (o) {
-    os(o);
-    let svg = '';
-    try { svg = inst.renderToSVGString(); } catch (e) { svg = '<error>' + e.message + '</error>'; }
+    // R269 加固：os(o)(真实 echarts.setOption) 与 renderToSVGString 双层 try/catch。
+    // 旧代码仅包裹 renderToSVGString，setOption 自身抛错会穿透为未捕获异常使进程崩溃
+    // （虽 exit=1，但非干净失败，且第 211-212 行注释声称「setOption 抛错会被包装成 <error>」不实）。
+    // 现两层均拦截：任何失败都转 '<error>...' svg 落入 collector，被第 213 行显式判缺图/异常→missing++→硬失败。
+    let svg = '<error>setOption-failed';
+    try {
+      os(o);
+      try { svg = inst.renderToSVGString(); } catch (e) { svg = '<error>' + e.message + '</error>'; }
+    } catch (e) { svg = '<error>' + e.message + '</error>'; }
     collector[tag] = { opt: o, svg: svg };
     return inst;
   };
