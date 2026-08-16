@@ -109,6 +109,14 @@ jobs:
             echo "⏭️ 数据无变化，跳过提交（市场休市或取数与上次一致）"
           else
             git commit -m "chore: daily data refresh (auto via GitHub Actions)"
-            git push
-            echo "✅ 已推送最新数据到 main，Pages 将自动重新部署"
+            # 若 main 在取数期间被并发源码推送前移（双机/手动 push 源码），先 rebase 再推，
+            # 避免 non-fast-forward 致当日数据未上线。data/ 与源码改动不冲突，rebase 安全。
+            if git pull --rebase --autostash origin main; then
+              git push
+              echo "✅ 已推送最新数据到 main，Pages 将自动重新部署"
+            else
+              git rebase --abort 2>/dev/null || true
+              echo "⚠️ 与远端冲突，放弃本次推送（保留工作区数据，下轮重试）"
+              exit 1
+            fi
           fi
