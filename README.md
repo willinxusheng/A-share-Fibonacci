@@ -19,6 +19,7 @@ A-share-Fibonacci/   # git clone 出的仓库目录名（本仓库 GitHub 名）
 ├── audit50.py          # 门禁③：概率三级降级数学（与 build_data._enrich 逐字同步）
 ├── audit51.py          # 门禁④：六增强结构不变量（timeCalib.blended≈1）
 ├── audit52.py          # 门禁⑤：前端↔数据脱节静态核对 + node 沙箱运行时（echarts 已代码内打桩，无需安装）
+├── _audit_overlap2.js   # 门禁⑥：标注重叠 SSR 审计（chart1/2/subF×3 真实渲染查重叠，须带 NODE_PATH）
 ├── fetch_indices.py    # 取数（westock kline → data/sh000001_raw.md）
 ├── preflight.py        # 取数后数据体检（主指数变形/失败中止，副指数仅告警）
 ├── index.html          # 前端看板（echarts 走 CDN）
@@ -84,10 +85,12 @@ python analyze.py              # 输出 data/structures.json + data/sh000001.csv
 # ③ 构建单源真值 data.js（内部会调 backtest + calibrate）
 python build_data.py           # 产出 data/data.js
 
-# ④ 五守门员（各自须 EXIT=0，全绿才安全）
+# ④ 六守门员（各自须 EXIT=0，全绿才安全）
 for s in validate.py audit49.py audit50.py audit51.py audit52.py; do
   python "$s"; echo "$s EXIT=$?"
 done
+# 门禁⑥：标注重叠 SSR 审计（须带 NODE_PATH 指向含 echarts 的 node_modules，否则报 Cannot find module echarts）
+NODE_PATH=/path/to/node_modules node _audit_overlap2.js; echo "_audit_overlap2 EXIT=$?"
 ```
 
 > 注意：门禁脚本含非 ASCII 输出（如 audit52 首句）。Mac 终端默认 UTF-8 直接通过；请勿在 GBK 代码页下运行（会触发 UnicodeEncodeError 假阴性）。
@@ -163,7 +166,7 @@ done
 
 - **单源真值**：价格/比例/日期一律从 `data/data.js`（`wave_points`）派生，前端 `index.html` 直接读取、无任何前端派生计算。
 - **R85 优化纪律**：引擎层"准确度提升"改动须先 walk-forward OOS 复验、确降均值 Brier 才部署，严禁盲改。已验最优组合：等权 + 20 日 MA 趋势态 + vol 带 (0.75,1.25) + band 边缘对齐。
-- **五门禁**：`validate / audit49 / audit50 / audit51 / audit52` 必须各自 `EXIT=0` 才算安全闸通过。
+- **六门禁**：`validate / audit49 / audit50 / audit51 / audit52 / _audit_overlap2.js` 必须各自 `EXIT=0` 才算安全闸通过（`_audit_overlap2.js` 须带 `NODE_PATH`）。
 - **输出末尾须带免责声明**。
 
 ---

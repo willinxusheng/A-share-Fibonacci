@@ -1039,7 +1039,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           { name: '浪⑤子浪推演', type: 'line', data: proj, symbol: 'circle', symbolSize: 6, lineStyle: { color: NAVY, width: 2, type: 'dashed' }, itemStyle: { color: NAVY }, markPoint: { data: marks, labelLayout: { hideOverlap: true } }, markLine: { symbol: 'none', labelLayout: { hideOverlap: true }, data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideStartBottom', fontSize: 11, color: ORANGE } }, { yAxis: s1p, lineStyle: { type: 'dashed', color: RED, width: 1 }, label: { formatter: s1Label, position: 'insideEndTop', fontSize: 10, color: RED, align: 'right' } }, { yAxis: _realIi, lineStyle: { type: 'dotted', color: GREEN, width: 1.2 }, label: { formatter: _realIi != null ? ('真实锚定买② ' + _realIi + ' (参考)') : '', show: !MOB, position: 'insideEndBottom', fontSize: 10, color: GREEN, align: 'right' } } ] } }
         ]).concat([_rsiSeries()]) });
     } else if (mode === 'base') {
-      var bp = (SS.base && SS.base.path) || [];
+      var bp = (SS.base && SS.base.path && SS.base.path.length >= 2) ? SS.base.path : [[D.updated, D.lastClose], [D.updated, D.lastClose]];
       var bproj = bp.map(function (pt) { return [toTs(pt[0]), pt[1]]; });
       var allB = actual.map(function (a) { return a[1]; }).concat(bproj.map(function (p) { return p[1]; })).concat([D.tradePlan.stopLine.price]).concat(_maLast);
       var bMin = Math.min.apply(null, allB), bMax = Math.max.apply(null, allB);
@@ -1061,7 +1061,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
             markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideStartBottom', fontSize: 11, color: ORANGE } } ] } }
         ]).concat([_rsiSeries()]) });
     } else {
-      var rp = (SS.risk && SS.risk.path) || [];
+      var rp = (SS.risk && SS.risk.path && SS.risk.path.length >= 2) ? SS.risk.path : [[D.updated, D.lastClose], [D.updated, D.tradePlan.stopLine.price]];
       var rproj = rp.map(function (pt) { return [toTs(pt[0]), pt[1]]; });
       var allR = actual.map(function (a) { return a[1]; }).concat(rproj.map(function (p) { return p[1]; })).concat([D.tradePlan.stopLine.price]).concat(_maLast);
       var rMin = Math.min.apply(null, allR), rMax = Math.max.apply(null, allR);

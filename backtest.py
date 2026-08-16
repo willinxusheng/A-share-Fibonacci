@@ -234,7 +234,7 @@ def run_backtest(data, df):
 
 if __name__ == "__main__":
     import re
-    d = json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;",
+    d = json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?\s*$",
                              open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read(),
                              re.S).group(1))
     _df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"), parse_dates=["date"]).set_index("date")

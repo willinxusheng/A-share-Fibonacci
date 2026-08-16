@@ -12,7 +12,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 # ---- 1) 加载 data.js ----
 js = open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read()
-m = re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;", js, re.S)
+m = re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?\s*$", js, re.S)
 body = m.group(1)
 # JSON 默认允许 NaN/Infinity，loads 能解析
 data = json.loads(body)
