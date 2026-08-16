@@ -294,6 +294,9 @@ for t in range(20, _nn - max_exp):
 
 print("=== 板块联动广度口径 OOS 复验 (R166) ===")
 print("empirical 锚点数 = %d；测试目标数 = %d；有效(测试日,目标)对 = %d" % (len(_anchors), len(targets), cnt))
+if cnt == 0:
+    print("⚠️ 有效(测试日,目标)对为 0，无样本可评估 OOS，复验中止（请检查 empirical 锚点与 targets 是否覆盖测试区间）。")
+    raise SystemExit(1)
 print("Brier2 (2只宽基=%s) = %.5f" % (sorted(BREADTH2_NAMES), brier2 / cnt))
 print("Brier5 (5只宽基=%s) = %.5f" % (sorted(BREADTH5_NAMES), brier5 / cnt))
 _delta = (brier5 - brier2) / cnt

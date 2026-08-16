@@ -355,6 +355,9 @@ for t in range(20, _nn - max_exp):
         cnt += 1
         per_base[(cat, key)] = per_base.get((cat, key), 0) + (p - ah) ** 2
 print("有效(测试日,目标)对 = %d" % cnt)
+if cnt == 0:
+    print("⚠️ 有效(测试日,目标)对为 0，无样本可评估 OOS，复验中止（请检查 empirical 锚点与 targets 是否覆盖测试区间）。")
+    raise SystemExit(1)
 print("Brier基线(仅A股breadth×5.0, W=0) = %.5f" % (brier_base / cnt))
 
 # 各候选权重
