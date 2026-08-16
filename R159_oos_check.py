@@ -5,11 +5,11 @@
 (B) 概率校准 OOS 复验：用真实 sh000001.csv 重建锚点池，对【已部署 data.js】的生产概率做
     walk-forward 首达命中率对比，算 Brier，验证概率准确度(不改动任何引擎代码)。
 """
-import json, re, math, sys
+import json, re, math, sys, os
 import numpy as np
 import pandas as pd
 
-BASE = "C:/Users/Administrator/WorkBuddy/2026-08-04-23-16-18/A-share-Fibonacci"
+BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
 
 # ---------- (A) 子浪ⅱ回撤偏差量化 ----------

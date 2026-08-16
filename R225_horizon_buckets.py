@@ -165,7 +165,7 @@ def run_bucketed(recs):
         if a:
             by_r[float(r)] = a
     hb, rb = {}, {}
-    for tag in ["短(<=40)", "中(60-90)", "长(>=120)"]:
+    for tag in ["短(<=40)", "中(40-90]", "长(>90)"]:
         hb[tag] = _agg(recs, np.array([_bucket_of(int(H)) == tag for H in arr[:, 2]]))
     for tag in ["近(<=8%)", "远(>=12%)"]:
         rb[tag] = _agg(recs, np.array([_rbucket_of(float(r)) == tag for r in arr[:, 3]]))

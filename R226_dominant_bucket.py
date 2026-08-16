@@ -124,7 +124,7 @@ def main():
             print(" H=%3d : %s" % (H, a))
     print("\n=== 合并桶（H×r 二维）===")
     hb, rb = {}, {}
-    for tag in ["短(<=40)", "中(60-90)", "长(>=120)"]:
+    for tag in ["短(<=40)", "中(40-90]", "长(>90)"]:
         a = _agg(p_val, y_val, np.array([_bucket_of_H(H) == tag for H in Hv]))
         if a:
             hb[tag] = a; print(" %s : %s" % (tag, a))
