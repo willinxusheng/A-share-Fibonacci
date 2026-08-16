@@ -13,10 +13,10 @@ EXIT 码约定（与 validate.py 守门纪律一致）：0=通过(警告除外),
   这是取数层唯一未被下游闸口完全兜住的盲区。本脚本在变形传入 build_data 之前就拦截。
 
 真实 feed 列集（务必对齐，勿凭空假设）：
-  上证 sh000001 : | date | open | last | high | exchange |        ← 无 low/volume/amount
-  沪深300 sh000300: 同上证（或部分列，随 CLI 版本）
-  创业板 sz399006 : | date | open | last | high | low | volume | amount | exchange |
-  → 因此 low/volume/amount 视为【可选列】，缺失属常态、绝不判失败；
+  当前数据源已统一为 eastmoney HTTP 接口（fetch_indices.py 与 build_data._ensure_raw 均按
+  `| date | open | high | low | last | volume |` 六列写入全部指数，含上证 sh000001），
+  不再依赖旧 westock-data CLI。
+  → 因此 low/volume/amount 虽目前齐全，仍保留为【可选列】以维持对数据源格式漂移的容错；
     date / last(close) / open / high 为【必含列】，缺失即判失败（会静默回退为 close 而失真）。
 
 主/副分级（匹配现有优雅降级哲学）：
