@@ -35,7 +35,7 @@ echo "=== [1/3] data.js 字段契约硬检查 (verify_contract) ==="
 echo
 echo "=== [2/3] 前端 SVG 渲染核查 (check_svg) ==="
 echo "  (先 AUDIT_DUMP=1 落 SVG 到仓库根)"
-NODE_PATH="$HOME/.workbuddy/binaries/node/workspace/node_modules" AUDIT_DUMP=1 "$NODE" _audit_overlap2.js >/dev/null 2>&1
+NODE_PATH="${NODE_PATH:-$HOME/.workbuddy/binaries/node/workspace/node_modules}" AUDIT_DUMP=1 "$NODE" _audit_overlap2.js >/dev/null 2>&1
 if ls _dbg_*.svg >/dev/null 2>&1; then
   "$NODE" "$SCRIPT_DIR/check_svg.js" || { echo "❌ SVG 核查失败"; rm -f _dbg_*.svg; exit 1; }
   rm -f _dbg_*.svg
