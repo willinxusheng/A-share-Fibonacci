@@ -260,7 +260,7 @@ def main():
 
     fib_5y = fib_set(lo5, hi5)
     fib_w3 = fib_set(w3_lo, w3_hi)
-    w1 = KEY_LINE - W1_START
+    w1 = max(KEY_LINE - W1_START, 1e-9)  # 除零保护:浪1起点==浪1顶的非法标注兜底(每日自动化容错)
     w3 = w3_hi - w3_lo                    # 浪③幅度，由浪型波段派生（消除硬编码 4258.86-3040.69）
     w4_low = wave_points[-1]["price"]     # 浪④低(未确认)，由浪型标注末点派生（消除硬编码 3741.11）
     targets = [
@@ -353,7 +353,7 @@ def main():
     _w4p = wave_points[-1]  # 浪4低（未确认）
     d0, p0 = pd.Timestamp(_w2p["date"]), _w2p["price"]
     d1, p1 = pd.Timestamp(_w4p["date"]), _w4p["price"]
-    slope = (p1 - p0) / (d1 - d0).days
+    slope = (p1 - p0) / max(1, (d1 - d0).days)  # 除零保护:浪②底==浪④低日期兜底(每日自动化容错)
     chan_end = pd.Timestamp("2027-09-30")
     channel = {
         "lower": [[_w2p["date"], r2(p0)],
