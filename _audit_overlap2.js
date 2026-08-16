@@ -170,11 +170,15 @@ function isAxisTick(t) {
 const NAMES = { chart1: 'chart1_全景图', chart2: 'chart2_艾略特通道', chartSubF_strong: 'chartSubF_strong', chartSubF_base: 'chartSubF_base', chartSubF_risk: 'chartSubF_risk' };
 
 let totalOverlaps = 0;
+let missing = 0;  // 缺图/渲染异常计数：任一图未渲染或 setOption 抛错被吞，都必须判失败而非假通过
 const KEYS = (process.env.AUDIT_KEYS || 'chart1,chart2,chartSubF_strong,chartSubF_base,chartSubF_risk').split(',');
 for (const key of KEYS) {
   const t0 = Date.now();
   const c = collector[key];
-  if (!c || !c.svg) { console.error('==== ' + (NAMES[key] || key) + ' : 无渲染结果 ===='); continue; }
+  if (!c || !c.svg) { console.error('==== ' + (NAMES[key] || key) + ' : 无渲染结果(缺图) ===='); missing++; continue; }
+  // R240 加固回归防护：setOption 抛错会被包装成 '<error>...</error>'，resolveTexts 会解析出 0 个 <text>
+  // → 误判 0 重叠假通过。此处显式拦截（任何图渲染失败都应是硬失败，而非静默放行）。
+  if (typeof c.svg === 'string' && c.svg.indexOf('<error>') === 0) { console.error('==== ' + (NAMES[key] || key) + ' : 渲染异常(setOption 错误被吞) ===='); missing++; continue; }
   const opt = c.opt || {};
   const legendSet = new Set();
   if (opt.legend && Array.isArray(opt.legend.data)) opt.legend.data.forEach(d => legendSet.add(typeof d === 'string' ? d : (d && d.name)));
@@ -195,6 +199,6 @@ for (const key of KEYS) {
   }
   console.error('   [timing] ' + key + ' 用时 ' + (Date.now() - t0) + 'ms');
 }
-console.error('\n########## 总重叠数 = ' + totalOverlaps + ' ##########');
-// 显式退出码：0 重叠才算通过，可直接串进门禁链
-process.exit(totalOverlaps > 0 ? 1 : 0);
+console.error('\n########## 总重叠数 = ' + totalOverlaps + '  缺图/异常 = ' + missing + ' ##########');
+// 显式退出码：0 重叠 且 无缺图/异常 才算通过，可直接串进门禁链
+process.exit(totalOverlaps > 0 || missing > 0 ? 1 : 0);
