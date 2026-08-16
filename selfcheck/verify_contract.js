@@ -50,9 +50,20 @@ if (D.tradePlan) {
   }
 }
 
-// scenarioSwitch 四分支（前端 L400 SS 兜底含 strong）
-['active', 'base', 'risk', 'strong'].forEach(br =>
+// scenarioSwitch 三分支（实际数据模型只含 active/base/risk；strong 情景数据不走
+// scenarioSwitch.strong，而是落在 D.scenarios[1] + D.subForecast，由前端 SCN_IDX
+// 映射 strong→1 取用——见 index.html L405/L978/L1114。故此处只校验真实存在的三分支，
+// strong 的真实契约改由下方 D.scenarios/subForecast 检查覆盖，避免永恒假阳性。）
+['active', 'base', 'risk'].forEach(br =>
   chk(D.scenarioSwitch && D.scenarioSwitch[br] !== undefined, 'scenarioSwitch.' + br + ' 缺失'));
+
+// 强势情景真实契约：D.scenarios[1]（SCN_IDX.strong=1）存在且含路径，且 D.subForecast 存在
+// （前端 strong 模式渲染依赖这两项，而非 scenarioSwitch.strong）。
+chk(Array.isArray(D.scenarios) && D.scenarios.length >= 3 &&
+  D.scenarios[1] && Array.isArray(D.scenarios[1].points) && D.scenarios[1].points.length >= 2,
+  'D.scenarios[1]（强势情景路径）缺失/非法');
+chk(D.subForecast && Array.isArray(D.subForecast.points) && D.subForecast.points.length >= 2,
+  'D.subForecast（强势子浪校准）缺失/非法');
 
 // ★ 关键越界检查：前端 L552-557 用 signals[i] 配 kline.ohlc[i]
 chk(Array.isArray(D.signals), 'signals 非数组');
