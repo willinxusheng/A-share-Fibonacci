@@ -1,4 +1,6 @@
 # A股斐波那契波浪看板 - Python 依赖
 # 安装：pip install -r requirements.txt
-numpy>=2.0
-pandas>=2.0
+# 须与本地 venv 完全一致（经六门禁全绿验证：numpy 2.5.2 / pandas 3.0.5），
+# 避免 CI 装到不同小版本导致数值行为漂移（确定性/可复现性缺口）。
+numpy==2.5.2
+pandas==3.0.5
