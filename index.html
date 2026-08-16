@@ -404,7 +404,7 @@ var SS = D.scenarioSwitch || { active: 'strong', lastClose: D.lastClose, keyLine
 var CURRENT_SCENARIO = SS.active;  // 自动判定值（每日更新跟随行情）
 var SCN_IDX = { base: 0, strong: 1, risk: 2 };  // scenarioSwitch.active → D.scenarios 索引
 // 铁律线单一真值（取自 tradePlan.stopLine.price），注入到文案（避免与 KEY_LINE 双份真值脱节）
-var KL = D.tradePlan.stopLine.price.toFixed(2);
+var KL = (D.tradePlan && D.tradePlan.stopLine && D.tradePlan.stopLine.price != null) ? D.tradePlan.stopLine.price.toFixed(2) : '3674.40';
 ['noteChan', 'noteP8', 'discFoot'].forEach(function (id) {
   var e = document.getElementById(id);
   if (e) e.innerHTML = e.innerHTML.replace('3674.40', KL);
@@ -497,7 +497,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
 
 /* ---------- 浪型时间线（数据驱动，杜绝与 wavePoints/tradePlan 双份真值漂移）---------- */
 (function () {
-  function _wp(kw) { return D.wavePoints.find(function (p) { return p.label.indexOf(kw) === 0; }); }
+  function _wp(kw) { var p = D.wavePoints.find(function (p) { return p.label.indexOf(kw) === 0; }); return p || { label: kw, price: NaN }; }
   var s = _wp("双底"), w1 = _wp("浪1"), w2 = _wp("浪2"), w3 = _wp("浪3"), w4 = _wp("浪4");
   var sell = D.tradePlan.sellTargets;
   var w1a = w1.price - s.price;   // 浪①幅度（浪②回撤基准）
@@ -563,7 +563,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     };
   }).filter(function (x) { return x !== null; });
 
-  var bz0 = D.tradePlan.buyZones[0];
+  var _bzArr = D.tradePlan.buyZones || []; var bz0 = _bzArr[0] || { hi: (D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0), lo: (D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0) };
   // 五年回撤线标签：左缘(insideStart)是全图最拥挤处（触发带/铁律线/调整起点/早期买点都在那儿），
   // 故用「三档水平错位 + 上下交替」把 5 条标签摊开，相邻两条永不同列，避免叠印。
   var fibLines = D.fib5y.map(function (f, i) {
@@ -758,7 +758,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
 
   series[0].markLine = { symbol: 'none', labelLayout: { hideOverlap: true }, data: levelLines };
 
-  var stp = D.tradePlan.stopLine, bz = D.tradePlan.buyZones[0];
+  var bz = (D.tradePlan.buyZones || [])[0] || { hi: (D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0), lo: (D.tradePlan.stopLine ? D.tradePlan.stopLine.price : 0) };
   // 浪⑤目标区上下沿从卖出目标派生(卖①最低~卖③最高)，避免与 targets 计算双份维护、浪型重校订时脱节
   var sellPrices = D.tradePlan.sellTargets.map(function (t) { return t.price; });
   var tgtLo = Math.min.apply(null, sellPrices), tgtHi = Math.max.apply(null, sellPrices);
@@ -975,7 +975,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         ] } };
     }
     if (mode === 'strong') {
-      var F = D.subForecast;
+      var F = D.subForecast || { points: [], rows: [], calib: {}, realRef: {}, crossCheck: {} };
       var MOB = IS_MOB();
       var proj = F.points.map(function (p) { return [toTs(p.date), p.price]; });
       // 置信带：与子浪目标位表「区间(±σ)」逐点同源(波动率匹配带)，不再用单一历史离散度 calib.bandPct；
@@ -1018,7 +1018,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       }
       var s1p = D.tradePlan.sellTargets[0].price;
       var s1Label = F.points.some(function (p) { return Math.abs(p.price - s1p) < 0.01; }) ? '' : '卖① ' + s1p;
-      var lastPoint = F.points[F.points.length - 1];
+      var lastPoint = F.points.length ? F.points[F.points.length - 1] : { date: D.updated };
       var maxTs = toTs(lastPoint.date) + 30 * 24 * 60 * 60 * 1000;
       var allPrices = F.points.map(function (p) { return p.price; }).concat(actual.map(function (a) { return a[1]; })).concat(_bandLow.map(function (b) { return b[1]; })).concat(_bandHi.map(function (b) { return b[1]; })).concat([D.tradePlan.stopLine.price, s1p]).concat(_maLast);
       if (_realIi != null) allPrices = allPrices.concat([_realIi]);
@@ -1111,7 +1111,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     if (!tbl || !cal || !title) return;
     if (mode === 'strong') {
       title.textContent = '浪⑤子浪目标位（基准=卖①保守口径细分）';
-      var F = D.subForecast;
+      var F = D.subForecast || { points: [], rows: [], calib: {}, realRef: {}, crossCheck: {} };
       var actCls = { buy: 'num-green', sell: 'num-red', hold: '' };
       var rr = F.realRef || {};
       var _i1 = F.points[1] ? F.points[1].price : null;
@@ -1255,6 +1255,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
 /* ---------- 面板8：买卖参考框架 ---------- */
 (function () {
   var tp = D.tradePlan;
+  var _bz0 = (tp.buyZones && tp.buyZones.length) ? tp.buyZones[0] : { hi: tp.stopLine.price, lo: tp.stopLine.price };
   document.getElementById('buyTable').innerHTML =
     '<tr><th>参考位</th><th>区间 / 点位</th><th class="c-l">触发条件</th></tr>' +
     tp.buyZones.map(function (b) {
@@ -1282,7 +1283,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     var belowKey = lastC < keyPrice;
     var distKey = D.distances.toKeyLine;
     var distS1 = (tp.sellTargets[0].price - lastC) / lastC * 100;
-    var actionable = lastC <= tp.buyZones[0].hi && lastC >= keyPrice;
+    var actionable = lastC <= _bz0.hi && lastC >= keyPrice;
     var zoneTxt = belowKey ? ('<b style="color:#c23531">已跌破铁律线（风控位 ' + keyPrice.toFixed(2) + '），数浪证伪，转防御</b>') : (actionable ? '<b style="color:#2f9e44">买点参考区内</b>' : '买点参考区上方，等待回踩');
     var keyTxt = belowKey ? '<b style="color:#c23531">已跌破，数浪证伪</b>' : '缓冲 <b>' + distKey.toFixed(2) + '%</b>，跌破即转防御';
     var s1Txt = distS1 >= 0 ? '上行空间 <b>+' + distS1.toFixed(2) + '%</b>' : '已超出目标 <b>' + Math.abs(distS1).toFixed(2) + '%</b>';
@@ -1295,14 +1296,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     el.innerHTML = scnBar +
       '<div class="sub-h">当前如何使用</div>' +
       '<div style="font-size:13px;line-height:1.9;color:#4a5261">' +
-      '<div>• 现价 <b>' + lastC.toFixed(2) + '</b> 处于 ' + zoneTxt + '（' + fmt2(tp.buyZones[0].lo) + '~' + fmt2(tp.buyZones[0].hi) + '）。</div>' +
+      '<div>• 现价 <b>' + lastC.toFixed(2) + '</b> 处于 ' + zoneTxt + '（' + fmt2(_bz0.lo) + '~' + fmt2(_bz0.hi) + '）。</div>' +
       '<div>• 距风控位 ' + keyPrice.toFixed(2) + ' ' + keyTxt + '。</div>' +
       '<div>• 浪⑤首目标 ' + tp.sellTargets[0].price.toFixed(2) + '（卖①）距现价 ' + s1Txt + '。</div>' +
       '<div style="margin-top:10px;padding:10px 12px;background:#f2f4f8;border-radius:8px;font-size:12px;color:#7c8494">' +
       '用法：铁律线上方、价格进入绿色买点参考区时分批低吸；浪⑤推进至红色目标区时分批减仓；有效跌破 ' + keyPrice.toFixed(2) + ' 铁律线则数浪证伪、第一时间防御。子浪图与推演图已用 ▲/▼ 标出历史与推演买卖点供对照。卖出目标与子浪目标均给出「区间(±σ)」与「概率」：区间由近期波动率推导的触达带，概率在样本足够时切换为回测实证命中率。</div>' +
       '<div style="margin-top:10px;padding:10px 12px;background:#fdf6f0;border-radius:8px;font-size:12px;color:#7c8494">' +
       '<b style="color:#b8872a">机械化出场阶梯（移动止盈）</b><br>' +
-      tp.trailingStop.rules.map(function (r) {
+      ((tp.trailingStop && tp.trailingStop.rules) || []).map(function (r) {
         return '· ' + r.trigger + '（' + (r.price != null ? r.price.toFixed(2) : '—') + '）→ ' + r.action;
       }).join('<br>') +
       '</div>' +
