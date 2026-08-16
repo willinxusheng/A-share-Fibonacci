@@ -4,7 +4,31 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { createCanvas } = require('canvas');
+// R257 同源：_audit_overlap2.js 已改 try/require + 纯 JS 兜底使其 CI 可跑；
+// 本脚本需真实 canvas 后端(toBuffer 出 PNG)无法纯 JS 兜底，故缺 canvas 时显式拦截，
+// 避免 node-canvas 在 ubuntu-latest 等无 cairo/pango 环境编译失败而静默崩溃。
+let createCanvas;
+try {
+  ({ createCanvas } = require('canvas'));
+} catch (e) {
+  console.error('[render_png] 需要原生 canvas 才能导出 PNG。请先安装:\n' +
+    '  npm install canvas   (需系统 cairo/pango 库支持)\n' +
+    '当前环境未安装或编译失败，已显式拦截以避免静默崩溃。');
+  process.exit(1);
+}
+// 运行时能力检查：node-canvas 垫片(仅 measureText)无 toBuffer，无法出 PNG，须真实原生 canvas。
+// 缺能力时显式拦截，避免 L77 canvas.toBuffer 静默 TypeError 崩溃（本机复用 measureText 垫片即此情形）。
+try {
+  const _probe = createCanvas(10, 10);
+  if (typeof _probe.toBuffer !== 'function') {
+    console.error('[render_png] 当前 canvas 为垫片(无 toBuffer)，无法导出 PNG。\n' +
+      '  请安装真实原生 canvas: npm install canvas (需系统 cairo/pango 库)。');
+    process.exit(1);
+  }
+} catch (e) {
+  console.error('[render_png] canvas 后端不可用: ' + e.message);
+  process.exit(1);
+}
 
 const ROOT = __dirname;
 const DATA_JS = path.join(ROOT, 'data/data.js');
