@@ -349,6 +349,7 @@ var _HOLIDAYS_2026 = {};
 // R209：统一数值格式化——避免裸拼接浮点(如 125.38 在 IEEE754 下最短表示为 125.38000000000011)导致小数点过长。
 // 所有价格/比率显示必须经此收口；null/undefined 显示占位符，非数字原样透传。
 function fmt2(v) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) : (v == null ? '—' : v); }
+function fmt1(v) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(1) : (v == null ? '—' : v); }
 function addBizDays(from, n) {
   var d = new Date(from + 'T00:00:00');
   var added = 0;
@@ -437,7 +438,7 @@ heroPrice.parentNode.insertBefore(_chgBadge, document.getElementById('heroWave')
 var heroWave = document.getElementById('heroWave');
 heroWave.textContent = (D.state && D.state.text) ? D.state.text : '浪④回调中';
 heroWave.className = 'badge ' + ((D.state && D.state.cls) ? D.state.cls : 'ghost');
-document.getElementById('heroVol').textContent = 'HV20 ' + D.volatility.now + '%（五年' + D.volatility.pctile + '分位·' + D.volRegime.bucket + '波动区）';
+document.getElementById('heroVol').textContent = 'HV20 ' + fmt1(D.volatility.now) + '%（五年' + D.volatility.pctile + '分位·' + D.volRegime.bucket + '波动区）';
 (function () {
   var pts = D.spark || [], w = 220, h = 64, pad = 4;
   var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
@@ -618,13 +619,13 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     return {
       yAxis: t.price,
       lineStyle: { type: 'solid', color: _lineCols[i], width: 1.6 },
-      label: { formatter: _tierNames[i].split(' ')[0] + ' ' + t.price.toFixed(0) + ' · 触发 ' + t.prob + '%',
+      label: { formatter: _tierNames[i].split(' ')[0] + ' ' + t.price.toFixed(0) + ' · 触发 ' + fmt1(t.prob) + '%',
         position: 'insideEndTop', fontSize: 11, fontWeight: 'bold', color: _lineCols[i], align: 'right', show: (MOB ? (i === 0) : true) }
     };
   });
   var keyLineMark = { yAxis: D.tradePlan.stopLine.price,
     lineStyle: { type: 'dashed', color: ORANGE, width: 1.4 },
-    label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideEndBottom', align: 'right', offset: [0, 42], fontSize: 11, color: ORANGE } };
+    label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideEndBottom', align: 'right', offset: [0, 42], fontSize: 11, color: ORANGE } };
 
   // 主图 y 轴须显式容纳卖①②③触发带（markArea/markLine 默认不计入坐标轴范围，否则带被裁切在顶部之外）
   // ohlc 格式为 [open, close, LOW, HIGH]（已核实 r[2]<=r[3] 恒成立；信号标记买取 r[2]=低、卖取 r[3]=高）
@@ -1066,7 +1067,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         ].concat(maSeries).concat([
           { name: '基准走势(非子浪)', type: 'line', data: bproj, symbol: 'circle', symbolSize: 5, lineStyle: { color: NAVY, width: 2, type: 'dashed' }, itemStyle: { color: NAVY },
             markPoint: { data: [ { coord: bMid, value: '浪④磨底', symbol: 'pin', symbolSize: 50, itemStyle: { color: '#67a867' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
-            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideStartBottom', fontSize: 11, color: ORANGE } } ] } }
+            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideStartBottom', fontSize: 11, color: ORANGE } } ] } }
         ]).concat([_rsiSeries()]) });
     } else {
       var rp = (SS.risk && SS.risk.path && SS.risk.path.length >= 2) ? SS.risk.path : [[D.updated, D.lastClose], [D.updated, D.tradePlan.stopLine.price]];
@@ -1088,7 +1089,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         ].concat(maSeries).concat([
           { name: '风险下行(子浪失效)', type: 'line', data: rproj, symbol: 'circle', symbolSize: 5, lineStyle: { color: '#c23531', width: 2, type: 'dashed' }, itemStyle: { color: '#c23531' },
             markPoint: { data: [ { coord: rBrk, value: '跌破铁律·失效', symbol: 'pin', symbolSize: 62, itemStyle: { color: '#c23531' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
-            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + D.tradePlan.stopLine.price, position: 'insideStartTop', fontSize: 11, color: ORANGE } } ] } }
+            markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideStartTop', fontSize: 11, color: ORANGE } } ] } }
         ]).concat([_rsiSeries()]) });
     }
     var dbgEl = document.getElementById('subFDebug');
@@ -1279,8 +1280,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       var pcls = s.probSrc === '回测实证' ? 'num-green' : '';
       return '<tr><td><span class="tag tag-t">卖</span> ' + s.name + '</td>' +
         '<td class="num-red"><b>' + fmt2(s.price) + '</b></td>' +
-        '<td>' + fmt2(s.lo) + ' ~ ' + fmt2(s.hi) + ' <span style="color:#98a0ad">(±' + s.bandPct + '%)</span></td>' +
-        '<td class="' + pcls + '"><b>' + s.prob + '%</b> <span style="color:#98a0ad;font-size:11px">' + s.probSrc + '</span></td>' +
+        '<td>' + fmt2(s.lo) + ' ~ ' + fmt2(s.hi) + ' <span style="color:#98a0ad">(±' + fmt1(s.bandPct) + '%)</span></td>' +
+        '<td class="' + pcls + '"><b>' + fmt1(s.prob) + '%</b> <span style="color:#98a0ad;font-size:11px">' + s.probSrc + '</span></td>' +
         '<td class="c-l"><span class="tag-fire">触达即触发</span> ' + s.condition + '</td></tr>';
     }).join('');
 
