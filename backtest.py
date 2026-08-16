@@ -50,7 +50,13 @@ def extract_targets(data):
 
 
 def archive(data):
-    """把当日目标追加进日志（去重）。返回新增条数。"""
+    """把当日目标追加进日志（去重）。返回新增条数。
+
+    容错：读取历史日志时若遇半行/损坏行（如 CI 进程写一半被杀），
+    跳过且不崩溃、不纳入 seen；落地改用「读-重写-追加」模式，丢弃坏行、
+    按 (date,key,cat) 去重，避免半行与后续记录粘连引发连锁 JSON 失败，
+    也避免坏行被重复计数污染命中率。正常无坏行时与旧 "a" 追加模式等价。
+    """
     pred_date = data.get("updated")
     if not pred_date:
         return 0
@@ -59,21 +65,34 @@ def archive(data):
         with open(LOG_PATH, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     existing.append(json.loads(line))
+                except (json.JSONDecodeError, ValueError):
+                    # 容忍半行/损坏行，不崩溃；后续重写时丢弃。
+                    continue
     seen = {(e["date"], e["key"], e["cat"]) for e in existing}
     new = 0
-    with open(LOG_PATH, "a", encoding="utf-8") as f:
-        for r in extract_targets(data):
-            k = (pred_date, r["key"], r["cat"])
-            if k in seen:
-                continue
-            rec = {"date": pred_date, "key": r["key"], "cat": r["cat"],
-                   "side": r["side"], "price": r["price"],
-                   "expDays": r.get("expDays", HORIZON)}
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            seen.add(k)
-            new += 1
+    fresh = []
+    for r in extract_targets(data):
+        k = (pred_date, r["key"], r["cat"])
+        if k in seen:
+            continue
+        rec = {"date": pred_date, "key": r["key"], "cat": r["cat"],
+               "side": r["side"], "price": r["price"],
+               "expDays": r.get("expDays", HORIZON)}
+        fresh.append(rec)
+        seen.add(k)
+        new += 1
+    if new:
+        # 先写历史有效行，再追加本次新增；丢弃坏行、按 (date,key,cat) 去重，
+        # 消除半行粘连后续记录导致的连锁 JSON 崩溃与重复计数。
+        with open(LOG_PATH, "w", encoding="utf-8") as f:
+            for e in existing:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            for rec in fresh:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return new
 
 
