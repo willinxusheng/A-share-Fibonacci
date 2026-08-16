@@ -2,7 +2,7 @@
 set "GIT_TERMINAL_PROMPT=0"
 set "GIT_SSH_COMMAND=C:/Users/Administrator/.workbuddy/binaries/PortableGit/versions/1.2.0/usr/bin/ssh.exe"
 cd /d "%~dp0"
-C:\Users\Administrator\.workbuddy\binaries\PortableGit\versions\1.2.0\cmd\git.exe add -A
+C:\Users\Administrator\.workbuddy\binaries\PortableGit\versions\1.2.0\cmd\git.exe add data/
 C:\Users\Administrator\.workbuddy\binaries\PortableGit\versions\1.2.0\cmd\git.exe commit -m "chore: auto-update" >nul 2>&1
 C:\Users\Administrator\.workbuddy\binaries\PortableGit\versions\1.2.0\cmd\git.exe pull --ff-only origin main >> "%TEMP%\ashare_push.log" 2>&1
 C:\Users\Administrator\.workbuddy\binaries\PortableGit\versions\1.2.0\cmd\git.exe push -u origin main >> "%TEMP%\ashare_push.log" 2>&1
