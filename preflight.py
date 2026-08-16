@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""取数层格式预检（防 westock-data CLI 静默变形）。
+"""取数层格式预检（防数据源格式漂移静默变形）。
 
-在 analyze.py 之前【独立】运行：读取 step1 生成的 *_raw.md（westock-data CLI 输出），
+在 analyze.py 之前【独立】运行：读取 fetch_indices.py 生成的 *_raw.md（K线 markdown，数据源为 eastmoney HTTP 接口，格式兼容 westock），
 断言其结构/字段完整、行数充足、数值可解析、日期单调。任一项不达标 → 打印详情并 sys.exit(1)，
 迫使每日自动化在此中止、绝不进入 analyze/build/部署，避免用错位/空数据污染看板。
 
 EXIT 码约定（与 validate.py 守门纪律一致）：0=通过(警告除外), 1=主指数取数层变形/异常。
 
 设计意图（R148）：
-  westock-data 输出格式一旦漂移（列改名、删列、返回错误文本而非表、取数截断），
+  _raw.md 格式一旦漂移（列改名、删列、返回错误文本而非表、取数截断），
   下游 analyze.read_kline_md 的容错逻辑会把缺失列静默回退为 close，不报错但让数据无声失真——
   这是取数层唯一未被下游闸口完全兜住的盲区。本脚本在变形传入 build_data 之前就拦截。
 
