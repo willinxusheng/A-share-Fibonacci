@@ -2,7 +2,39 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { createCanvas } = require('canvas');
+
+// node-canvas 是原生包，在 GitHub ubuntu-latest runner上无法编译（缺 cairo/pango 系统库），
+// 会导致第6道门禁在 CI 被静默跳过。本脚本只用其 getContext('2d').measureText 估算文字宽，
+// 故在此提供纯 JS 兜底——优先用真实/垫片 canvas，缺失时回退，保证 CI 也能真跑此门禁。
+// 兜底逻辑与本地 node_modules/canvas/index.js 垫片一致：CJK 字符 = fontSize px，ASCII = 0.55*fontSize。
+let createCanvas;
+try {
+  ({ createCanvas } = require('canvas'));
+} catch (e) {
+  const _charW = (ch, fs) => (ch.charCodeAt(0) > 255 ? fs : fs * 0.55);
+  createCanvas = function () {
+    return {
+      width: 0, height: 0,
+      getContext: function () {
+        return {
+          font: '12px sans-serif', fillStyle: '', strokeStyle: '',
+          measureText: function (t) {
+            let fs = 12; const m = /(\d+(?:\.\d+)?)px/.exec(this.font || '');
+            if (m) fs = parseFloat(m[1]);
+            let w = 0; for (const ch of String(t)) w += _charW(ch, fs);
+            return { width: w };
+          },
+          fillRect() {}, clearRect() {}, fillText() {}, strokeText() {},
+          beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {},
+          save() {}, restore() {}, setTransform() {}, scale() {}, translate() {},
+          arc() {}, rect() {}, closePath() {}, clip() {},
+          createLinearGradient() { return { addColorStop() {} }; }
+        };
+      },
+      toDataURL: function () { return ''; }
+    };
+  };
+}
 
 const ROOT = __dirname;
 const DATA_JS = path.join(ROOT, 'data/data.js');
