@@ -369,6 +369,14 @@ if (!D || typeof D !== 'object') {
     '⚠️ 数据加载失败：data/data.js 未生成或为空。<br>请重新运行 analyze.py 与 build_data.py 生成数据后刷新本页。</div>';
   throw new Error('FIB_DATA missing or invalid');
 }
+// R263：关键结构底线防御——tradePlan 或 sellTargets 缺失时给出友好提示，避免后续
+// 深层 .price 访问（浪型时间线/子浪图/买卖框架等多处 D.tradePlan.sellTargets[0].price）
+// 在极端部分失败数据下整图白屏。正常数据（固定 3 个卖目标）永不触发，不影响渲染。
+if (!D.tradePlan || !Array.isArray(D.tradePlan.sellTargets) || !D.tradePlan.sellTargets.length) {
+  document.body.innerHTML = '<div style="padding:48px;font-family:sans-serif;color:#c23531;line-height:1.8">' +
+    '⚠️ 数据不完整：tradePlan / sellTargets 缺失，看板无法渲染。<br>请重新运行 analyze.py 与 build_data.py 生成完整数据后刷新本页。</div>';
+  throw new Error('tradePlan.sellTargets missing');
+}
 var RED = '#c23531', GREEN = '#2f9e44', GOLD = '#c9a063', NAVY = '#1f2d50', ORANGE = '#e6a23c';
 var CHART_FONT = '"Microsoft YaHei","PingFang SC",sans-serif';  // 图表画布文字与页面字体保持一致
 var charts = [];  // 收集所有实例，供窗口 resize 时统一重绘

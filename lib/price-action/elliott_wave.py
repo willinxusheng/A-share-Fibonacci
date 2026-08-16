@@ -81,7 +81,8 @@ class SignalEngine:
             is_h = bool(swing_high_mask.get(idx, False))
             is_l = bool(swing_low_mask.get(idx, False))
             if is_h and is_l:
-                # 同一根K线同时是高低点，取幅度更大的
+                # 同一根 K 线同时是窗口内最高与最低（极端长影线包罗整个窗口）：
+                # 它不构成有效 swing 转折点（需相邻反向 K 线确认），跳过以保持 H/L 严格交替
                 pass
             elif is_h:
                 raw_points.append({"index": idx, "price": float(high[idx]), "type": "H"})
