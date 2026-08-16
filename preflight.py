@@ -86,11 +86,11 @@ def check_file(fname, critical):
     print("[预检:%s] %s" % (tag, fname))
     path = os.path.join(BASE, "data", fname)
     if not os.path.exists(path):
-        fail(target, "文件缺失: %s（step1 westock CLI 未生成？路径/命令错误？）" % fname)
+        fail(target, "文件缺失: %s（eastmoney/fetch_indices 未生成？路径/命令错误？）" % fname)
         return
     size = os.path.getsize(path)
     if size < 200:
-        fail(target, "文件过小(%d B): %s（westock 可能报错/返回空，非 K 线表）" % (size, fname))
+        fail(target, "文件过小(%d B): %s（eastmoney/fetch_indices 可能报错/返回空，非 K 线表）" % (size, fname))
         return
 
     with open(path, encoding="utf-8") as f:
@@ -100,7 +100,7 @@ def check_file(fname, critical):
     lines = [ln.strip() for ln in text.splitlines()
              if ln.strip().startswith("|") and "---" not in ln]
     if len(lines) < 2:
-        fail(target, "无有效 markdown 表(仅 %d 行): %s（westock 可能返回错误文本/JSON，而非 K 线表）"
+        fail(target, "无有效 markdown 表(仅 %d 行): %s（eastmoney/fetch_indices 可能返回错误文本/JSON，而非 K 线表）"
              % (len(lines), fname))
         return
 
@@ -109,14 +109,27 @@ def check_file(fname, critical):
     close_idx = first_present(header, REQUIRED_CLOSE)
     date_idx = header.get(DATE_COL)
     if close_idx is None:
-        fail(target, "缺失收盘列(%s): %s（westock 列改名！read_kline_md 将无法取收盘）"
+        fail(target, "缺失收盘列(%s): %s（eastmoney 列改名！read_kline_md 将无法取收盘）"
              % ("/".join(REQUIRED_CLOSE), fname))
     if date_idx is None:
-        fail(target, "缺失日期列(%s): %s（westock 列改名！）" % (DATE_COL, fname))
+        fail(target, "缺失日期列(%s): %s（eastmoney 列改名！）" % (DATE_COL, fname))
     missing_expected = [c for c in EXPECTED_COLS if c not in header]
     if missing_expected:
-        fail(target, "缺失必含列 %s: %s（westock 列改名！将被静默回退为 close，高低点/开盘失真）"
+        fail(target, "缺失必含列 %s: %s（eastmoney 列改名！将被静默回退为 close，高低点/开盘失真）"
              % (missing_expected, fname))
+    # 数值校验所需列索引（open/high 必含、low 可选；缺失已在上方判失败/告警）
+    open_idx = header.get("open")
+    high_idx = header.get("high")
+    low_idx = header.get("low")
+
+    def _oknum(x):
+        if x is None:
+            return False
+        try:
+            float(str(x).replace(",", "").strip())
+            return True
+        except (ValueError, TypeError):
+            return False
 
     # 3) 解析数据行：行数、坏行比例、日期单调
     #    可选列(low/volume 等)不要求；主/必含列已在列名层断言过存在性。
@@ -149,14 +162,15 @@ def check_file(fname, critical):
             elif dt < prev_date:
                 direction = -1
         prev_date = dt
-        # 收盘必须可解析（其余列宽松）
-        ok_numeric = True
-        if close_idx is not None and close_idx < len(parts):
-            try:
-                float(str(parts[close_idx]).replace(",", "").strip())
-            except (ValueError, TypeError):
-                ok_numeric = False
-        if not ok_numeric:
+        # 必含/可选列数值可解析性：close 已查；open/high 为必含列，非数字会静默回退为
+        # close 造成高低点/开盘失真（docstring 设计意图），须拦；low 可选但非数字亦计坏行。
+        bad_val = False
+        if close_idx is not None and close_idx < len(parts) and not _oknum(parts[close_idx]):
+            bad_val = True
+        for _name, _idx in (("open", open_idx), ("high", high_idx), ("low", low_idx)):
+            if _idx is not None and _idx < len(parts) and not _oknum(parts[_idx]):
+                bad_val = True
+        if bad_val:
             n_bad += 1
             continue
         n_ok += 1
@@ -165,7 +179,7 @@ def check_file(fname, critical):
         fail(target, "数据行数不足(%d < %d): %s（取数截断/部分失败）" % (n_total, MIN_ROWS, fname))
     ratio = (n_bad / n_total) if n_total else 1.0
     if ratio > MAX_BAD_ROW_RATIO:
-        fail(target, "坏行比例过高(%.1f%% > %.0f%%): %s（大量非数字/乱序行，westock 格式可能已变）"
+        fail(target, "坏行比例过高(%.1f%% > %.0f%%): %s（大量非数字/乱序行，eastmoney 格式可能已变）"
              % (ratio * 100, MAX_BAD_ROW_RATIO * 100, fname))
     added = len(target) > before
     if not added:

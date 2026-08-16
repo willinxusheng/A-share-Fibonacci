@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """上证指数 5年 艾略特波浪 + 斐波那契分析脚本。
-输入: data/sh000001_raw.md (westock-data kline 输出的 markdown 表格)
+输入: data/sh000001_raw.md (eastmoney HTTP kline 接口输出的 markdown 表格)
 输出: data/sh000001.csv, data/structures.json
 """
 import json
@@ -80,7 +80,7 @@ from elliott_wave import SignalEngine  # noqa: E402
 
 
 def read_kline_md(path):
-    """表头感知解析 westock markdown K线表。
+    """表头感知解析跨数据源(westock/eastmoney) markdown K线表。
 
     不依赖列的绝对位置（westock 列为 date/open/last/high/low/volume/amount…，
     “收盘”列名为 last 而非 close），改为按表头列名建立映射，并对 last/close
