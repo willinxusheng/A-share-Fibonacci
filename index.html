@@ -15,6 +15,7 @@
     --ink: #242a35; --sub: #7c8494; --bg: #eef1f6; --card: #ffffff; --line: #e6eaf1;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 56px; }
   body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.65; }
   .wrap { max-width: 1480px; margin: 0 auto; padding: 0 24px 60px; }
 
@@ -28,7 +29,7 @@
   .hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy2) 60%, #2a3d66 100%); color: #fff; padding: 30px 34px 24px; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
   .hero .kicker { color: var(--gold); font-size: 12.5px; letter-spacing: 3px; font-weight: 600; }
   .hero h1 { font-size: 23px; margin: 6px 0 4px; font-weight: 700; }
-  .hero .meta { color: rgba(255,255,255,.5); font-size: 12px; }
+  .hero .meta { color: rgba(255,255,255,.62); font-size: 12px; }
   .hero .price-row { display: flex; align-items: baseline; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
   .hero .price { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
   .badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
@@ -38,12 +39,12 @@
   .badge.danger { background: rgba(194,53,49,.18); color: #ff9b97; border: 1px solid rgba(194,53,49,.5); }
   .badge.up { background: rgba(194,53,49,.14); color: #e05a55; border: 1px solid rgba(194,53,49,.4); }
   .badge.down { background: rgba(47,158,68,.14); color: #4faf6a; border: 1px solid rgba(47,158,68,.4); }
-  .spark-box { text-align: right; }
+  .spark-box { text-align: right; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px 12px; }
   .spark-box .lb { font-size: 11px; color: rgba(255,255,255,.45); margin-top: 2px; }
 
   /* ===== 距离仪表盘 ===== */
   .gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0; }
-  .gauge { background: var(--card); border-radius: 12px; padding: 15px 18px 13px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border-top: 3px solid var(--line); }
+  .gauge { background: var(--card); border-radius: 12px; padding: 15px 18px 13px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border: 1px solid var(--line); border-top: 3px solid var(--line); }
   .gauge.g1 { border-top-color: var(--gold); } .gauge.g2 { border-top-color: var(--red); }
   .gauge.g3 { border-top-color: var(--green); } .gauge.g4 { border-top-color: var(--navy2); }
   .gauge .t { font-size: 12px; color: var(--sub); }
@@ -53,7 +54,7 @@
   .gauge .d { font-size: 11px; color: var(--sub); margin-top: 6px; }
 
   /* ===== 面板 ===== */
-  .panel { background: var(--card); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(22,33,62,.07); }
+  .panel { background: var(--card); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border: 1px solid var(--line); }
   .panel h2 { font-size: 16.5px; display: flex; align-items: center; gap: 10px; }
   .panel h2 .no { background: var(--navy); color: var(--gold); width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex: none; }
   .panel .note { font-size: 12.5px; color: var(--sub); margin: 6px 0 12px; }
@@ -76,7 +77,7 @@
   /* 悬浮提示（置信带说明） */
   .info-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 10px; cursor: help; }
   .info-wrap > .info-ico { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; background: #e6a23c; color: #fff; font-size: 11px; font-weight: 700; font-style: normal; line-height: 1; }
-  .info-pop { display: none; position: absolute; top: 26px; left: 0; width: 360px; padding: 13px 15px; background: #fff; border: 1px solid #d8dee9; border-radius: 9px; box-shadow: 0 8px 28px rgba(0,0,0,.16); font-size: 12.5px; line-height: 1.62; color: #2b2f38; z-index: 60; font-weight: 400; text-align: left; }
+  .info-pop { display: none; position: absolute; top: 26px; left: 0; width: 360px; max-width: 88vw; padding: 13px 15px; background: #fff; border: 1px solid #d8dee9; border-radius: 9px; box-shadow: 0 8px 28px rgba(0,0,0,.16); font-size: 12.5px; line-height: 1.62; color: #2b2f38; z-index: 60; font-weight: 400; text-align: left; }
   .info-wrap:hover .info-pop, .info-wrap:focus-within .info-pop { display: block; }
   .info-wrap.open .info-pop { display: block; }
   .info-pop b { color: #c23531; }
@@ -89,7 +90,7 @@
 
   /* ===== 发现卡 ===== */
   .findings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-  .finding { background: var(--card); border-radius: 12px; padding: 15px 17px; box-shadow: 0 1px 3px rgba(22,33,62,.07); font-size: 12.5px; }
+  .finding { background: var(--card); border-radius: 12px; padding: 15px 17px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border: 1px solid var(--line); font-size: 12.5px; }
   .finding .ft { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .dot.good { background: var(--green); } .dot.warn { background: #e6a23c; } .dot.neutral { background: var(--navy2); }
@@ -97,7 +98,7 @@
 
   /* ===== 规则校验卡 ===== */
   .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0 18px; }
-  .rule { border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; display: flex; gap: 11px; align-items: flex-start; background: #fbfcfe; }
+  .rule { border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; display: flex; gap: 11px; align-items: flex-start; background: #fbfcfe; transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease; }
   .rule .ic { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; margin-top: 1px; }
   .rule .ic.ok { background: var(--green); } .rule .ic.na { background: var(--gold); }
   .rule .rn { font-size: 13px; font-weight: 700; }
@@ -134,7 +135,7 @@
   .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .sub-h { font-size: 13.5px; font-weight: 700; color: var(--navy); margin: 2px 0 8px; }
 
-  .disc { font-size: 12px; color: #98a0ad; background: #f2f4f8; border-radius: 10px; padding: 14px 18px; }
+  .disc { font-size: 12px; color: #6b7480; background: #f2f4f8; border-radius: 10px; padding: 14px 18px; }
 
   /* ===== 触达即触发 醒目提示框 ===== */
   .trigger-callout { background: linear-gradient(135deg, #fff6f5 0%, #fdecea 100%); border: 1px solid #f3c9c6; border-left: 5px solid var(--red); border-radius: 12px; padding: 16px 20px; margin: 4px 0 16px; box-shadow: 0 1px 4px rgba(194,53,49,.08); }
@@ -187,6 +188,8 @@
     .chart-sm { height: 300px; }
     table { font-size: 11.5px; }
     th, td { padding: 7px 8px; }
+    /* 窄屏表格横向滚动，避免多列撑破布局 */
+    .panel table, table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .trigger-callout .tiers { grid-template-columns: 1fr; }
   }
 
@@ -227,6 +230,16 @@
       .trigger-callout .tiers { grid-template-columns: 1fr; }
     }
   }
+  /* ===== 统一悬浮微交互：卡片轻微抬升 + 加深阴影，提升质感与可点感 ===== */
+  .panel, .gauge, .finding { transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease; }
+  .panel:hover { box-shadow: 0 10px 28px rgba(22,33,62,.13); transform: translateY(-2px); border-color: #d8dee9; }
+  .gauge:hover { box-shadow: 0 5px 16px rgba(22,33,62,.12); transform: translateY(-2px); border-color: #d8dee9; }
+  .finding:hover { box-shadow: 0 5px 16px rgba(22,33,62,.1); transform: translateY(-2px); border-color: #d8dee9; }
+  .rule:hover { border-color: var(--gold); box-shadow: 0 5px 16px rgba(22,33,62,.1); transform: translateY(-2px); }
+  .tl { transition: box-shadow .22s ease, border-color .22s ease, transform .22s ease; }
+  .tl:hover { border-color: var(--gold); box-shadow: 0 5px 16px rgba(22,33,62,.1); transform: translateY(-2px); }
+  /* badge / nav 轻量过渡 */
+  .nav a, .badge { transition: color .18s ease, background .18s ease, border-color .18s ease; }
 </style>
 </head>
 <body>
