@@ -18,9 +18,13 @@
 name: Daily A-share Fibonacci update
 
 on:
-  schedule:
-    # 北京时间工作日 16:30 = UTC 08:30；GitHub cron 为 UTC，周一至周五 = 1-5
-    - cron: "30 8 * * 1-5"
+  # 2026-08-17 实测：GitHub 海外 runner 无法访问 eastmoney 取数接口，
+  # schedule 定时触发会每天失败并发送通知。暂时注释掉自动定时，只保留
+  # workflow_dispatch 手动触发，作为"本机写入器故障时"的应急备份入口。
+  # 如需恢复云端单写，须先解决海外取数可达性（代理/镜像/换数据源）。
+  # schedule:
+  #   # 北京时间工作日 16:30 = UTC 08:30；GitHub cron 为 UTC，周一至周五 = 1-5
+  #   - cron: "30 8 * * 1-5"
   workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
 
 # 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署）
