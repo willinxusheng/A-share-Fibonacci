@@ -1150,7 +1150,10 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       var rrAnchor = (_realIi != null && _modelIi != null && F.calib)
         ? ('📐 真实浪③锚定子浪ⅱ底≈<b>' + fmt2(_realIi) + '</b>（按真实回撤' + rr.wave3Sub2Ret + '%，模型按' + Math.round(F.calib.iiRet * 100) + '%→' + fmt2(_modelIi) + '）；真实观测更浅，买②可参考更浅回踩位')
         : '';
-      var _timeNote = '⏱ 时间轴(各子浪到达日期)为历史摆动几何外推，非精确预测：唯一真实同浪级样本(浪③)回测显示触达天数 MAPE≈33%，中等幅度子浪可能偏早约 30–60%（延长浪内部回调使实际更慢）。';
+      // R续·②b：诚实化时间不确定性（walk-forward OOS 实测，非理论推测）。
+      // 旧注"MAPE≈33%/偏早30–60%"严重低估真实偏差——OOS 实测预测中位 ~21 交易日 vs 实际中位 ~131 交易日，
+      // 整体 MAPE≈82%、系统性偏短约 74%（涨幅越大偏差越剧，r=0.15 桶 MAPE 达 95%）。点估计常处实际分布短尾。
+      var _timeNote = '⏱ 时间轴(各子浪/卖点到达日期)为历史摆动几何外推，非精确预测：walk-forward OOS 实测显示触达时间系统性偏短——预测中位 ~21 交易日 vs 实际中位 ~131 交易日，整体 MAPE≈82%（涨幅越大偏差越剧）。点估计常处实际分布的短尾，时间仅作方向性参考，勿按日机械布局。';
       // R163: 时间维度经验修正触达窗（守纪律：不改引擎、不污染 Brier；expDays 仅展示/回测归档用）
       var _anchor = (F.points && F.points[0] && F.points[0].date) ? F.points[0].date : null;
       var _vPt = null;
@@ -1162,9 +1165,10 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       if (_anchor && _vPt && _vPt.expDays != null) {
         // R208: 触达时间参考改用 addBizDays(已排 2026 休市+周末)，与卖点标记同源，
         // 不再用自然日 _addDays(会落在国庆/中秋等假期，误导)。
-        var _raw = addBizDays(_anchor, _vPt.expDays);
-        var _corr = addBizDays(_anchor, Math.round(_vPt.expDays * 1.5));
-        _horizCorr = '⏱ 触达时间参考：子浪ⅴ几何外推≈<b>' + _raw + '</b>；经验修正(×1.5·仅浪③单样本·低置信)≈<b>' + _corr + '</b>。中等幅度子浪模型常偏早30–60%，勿机械按日布局。';
+        // R续·②b：弃用旧式 ×1.5 单样本外推（OOS 证伪：PAVA 时间校准反而使 MAPE 92%→354%，无可学习信号）。
+        // 改为诚实经验分位区间：几何外推点估计为乐观下界；历史 OOS 实际中位约为其 3–8 倍（取决于目标涨幅）。
+        var _lo = addBizDays(_anchor, _vPt.expDays);
+        _horizCorr = '⏱ 触达时间参考（低置信·经验分位）：子浪ⅴ几何外推≈<b>' + _lo + '</b>（乐观下界）。walk-forward OOS 实测——实际触达中位约为该外推的 <b>3–8 倍</b>（目标涨幅越大越长），时间跨度极大、仅作方向性参考，勿机械按日布局。旧式 ×1.5 单样本修正已被 OOS 证伪（PAVA 校准 MAPE 92%→354%），已弃用。';
       }
       cal.innerHTML = calTxt + '<br><span class="' + ccCls + '">' + ccTxt + '</span>'
         + (rrTxt ? '<br><span style="color:#b8872a">' + rrTxt + '</span>' : '')
