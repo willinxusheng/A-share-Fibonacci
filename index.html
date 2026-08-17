@@ -7,6 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <!-- 防缓存：每次刷新强制拉取最新 data.js，避免旧版子浪时间轴(曾错画到2027)被缓存 -->
 <script>document.write('<script src="data/data.js?v=' + Date.now() + '"><\/script>');</script>
+<!-- 缠论视角快照（gen_chanlun_view.py 生成；独立于 data.js，不被 build_data 覆盖） -->
+<script>document.write('<script src="data/chanlun_view.js?v=' + Date.now() + '"><\/script>');</script>
 <style>
   :root {
     --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
