@@ -211,6 +211,8 @@ _block = False
 if _fa_str and _last is not None:
     try:
         _fa = datetime.datetime.strptime(_fa_str, "%Y-%m-%d %H:%M:%S")
+        # R273：fetchedAt 语义为北京时间(UTC+8)，与 runner 本地时区解耦。
+        _fa = _fa.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
         if str(_last) == _today.strftime("%Y-%m-%d"):
             if _fa.date().strftime("%Y-%m-%d") != str(_last):
                 print("  !! 抓取日(%s)与末根日(%s)不一致：疑似跨天陈旧 CSV 当新数据" % (_fa.date(), _last))

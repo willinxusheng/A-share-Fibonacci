@@ -1656,7 +1656,10 @@ def main():
     # 用 CSV 的 mtime 而非 build 时刻——上次事故是"13:20 盘中抓数、17:20 盘后构建"，若记 build
     # 时刻会漏掉；记 CSV 落盘时刻才能在"盘中抓数后未重跑 step1"时让门禁 FAIL 根防。
     _csv_mtime = os.path.getmtime(os.path.join(BASE, "data", "sh000001.csv"))
-    _fetched_at = _dt.datetime.fromtimestamp(_csv_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    # R273：fetchedAt 必须恒为北京时间(UTC+8)，避免 GitHub Actions UTC runner 上把 UTC 午后误判为盘中。
+    _fetched_at = _dt.datetime.fromtimestamp(
+        _csv_mtime, tz=_dt.timezone(_dt.timedelta(hours=8))
+    ).strftime("%Y-%m-%d %H:%M:%S")
     data = {
         "updated": last_date, "fetchedAt": _fetched_at, "lastClose": last_close, "w2Days": w2_days,
         "kline": kline, "wavePoints": wave_points, "subWavePoints": sub_wave_points,
