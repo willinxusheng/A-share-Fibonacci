@@ -26,6 +26,17 @@ from calibrate import run_calibration as _run_calib   # 概率模型 walk-forwar
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
+# eastmoney 近期拒绝仅带简单 User-Agent 的 urllib 请求(RemoteDisconnected)，
+# 需补全浏览器级请求头(Referer/Accept/identity 编码)方可正常返回。
+_EASTMONEY_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "identity",
+    "Referer": "https://quote.eastmoney.com/",
+    "Connection": "close",
+}
+
 
 def r2(x):
     return round(float(x), 2)
@@ -502,7 +513,7 @@ def main():
                 "&klt=101&fqt=0&beg=20210805&end=20991231") % secid
         for _attempt in range(3):
             try:
-                _req = urllib.request.Request(_url, headers={"User-Agent": "Mozilla/5.0"})
+                _req = urllib.request.Request(_url, headers=_EASTMONEY_HEADERS)
                 _d = json.loads(urllib.request.urlopen(_req, timeout=25).read().decode("utf-8"))
                 _kl = (_d.get("data") or {}).get("klines") or []
                 if not _kl:

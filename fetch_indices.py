@@ -29,13 +29,24 @@ _KLINE_URL = (
     "&klt=101&fqt=0&beg=20210805&end=20991231"
 )
 
+# eastmoney 近期拒绝仅带简单 User-Agent 的 urllib 请求(RemoteDisconnected)，
+# 需补全浏览器级请求头(Referer/Accept/identity 编码)方可正常返回。
+_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "identity",
+    "Referer": "https://quote.eastmoney.com/",
+    "Connection": "close",
+}
+
 
 def fetch_one(name, fn, secid):
     """拉取单指数日线并写 data/<fn>。成功返回 True，任何异常返回 False。"""
     path = os.path.join(BASE, "data", fn)
     try:
         url = _KLINE_URL.format(secid=secid)
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(url, headers=_HEADERS)
         raw = urllib.request.urlopen(req, timeout=25).read().decode("utf-8")
         d = json.loads(raw)
         kl = (d.get("data") or {}).get("klines") or []
