@@ -408,7 +408,11 @@ var CHART_FONT = '"Microsoft YaHei","PingFang SC",sans-serif';  // 图表画布�
 var charts = [];  // 收集所有实例，供窗口 resize 时统一重绘
 // R211：响应式 dataZoom 滑块——手机端放大触摸目标（手柄/滑轨更高更粗），避免误触与坐标轴重叠。
 // 横屏/竖屏切换时由 _resizeAll 重新套用，保证滚动条始终贴合当前屏宽。
-var IS_MOB = function () { return window.innerWidth <= 760 || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0); };
+var IS_MOB = function () {
+  var w = (typeof window !== 'undefined') ? window : {};
+  var nav = (typeof navigator !== 'undefined') ? navigator : {};
+  return (w.innerWidth || 9999) <= 760 || ('ontouchstart' in w) || (nav.maxTouchPoints || 0) > 0;
+};
 function _sliderZoom(xIdx, extra) {
   var m = IS_MOB();
   return Object.assign({

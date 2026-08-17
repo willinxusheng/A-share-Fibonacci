@@ -184,6 +184,7 @@ const elCache = {};
 const document = {
   getElementById:(id)=>{ if(knownIds.has(id)){ return elCache[id]||(elCache[id]=mkEl(id)); } return null; },
   querySelector:()=>({ style:{}, appendChild(){}, addEventListener(){}, innerHTML:'', textContent:'' }),
+  querySelectorAll:()=>[],
   createElement:()=>({ style:{}, appendChild(){}, setAttribute(){}, getContext:()=>({}) }),
   addEventListener:()=>{}, body:{ innerHTML:'', style:{}, appendChild(){} }, write:()=>{} };
 const echarts = { init:()=>({ setOption:()=>{}, resize:()=>{}, on:()=>{}, dispose:()=>{} }) };
