@@ -76,6 +76,7 @@
   .info-wrap > .info-ico { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; background: #e6a23c; color: #fff; font-size: 11px; font-weight: 700; font-style: normal; line-height: 1; }
   .info-pop { display: none; position: absolute; top: 26px; left: 0; width: 360px; padding: 13px 15px; background: #fff; border: 1px solid #d8dee9; border-radius: 9px; box-shadow: 0 8px 28px rgba(0,0,0,.16); font-size: 12.5px; line-height: 1.62; color: #2b2f38; z-index: 60; font-weight: 400; text-align: left; }
   .info-wrap:hover .info-pop, .info-wrap:focus-within .info-pop { display: block; }
+  .info-wrap.open .info-pop { display: block; }
   .info-pop b { color: #c23531; }
   .info-pop .pop-h { font-weight: 700; color: #1f3a5f; margin-bottom: 6px; display: block; }
   .info-pop ul { margin: 4px 0 0; padding-left: 18px; }
@@ -187,24 +188,42 @@
     .trigger-callout .tiers { grid-template-columns: 1fr; }
   }
 
-  /* ===== 手机横屏：高度有限，压缩图表高度、保持双列信息密度 ===== */
+  /* ===== 手机横屏深度优化：宽屏矮高 → 内容双列瀑布流，大幅削减纵向滚动；图表/字号/留白再压缩 ===== */
   @media (orientation: landscape) and (max-height: 560px) {
-    .wrap { padding: 0 16px 28px; }
-    .hero { padding: 12px 16px; }
-    .hero h1 { font-size: 16px; }
-    .hero .price { font-size: 26px; }
+    .wrap { padding: 0 12px 18px; }
+    .hero { padding: 8px 14px; gap: 12px; }
+    .hero h1 { font-size: 15px; margin: 2px 0 3px; }
+    .hero .price { font-size: 22px; margin-top: 2px; }
+    .hero .price-row { margin-top: 4px; gap: 8px; }
     .spark-box { display: none; }
-    .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
+    .nav a { font-size: 10.5px; padding: 7px 6px; }
+    .gauges { grid-template-columns: repeat(4, 1fr); }
+    .findings { grid-template-columns: repeat(4, 1fr); }
     .rules { grid-template-columns: repeat(3, 1fr); }
-    .panel { padding: 12px 14px; margin-bottom: 12px; }
-    .panel h2 { font-size: 14px; }
-    .nav a { font-size: 11px; padding: 8px 7px; }
+    .panel { padding: 10px 12px; margin-bottom: 10px; break-inside: avoid; -webkit-column-break-inside: avoid; }
+    .panel h2 { font-size: 13.5px; }
+    .panel h2 .no { width: 22px; height: 22px; font-size: 12px; }
     .chart-lg, #chart2, #chartSubF { height: 300px !important; }
     .chart-md { height: 240px; }
     .chart-sm { height: 200px; }
-    .cols2 { grid-template-columns: 1fr 1fr; }
-    table { font-size: 11.5px; }
-    th, td { padding: 6px 8px; }
+    .cols2 { grid-template-columns: 1fr; gap: 12px; }   /* 窄列内堆叠表格，避免挤压 */
+    .trigger-callout { padding: 10px 12px; margin: 2px 0 10px; }
+    .trigger-callout .tiers { grid-template-columns: repeat(3, 1fr); }
+    .trigger-callout .lead { font-size: 12px; margin-bottom: 8px; }
+    table { font-size: 11px; }
+    th, td { padding: 5px 7px; }
+    /* 表格在窄列内可横向滚动，避免溢出截断 */
+    .panel table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* 弹层在窄列内收窄，避免溢出 */
+    .info-pop { width: 260px; font-size: 11.5px; }
+    /* 双列瀑布流：面板并排，减少纵向滚动 */
+    .panels { column-count: 2; column-gap: 12px; }
+    /* 极窄横屏（小屏手机）回落单栏，避免图表被压得过窄 */
+    @media (max-width: 640px) {
+      .panels { column-count: 1; }
+      .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
+      .trigger-callout .tiers { grid-template-columns: 1fr; }
+    }
   }
 </style>
 </head>
@@ -234,9 +253,11 @@
 
 <div class="wrap">
   <div class="gauges" id="gauges" style="margin-top:18px"></div>
-  <div class="findings" id="findings"></div>
+    <div class="findings" id="findings"></div>
 
-  <div class="panel" id="p1">
+    <div class="panels">
+
+    <div class="panel" id="p1">
     <h2><span class="no">1</span>五年全景：浪型划分 × 斐波那契回撤 × 均线 × 时间窗</h2>
     <div class="note">金色虚线=五年区间斐波那契回撤位；竖线=斐波那契时间窗（灰=自浪起点，橙=自浪③顶）；MA60/MA250 为机构趋势基准（图例可点选）；副图：成交量 / RSI(14)。<b style="color:#2f9e44">▲ 绿色上三角＝买入信号</b>、<b style="color:#c23531">▼ 红色倒三角＝卖出信号</b>（悬停查看日期与价位）。<b style="color:#c23531">主图上三档红色/橙色/紫色横带=卖①②③触达触发带（自下向上进入即触发对应档卖出）。</b></div>
     <div class="trigger-callout" id="triggerCallout"></div>
@@ -333,8 +354,9 @@
     <h2><span class="no">8</span>预测回测：目标位命中率闭环（提升预测准确性）</h2>
     <div class="note" id="noteBt">每日生成的目标位（卖①②③ + 子浪ⅰ~ⅴ）自动存档，并在其后 30 个交易日内回看是否触及，统计各目标历史命中率。命中率仅基于「已到观察期」的样本；冷启动阶段（样本不足）不展示比率，避免误导。这是后续区间宽度与比率校准的数据地基。</div>
     <table id="btTable"></table>
-    <div class="note" id="btFoot" style="margin-top:10px"></div>
+      <div class="note" id="btFoot" style="margin-top:10px"></div>
   </div>
+  </div><!-- /.panels -->
 
   <div class="disc" id="discFoot">
     <b>免责声明</b>：以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。波浪理论数浪存在主观性，情景推演、观察矩阵及图中全部买/卖参考标记均为斐波那契+波浪理论推导的<b>参考位而非确定性指令</b>，不预示未来收益，亦不构成买卖建议。实际交易请以铁律线 3674.40 为风控基准独立决策。
@@ -386,7 +408,7 @@ var CHART_FONT = '"Microsoft YaHei","PingFang SC",sans-serif';  // 图表画布�
 var charts = [];  // 收集所有实例，供窗口 resize 时统一重绘
 // R211：响应式 dataZoom 滑块——手机端放大触摸目标（手柄/滑轨更高更粗），避免误触与坐标轴重叠。
 // 横屏/竖屏切换时由 _resizeAll 重新套用，保证滚动条始终贴合当前屏宽。
-var IS_MOB = function () { return window.innerWidth <= 760; };
+var IS_MOB = function () { return window.innerWidth <= 760 || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0); };
 function _sliderZoom(xIdx, extra) {
   var m = IS_MOB();
   return Object.assign({
@@ -1232,6 +1254,21 @@ function _resizeAll() {
 window.addEventListener('resize', _resizeAll);
 // 旋转屏幕（竖屏↔横屏）部分浏览器不触发 resize，显式补一次
 window.addEventListener('orientationchange', function () { setTimeout(_resizeAll, 200); });
+
+/* 触屏/桌面点击切换信息弹层（解决移动端 :hover 不可靠，iOS 常点不出来）；点外部/触屏他处关闭 */
+(function () {
+  document.querySelectorAll('.info-wrap').forEach(function (w) {
+    w.addEventListener('click', function (e) { e.stopPropagation(); w.classList.toggle('open'); });
+  });
+  document.addEventListener('click', function () {
+    document.querySelectorAll('.info-wrap.open').forEach(function (w) { w.classList.remove('open'); });
+  });
+  document.addEventListener('touchstart', function (e) {
+    if (!e.target.closest || !e.target.closest('.info-wrap')) {
+      document.querySelectorAll('.info-wrap.open').forEach(function (w) { w.classList.remove('open'); });
+    }
+  }, true);
+})();
 
 /* ---------- 表格组 ---------- */
 (function () {
