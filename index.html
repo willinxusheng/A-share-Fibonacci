@@ -20,7 +20,8 @@
   .wrap { max-width: 1480px; margin: 0 auto; padding: 0 24px 60px; }
 
   /* ===== 吸顶导航 ===== */
-  .nav { position: sticky; top: 0; z-index: 100; background: rgba(22,33,62,.96); backdrop-filter: blur(6px); display: flex; gap: 4px; padding: 0 22px; overflow-x: auto; box-shadow: 0 2px 8px rgba(22,33,62,.25); }
+  .nav { position: sticky; top: 0; z-index: 100; background: rgba(22,33,62,.96); backdrop-filter: blur(6px); display: flex; gap: 4px; padding: 0 22px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; box-shadow: 0 2px 8px rgba(22,33,62,.25); }
+  .nav::-webkit-scrollbar { display: none; }
   .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 11px 13px; white-space: nowrap; border-bottom: 2px solid transparent; }
   .nav a:hover { color: var(--gold); border-bottom-color: var(--gold); }
   .nav .brand { color: var(--gold); font-weight: 700; letter-spacing: 1px; }
@@ -151,7 +152,9 @@
   .trigger-callout .tier .foot { font-size: 11.5px; color: #8a6b68; margin-top: 7px; line-height: 1.55; }
   .tag-fire { display: inline-block; padding: 1px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; background: #fdecea; color: var(--red); border: 1px solid #f3c9c6; }
   @media (max-width: 960px) { .trigger-callout .tiers { grid-template-columns: 1fr; } }
-  @media (max-width: 960px) { .gauges, .findings, .rules { grid-template-columns: repeat(2,1fr); } .cols2 { grid-template-columns: 1fr; } }
+  @media (max-width: 960px) { .gauges, .findings, .rules { grid-template-columns: repeat(2,1fr); } .cols2 { grid-template-columns: 1fr; }
+    /* 中等屏（平板/小笔电）图表高度断点：避免 900px 桌面高在窄宽屏下又高又窄、比例失衡 */
+    .chart-lg, #chart2, #chartSubF { height: 600px !important; } .chart-md { height: 440px !important; } .chart-sm { height: 360px !important; } }
   @media (max-width: 640px) {
     .wrap { padding: 0 12px 40px; }
     .hero { padding: 20px 18px 16px; }
@@ -267,7 +270,7 @@
 </nav>
 
 <div class="wrap">
-  <div class="gauges" id="gauges" style="margin-top:18px"></div>
+  <div class="gauges" id="gauges"></div>
     <div class="findings" id="findings"></div>
 
     <div class="panels">
@@ -313,8 +316,6 @@
       </div>
     </div>
   </div>
-
-
 
   <div class="panel" id="p4">
     <h2><span class="no">4</span>浪⑤子浪走势预测（斐波那契细分推演）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">置信带（浅蓝阴影）是什么？</span><ul><li>它是子浪各目标位的<b>触达带</b>（与下方表格「区间(±σ)」逐点一致）：由近期波动率×期望触达天数推导的 ~1σ 区间；近端子浪(子浪ⅰ/ⅱ)带更窄、远端子浪ⅴ约 10%。<b>历史离散度参考 ±10.14%</b> 见下方校准卡。</li><li><b>为什么这么宽？</b> 波浪理论对点位的预测本身误差就大——±10% 是真实历史误差，不是画错。它说明<b>中间子浪的具体价位仅供参考</b>，别按点位死磕。</li><li><b>带的价值在两端</b>：浪⑤起点、子浪ⅴ≡卖① 是代数锁定的铁律位（带在端点收敛为 0），确定性最高；做决策应锚定这两个端点，强弱方向看上方「未来情景推演」图。</li><li>带 ≠ 可操作买卖区间，只是<b>误差背景</b>。</li></ul></span></span></h2>
@@ -510,7 +511,7 @@ document.getElementById('heroVol').textContent = 'HV20 ' + fmt1(D.volatility.now
       cls: g.fromW4Low >= 0 ? 'num-green' : 'num-red',
       bar: Math.min(Math.abs(g.fromW4Low) / 10 * 100, 100), bc: GREEN,
       d: g.fromW4Low >= 0 ? '07-20 低点以来的反弹幅度' : '已低于浪④低点', g: 'g3' },
-    { t: '浪⑤上行空间（' + _sLo.toFixed(2) + '~' + _sHi.toFixed(2) + '）', v: fmtPct(g.toTargetLow) + ' ~ ' + fmtPct(g.toTargetHigh),
+    { t: '浪⑤上行空间（' + _sLo.toFixed(2) + ' ~ ' + _sHi.toFixed(2) + '）', v: fmtPct(g.toTargetLow) + ' ~ ' + fmtPct(g.toTargetHigh),
       // A股约定 涨红跌绿 + 本看板主惯例「卖/兑现=红、买/持有=绿」：toTargetLow>=0 表示现价仍低于卖目标(上行空间尚在,持有)→绿；
       // <0 表示已触达浪⑤卖目标区(兑现/减仓)→红，与卖出目标表(num-red)/卖出三角/触发框主题一致。
       cls: g.toTargetLow >= 0 ? 'num-green' : 'num-red',
