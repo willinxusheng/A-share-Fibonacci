@@ -19,8 +19,8 @@ name: Daily A-share Fibonacci update
 
 on:
   schedule:
-    # 北京时间工作日 18:30 = UTC 10:30；GitHub cron 为 UTC，周一至周五 = 1-5
-    - cron: "30 10 * * 1-5"
+    # 北京时间工作日 16:30 = UTC 08:30；GitHub cron 为 UTC，周一至周五 = 1-5
+    - cron: "30 8 * * 1-5"
   workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
 
 # 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署）
