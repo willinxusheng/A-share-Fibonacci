@@ -17,8 +17,6 @@ import os
 import shutil
 import statistics
 import datetime as _dt
-import time
-import urllib.request
 
 import numpy as np
 import pandas as pd
@@ -29,17 +27,6 @@ from calibrate import run_calibration as _run_calib   # 概率模型 walk-forwar
 import datafeed  # R271 多源回退取数（eastmoney 主源 -> yahoo/stooq 海外可达回退）
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-
-# eastmoney 近期拒绝仅带简单 User-Agent 的 urllib 请求(RemoteDisconnected)，
-# 需补全浏览器级请求头(Referer/Accept/identity 编码)方可正常返回。
-_EASTMONEY_HEADERS = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Encoding": "identity",
-    "Referer": "https://quote.eastmoney.com/",
-    "Connection": "close",
-}
 
 
 def r2(x):
@@ -490,40 +477,6 @@ def main():
         except Exception:
             return False
 
-    def _try_eastmoney(secid, _p, _cache):
-        """原 ③：eastmoney push2 拉取（中国本地主源）。成功写 raw+缓存返回 True。"""
-        _url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
-                "&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56"
-                "&klt=101&fqt=0&beg=20210805&end=20991231") % secid
-        for _attempt in range(3):
-            try:
-                _req = urllib.request.Request(_url, headers=_EASTMONEY_HEADERS)
-                _d = json.loads(urllib.request.urlopen(_req, timeout=25).read().decode("utf-8"))
-                _kl = (_d.get("data") or {}).get("klines") or []
-                if not _kl:
-                    return False
-                _lines = ["| date | open | high | low | last | volume |",
-                          "| --- | --- | --- | --- | --- | --- |"]
-                for _row in _kl:
-                    _f = _row.split(",")
-                    if len(_f) < 6:
-                        continue
-                    # 表头按列名映射：date/open/high/low/last(收盘)/volume
-                    _lines.append("| %s | %s | %s | %s | %s | %s |"
-                                  % (_f[0], _f[1], _f[3], _f[4], _f[2], _f[5]))
-                os.makedirs(os.path.dirname(_cache), exist_ok=True)
-                with open(_p, "w", encoding="utf-8") as _fp:
-                    _fp.write("\n".join(_lines) + "\n")
-                shutil.copyfile(_p, _cache)   # 同步缓存
-                return True
-            except Exception as _e:
-                if _attempt < 2:
-                    time.sleep(2.0)
-                    continue
-                print("  [warn] eastmoney 拉取 %s 失败(转回退源): %s" % (secid, _e))
-                return False
-        return False
-
     def _try_datafeed(key, _p, _cache):
         """R271 海外可达回退：yahoo -> stooq（datafeed 内部链式）。成功写 raw+缓存返回 True。"""
         try:
@@ -536,15 +489,13 @@ def main():
         return False
 
     def _ensure_raw(name, fn, secid):
-        # R271 取数优先级：① eastmoney(中国主源) -> ② yahoo/stooq(海外可达回退)
-        # -> ③ 已提交/缓存旧 raw.md(可能滞后，但保证不崩溃)。
-        # 此前 ① 直接用本地 committed raw 会短路，导致海外 runner 永远用滞后数据；
-        # 改为网络优先，确保云端每日拉到当日新数据。本地 eastmoney 主源成功即同前行为。
+        # R271 取数优先级：① datafeed 链式回退（内部先 eastmoney 中国主源，再 yahoo/stooq 海外源）
+        # -> ② 已提交/缓存旧 raw.md（可能滞后，但保证不崩溃）。
+        # 网络优先确保云端每日拉到当日新数据；本地 eastmoney 主源成功即同前行为。
+        # 注：不再单独调 _try_eastmoney，因为 datafeed.fetch_rows 已含 eastmoney 优先，避免重复尝试。
         _p = os.path.join(BASE, "data", fn)
         _cache = os.path.join(BASE, "data", ".idx_cache", fn)
-        _key = fn[:-8] if fn.endswith("_raw.md") else fn   # 文件名 stem 即 datafeed key
-        if _try_eastmoney(secid, _p, _cache):
-            return True
+        _key = fn[:-7] if fn.endswith("_raw.md") else fn   # 文件名 stem 即 datafeed key（_raw.md 长度=7）
         if _try_datafeed(_key, _p, _cache):
             return True
         # 兜底：已提交/缓存的旧 raw.md（滞后但可用，绝不让管线崩溃）

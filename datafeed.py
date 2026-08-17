@@ -30,6 +30,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
+# CI 自动输出详细诊断：GitHub Actions 默认设置 CI=true
+_CI_DEBUG = os.environ.get("CI") == "true" or os.environ.get("DATAFEED_DEBUG") in ("1", "true", "yes")
+
+
+def _debug(fmt, *args):
+    if _CI_DEBUG:
+        sys.stderr.write(("[datafeed] " + fmt) % args + "\n")
+
 _EASTMONEY_HEADERS = {
     "User-Agent": UA,
     "Accept": "application/json, text/plain, */*",
@@ -53,20 +61,29 @@ SYMBOLS = {
 }
 
 
-def _http_get(url, headers=None, timeout=25, retries=2):
+def _http_get(url, headers=None, timeout=25, retries=2, tag=None):
     """带 cookie jar 与 UA 的 GET；失败/限流重试；最终失败返回 None（不抛）。"""
+    tag = tag or url[:60]
     cj = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
     hdrs = {"User-Agent": UA, "Accept-Encoding": "identity", "Connection": "close"}
     if headers:
         hdrs.update(headers)
-    for _ in range(retries + 1):
+    for attempt in range(retries + 1):
         try:
+            _debug("GET %s (attempt %d/%d, timeout=%ds)", tag, attempt + 1, retries + 1, timeout)
             req = urllib.request.Request(url, headers=hdrs)
             with opener.open(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "replace")
-        except Exception:  # noqa: BLE001 - 网络层任意异常均降级
-            time.sleep(2.0)
+                code = r.getcode()
+                data = r.read()
+                text = data.decode("utf-8", "replace")
+                _debug("GET %s -> HTTP %d, %d bytes", tag, code, len(data))
+                return text
+        except Exception as e:  # noqa: BLE001 - 网络层任意异常均降级
+            _debug("GET %s attempt %d failed: %s", tag, attempt + 1, e)
+            if attempt < retries:
+                time.sleep(2.0)
+    _debug("GET %s all attempts exhausted -> None", tag)
     return None
 
 
@@ -88,13 +105,16 @@ def _eastmoney_rows(secid):
     url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
            "&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56"
            "&klt=101&fqt=0&beg=20210805&end=20991231") % secid
-    raw = _http_get(url, _EASTMONEY_HEADERS, retries=2)
+    _debug("trying eastmoney secid=%s", secid)
+    raw = _http_get(url, _EASTMONEY_HEADERS, timeout=10, retries=1, tag="eastmoney")
     if not raw:
+        _debug("eastmoney secid=%s -> no response", secid)
         return None
     try:
         d = json.loads(raw)
         kl = (d.get("data") or {}).get("klines") or []
         if not kl:
+            _debug("eastmoney secid=%s -> empty klines", secid)
             return None
         rows = []
         for row in kl:
@@ -103,24 +123,33 @@ def _eastmoney_rows(secid):
                 continue
             # eastmoney: f51日期,f52开,f53收,f54高,f55低,f56量
             rows.append((f[0], f[1], f[3], f[4], f[2], f[5]))
+        _debug("eastmoney secid=%s -> %d rows", secid, len(rows))
         return rows if rows else None
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        _debug("eastmoney secid=%s parse error: %s", secid, e)
         return None
 
 
 def _yahoo_rows(symbol):
     # 先取 fc.yahoo.com cookie，降低 sad-panda 概率
-    _http_get("https://fc.yahoo.com", retries=1)
+    _debug("trying yahoo symbol=%s", symbol)
+    _http_get("https://fc.yahoo.com", timeout=10, retries=0, tag="yahoo-cookie")
     for host in ("query1", "query2"):
         url = ("https://%s.finance.yahoo.com/v8/finance/chart/%s"
                "?interval=1d&range=5y") % (host, symbol)
-        raw = _http_get(url, retries=2)
+        _debug("trying yahoo host=%s symbol=%s", host, symbol)
+        raw = _http_get(url, timeout=15, retries=1, tag="yahoo-chart")
         if not raw:
             continue
         try:
             d = json.loads(raw)
+            _err = (d.get("chart") or {}).get("error")
+            if _err:
+                _debug("yahoo %s error: %s", symbol, _err)
+                continue
             res = (d.get("chart") or {}).get("result")
             if not res:
+                _debug("yahoo %s -> empty chart result", symbol)
                 continue
             r = res[0]
             ts = r.get("timestamp") or []
@@ -136,7 +165,7 @@ def _yahoo_rows(symbol):
                 if i >= len(c) or c[i] is None:
                     continue
                 try:
-                    dt = datetime.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")
+                    dt = datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
                 except Exception:
                     continue
                 cv = c[i]
@@ -146,19 +175,25 @@ def _yahoo_rows(symbol):
                 vv = v[i] if (i < len(v) and v is not None and v[i] is not None) else 0
                 rows.append((dt, _fmt_price(ov), _fmt_price(hv),
                              _fmt_price(lv), _fmt_price(cv), _fmt_vol(vv)))
+            _debug("yahoo %s -> %d rows", symbol, len(rows))
             return rows if rows else None
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            _debug("yahoo %s parse error: %s", symbol, e)
             continue
+    _debug("yahoo symbol=%s -> all hosts failed", symbol)
     return None
 
 
 def _stooq_rows(symbol):
     url = "https://stooq.com/q/d/l/?s=%s&i=d" % symbol
-    raw = _http_get(url, retries=1)
+    _debug("trying stooq symbol=%s", symbol)
+    raw = _http_get(url, timeout=15, retries=0, tag="stooq")
     if not raw:
+        _debug("stooq symbol=%s -> no response", symbol)
         return None
     if not raw.lstrip().lower().startswith("date,"):
         # 反爬挑战页或非 CSV -> 视为失败
+        _debug("stooq symbol=%s -> not a CSV (len=%d head=%.80s)", symbol, len(raw), raw.lstrip())
         return None
     try:
         rd = csv.reader(io.StringIO(raw))
@@ -171,6 +206,7 @@ def _stooq_rows(symbol):
         ci = idx.get("close")
         vi = idx.get("volume")
         if di is None or ci is None:
+            _debug("stooq symbol=%s -> missing date/close column", symbol)
             return None
         rows = []
         for parts in rd:
@@ -187,14 +223,17 @@ def _stooq_rows(symbol):
                              _fmt_price(ll), _fmt_price(c), _fmt_vol(v)))
             except Exception:  # noqa: BLE001
                 continue
+        _debug("stooq symbol=%s -> %d rows", symbol, len(rows))
         return rows if rows else None
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        _debug("stooq symbol=%s parse error: %s", symbol, e)
         return None
 
 
 def fetch_rows(key):
     """链式取数：eastmoney -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。"""
     if key not in SYMBOLS:
+        _debug("fetch_rows unknown key=%s", key)
         return None
     em, yh, st = SYMBOLS[key]
     rows = _eastmoney_rows(em)
@@ -206,6 +245,7 @@ def fetch_rows(key):
     rows = _stooq_rows(st)
     if rows:
         return rows
+    _debug("fetch_rows key=%s -> all sources failed", key)
     return None
 
 

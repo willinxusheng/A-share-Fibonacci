@@ -24,7 +24,7 @@ INDICES = [
 def fetch_one(name, fn):
     """拉取单指数日线并写 data/<fn>。成功返回 True，全源失败返回 False。"""
     path = os.path.join(BASE, "data", fn)
-    key = fn[:-8] if fn.endswith("_raw.md") else fn
+    key = fn[:-7] if fn.endswith("_raw.md") else fn
     try:
         ok = datafeed.fetch_and_write(key, path)
     except Exception as e:  # noqa: BLE001
