@@ -516,15 +516,17 @@ def main():
                 except Exception:
                     pass
             return True
-        # 兜底：已提交/缓存的旧 raw.md（滞后但可用，绝不让管线崩溃）
-        if os.path.exists(_p) and _valid_raw(_p):
-            return True
+        # 兜底(R278+)：fetch 全失败时，优先用近期 .idx_cache（fetch 成功时写入，时效性最佳），
+        # 覆盖可能陈旧/死基线的 _p（git 跟踪的 raw.md 基线可能停在数年前的死数据，如副指数 2021 基线）。
+        # 仅当 cache 也缺失/无效时才退化到 git 基线 _p，避免 2021 死数据静默污染共振(R277 灾难重演)。
         if os.path.exists(_cache) and _valid_raw(_cache):
             try:
-                shutil.copyfile(_cache, _p)
+                shutil.copyfile(_cache, _p)   # 用近期 cache 覆盖可能陈旧的 _p，确保后续 norm_series 读近期
                 return True
             except Exception:
                 pass
+        if os.path.exists(_p) and _valid_raw(_p):
+            return True
         print("  [warn] %s 全源取数失败，共振回退为 0" % name)
         return False
 
