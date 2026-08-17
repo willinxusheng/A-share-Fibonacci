@@ -235,7 +235,7 @@
   <div>
     <div class="kicker">FIBONACCI · ELLIOTT WAVE · 每日自动更新</div>
     <h1>上证指数（000001.SH）斐波那契波浪专业分析看板</h1>
-    <div class="meta"><span id="upd0"></span> ~ <span id="upd1"></span>（日K线）｜数据源：腾讯自选股｜价格 × 时间 × 量能 × 多周期 四维验证</div>
+    <div class="meta"><span id="upd0"></span> ~ <span id="upd1"></span>（日K线）｜数据源：腾讯自选股</div>
     <div class="price-row">
       <div class="price" id="heroPrice"></div>
       <span class="badge gold" id="heroWave"></span>
@@ -250,7 +250,7 @@
 
 <nav class="nav">
   <a class="brand" href="#">Φ 波浪看板</a>
-  <a href="#p1">全景K线</a><a href="#p2">数浪校验</a><a href="#p3">通道推演</a><a href="#pLink">板块联动</a><a href="#pXM">跨市场</a><a href="#p4">子浪预测</a><a href="#p5">买卖框架</a><a href="#p6">预测回测</a>
+  <a href="#p1">全景K线</a><a href="#p2">数浪校验</a><a href="#p3">通道推演</a><a href="#p4">子浪预测</a><a href="#p5">买卖框架</a><a href="#p6">预测回测</a>
 </nav>
 
 <div class="wrap">
@@ -301,23 +301,10 @@
     </div>
   </div>
 
-  <div class="panel" id="pLink">
-    <h2><span class="no">4</span>板块/指数联动（趋势交叉验证）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">板块联动是什么？</span><ul><li>用<b>沪深300、创业板指</b>等宽基近20日方向，对上证趋势做<b>纯交叉验证</b>（不含上证自身，避免自指确认）。</li><li>广度系数 ±1=多指数同向确认（势齐）、0=背离（势散）；它管"势是否齐"，与子浪概率（管"到不到"）互补。</li><li>上证自身单独列出供<b>背离对照</b>：若上证涨而宽基跌，说明是少数权重拉抬的窄幅行情，需警惕。</li><li>若某宽基<b>数据缺失</b>（取数限流），信号自动降级并明示，绝不静默伪装成满置信。</li></ul></span></span></h2>
-    <div class="note" id="linkSummary"></div>
-    <table id="linkTable"></table>
-    <div id="linkStyle" style="margin-top:14px"></div>
-    <div id="linkWarn"></div>
-  </div>
 
-  <div class="panel" id="pXM">
-    <h2><span class="no">5</span>跨市场联动（港股+美股趋势交叉验证）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">跨市场联动是什么？</span><ul><li>用<b>恒生、恒生科技、标普500、纳斯达克</b>近20日方向，对上证趋势做<b>纯跨市场交叉验证</b>（不含上证自身）。</li><li>广度系数 ±1=全球 equity 同向确认（势齐）、0=背离（势散）；它管"全球风险情绪是否齐"，与子浪概率（管"到不到"）互补。</li><li>上证自身单独列出供<b>背离对照</b>：若上证涨而全球 equity 跌，说明是 A股 独立行情，需警惕外围拖累。</li><li>美股数据为<b>上一交易日</b>（中美时差），港股/上证为当日；20日趋势对比不受单日时差影响。</li><li>若某市场<b>数据缺失</b>（取数限流），信号自动降级并明示，绝不静默伪装成满置信。</li></ul></span></span></h2>
-    <div class="note" id="xmSummary"></div>
-    <table id="xmTable"></table>
-    <div id="xmWarn"></div>
-  </div>
 
   <div class="panel" id="p4">
-    <h2><span class="no">6</span>浪⑤子浪走势预测（斐波那契细分推演）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">置信带（浅蓝阴影）是什么？</span><ul><li>它是子浪各目标位的<b>触达带</b>（与下方表格「区间(±σ)」逐点一致）：由近期波动率×期望触达天数推导的 ~1σ 区间；近端子浪(子浪ⅰ/ⅱ)带更窄、远端子浪ⅴ约 10%。<b>历史离散度参考 ±10.14%</b> 见下方校准卡。</li><li><b>为什么这么宽？</b> 波浪理论对点位的预测本身误差就大——±10% 是真实历史误差，不是画错。它说明<b>中间子浪的具体价位仅供参考</b>，别按点位死磕。</li><li><b>带的价值在两端</b>：浪⑤起点、子浪ⅴ≡卖① 是代数锁定的铁律位（带在端点收敛为 0），确定性最高；做决策应锚定这两个端点，强弱方向看上方「未来情景推演」图。</li><li>带 ≠ 可操作买卖区间，只是<b>误差背景</b>。</li></ul></span></span></h2>
+    <h2><span class="no">4</span>浪⑤子浪走势预测（斐波那契细分推演）<span class="info-wrap" tabindex="0"><span class="info-ico">i</span><span class="info-pop"><span class="pop-h">置信带（浅蓝阴影）是什么？</span><ul><li>它是子浪各目标位的<b>触达带</b>（与下方表格「区间(±σ)」逐点一致）：由近期波动率×期望触达天数推导的 ~1σ 区间；近端子浪(子浪ⅰ/ⅱ)带更窄、远端子浪ⅴ约 10%。<b>历史离散度参考 ±10.14%</b> 见下方校准卡。</li><li><b>为什么这么宽？</b> 波浪理论对点位的预测本身误差就大——±10% 是真实历史误差，不是画错。它说明<b>中间子浪的具体价位仅供参考</b>，别按点位死磕。</li><li><b>带的价值在两端</b>：浪⑤起点、子浪ⅴ≡卖① 是代数锁定的铁律位（带在端点收敛为 0），确定性最高；做决策应锚定这两个端点，强弱方向看上方「未来情景推演」图。</li><li>带 ≠ 可操作买卖区间，只是<b>误差背景</b>。</li></ul></span></span></h2>
     <div class="scn-switch">
       <label for="scenarioSel">情景切换：</label>
       <select id="scenarioSel">
@@ -336,7 +323,7 @@
   </div>
 
   <div class="panel" id="p5">
-    <h2><span class="no">7</span>买卖参考框架（波浪 + 斐波那契推导 · 仅供参考）</h2>
+    <h2><span class="no">5</span>买卖参考框架（波浪 + 斐波那契推导 · 仅供参考）</h2>
     <div class="note" id="noteP8">下列买 / 卖参考位由<b>当前浪型 + 斐波那契比例</b>推导，是"到了哪里、做什么动作"的参考框架，<b>不是确定性指令</b>。实际下单须结合实时量价、仓位与风险承受力独立判断，并严格以铁律线 3674.40 为风控位。</div>
     <div class="cols2">
       <div>
@@ -353,7 +340,7 @@
   </div>
 
   <div class="panel" id="p6">
-    <h2><span class="no">8</span>预测回测：目标位命中率闭环（提升预测准确性）</h2>
+    <h2><span class="no">6</span>预测回测：目标位命中率闭环（提升预测准确性）</h2>
     <div class="note" id="noteBt">每日生成的目标位（卖①②③ + 子浪ⅰ~ⅴ）自动存档，并在其后 30 个交易日内回看是否触及，统计各目标历史命中率。命中率仅基于「已到观察期」的样本；冷启动阶段（样本不足）不展示比率，避免误导。这是后续区间宽度与比率校准的数据地基。</div>
     <table id="btTable"></table>
       <div class="note" id="btFoot" style="margin-top:10px"></div>
@@ -1459,129 +1446,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote;
 })();
 
-/* ---------- 面板4：板块/指数联动（趋势交叉验证）---------- */
-(function () {
-  var host = document.getElementById('linkTable');
-  var warn = document.getElementById('linkWarn');
-  var sumEl = document.getElementById('linkSummary');
-  if (!host) return;
-  var r = D.resonance || {};
-  var det = (r.details || []).slice();
-  // 按近20日收益降序：领涨在前(红)、领跌在后(绿) —— A股约定 涨红跌绿
-  det.sort(function (a, b) { return (b.ret20 || 0) - (a.ret20 || 0); });
-  var rows = det.map(function (d) {
-    var up = (d.ret20 || 0) >= 0;
-    var cls = up ? 'num-red' : 'num-green';
-    var bc = up ? RED : GREEN;
-    var sign = up ? '+' : '';
-    var isSh = d.name === '上证指数';
-    var bar = Math.min(Math.abs(d.ret20) / 15 * 100, 100);
-    return '<tr' + (isSh ? ' style="background:#f3f5fa;font-weight:bold"' : '') + '>' +
-      '<td>' + (isSh ? '🔶 ' : '') + d.name + (isSh ? ' <span style="color:#98a0ad;font-size:11px">(基准)</span>' : '') + '</td>' +
-      '<td class="' + cls + '"><b>' + sign + (d.ret20 != null ? d.ret20.toFixed(2) : '—') + '%</b></td>' +
-      '<td style="width:42%"><div style="height:8px;background:#eef0f4;border-radius:4px;overflow:hidden"><i style="width:' + bar + '%;background:' + bc + ';display:block;height:100%"></i></div></td>' +
-      '</tr>';
-  }).join('');
-  host.innerHTML = '<tr><th>指数</th><th>近20日</th><th>强度</th></tr>' +
-    (rows || '<tr><td colspan="3" style="color:#98a0ad">无可用指数数据</td></tr>');
-  // 广度摘要 + 缺失告警
-  var bt = r.breadth != null ? r.breadth : 0;
-  var bmag = r.breadthMag != null ? r.breadthMag : 0;
-  var avail = r.breadthAvailable != null ? r.breadthAvailable : 0;
-  var total = r.breadthTotal != null ? r.breadthTotal : 0;
-  var miss = r.breadthMissing || [];
-  var dirTxt = bt > 0.05 ? '上行确认（势齐）' : (bt < -0.05 ? '下行 / 背离（势散）' : '中性背离');
-  if (sumEl) {
-    sumEl.innerHTML = '广度系数 <b>' + bt.toFixed(2) + '</b>（' + dirTxt + '）｜ 幅度强度 <b>' + bmag.toFixed(2) +
-      '</b> ｜ 确认宽基 <b>' + avail + '/' + total + '</b>（沪深300/创业板指/上证50/中证500/科创50）。上证自身单列供背离对照。';
-  }
-  if (warn) {
-    if (miss.length) {
-      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
-        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），共振信号已<b>自动降级</b>：广度按可用宽基比例缩放，<b>请勿据此满置信判断</b>。待每日管线（16:30）重拉成功后可恢复。</div>';
-    } else {
-      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 确认宽基数据齐全，共振信号有效。</div>';
-    }
-  }
-  // 风格/市值轮动（R168）：用已有 5 只宽基天然代理的风格强弱，提示资金挤向哪类
-  var stEl = document.getElementById('linkStyle');
-  if (stEl) {
-    var st = r.style || {};
-    var grps = st.groups || [];
-    var gRows = grps.map(function (g) {
-      var v = g.ret20, up = (v != null && v >= 0), cls = up ? 'num-red' : 'num-green';
-      var sign = (v != null && v >= 0) ? '+' : '';
-      return '<tr><td>' + (g.group || '') + ' <span style="color:#98a0ad;font-size:11px">(' + (g.name || '') + ')</span></td>' +
-        '<td class="' + cls + '"><b>' + (v != null ? (sign + v.toFixed(2) + '%') : '—') + '</b></td></tr>';
-    }).join('');
-    var _diff = function (v, txt) {
-      if (v == null) return '<span style="color:#98a0ad">对照 ' + (txt || '') + '：数据不足</span>';
-      var _up = v >= 0, _cls = _up ? 'num-red' : 'num-green', _s = _up ? '+' : '';
-      return '对照 <b>' + _s + v.toFixed(2) + 'pp</b> <span class="' + _cls + '">' + (txt || '') + '</span>';
-    };
-    stEl.innerHTML =
-      '<div style="font-weight:600;margin-bottom:6px;font-size:13px">风格 / 市值轮动（资金挤向哪类）</div>' +
-      '<table style="margin-bottom:8px">' +
-      '<tr><th>风格</th><th>近20日</th></tr>' + (gRows || '<tr><td colspan="2" style="color:#98a0ad">无可用数据</td></tr>') +
-      '</table>' +
-      '<div style="font-size:12.5px;line-height:1.9">' +
-      '• 价值↔成长：' + _diff(st.valueVsGrowth, st.valueVsGrowthTxt) + '<br/>' +
-      '• 大盘↔中盘：' + _diff(st.largeVsMid, st.largeVsMidTxt) + '<br/>' +
-      '• 硬科技(科创50)近20日：<b>' + (st.techRet20 != null ? (st.techRet20 >= 0 ? '+' : '') + st.techRet20.toFixed(2) + '%' : '—') + '</b>' +
-      '</div>';
-  }
-})();
 
-/* ---------- 面板5：跨市场联动（港股+美股趋势交叉验证）---------- */
-(function () {
-  var host = document.getElementById('xmTable');
-  var warn = document.getElementById('xmWarn');
-  var sumEl = document.getElementById('xmSummary');
-  if (!host) return;
-  var r = D.crossMarket || {};
-  // 上证自身作为背离对照基准行（置顶、高亮）；外部市场按近20日收益降序(领涨红/领跌绿)
-  var shR20 = (r.shRet20 != null) ? r.shRet20 : null;
-  var rowsData = [];
-  if (shR20 != null) rowsData.push({ name: "上证指数", ret20: shR20, isSh: true });
-  var det = (r.details || []).slice();
-  det.sort(function (a, b) { return (b.ret20 || 0) - (a.ret20 || 0); });
-  rowsData = rowsData.concat(det);
-  var rows = rowsData.map(function (d) {
-    var up = (d.ret20 || 0) >= 0;
-    var cls = up ? 'num-red' : 'num-green';
-    var bc = up ? RED : GREEN;
-    var sign = up ? '+' : '';
-    var isSh = !!d.isSh;
-    var bar = Math.min(Math.abs(d.ret20) / 15 * 100, 100);
-    return '<tr' + (isSh ? ' style="background:#f3f5fa;font-weight:bold"' : '') + '>' +
-      '<td>' + (isSh ? '🔶 ' : '') + d.name + (isSh ? ' <span style="color:#98a0ad;font-size:11px">(基准)</span>' : '') + '</td>' +
-      '<td class="' + cls + '"><b>' + sign + (d.ret20 != null ? d.ret20.toFixed(2) : '—') + '%</b></td>' +
-      '<td style="width:42%"><div style="height:8px;background:#eef0f4;border-radius:4px;overflow:hidden"><i style="width:' + bar + '%;background:' + bc + ';display:block;height:100%"></i></div></td>' +
-      '</tr>';
-  }).join('');
-  host.innerHTML = '<tr><th>市场</th><th>近20日</th><th>强度</th></tr>' +
-    (rows || '<tr><td colspan="3" style="color:#98a0ad">无可用跨市场数据</td></tr>');
-  // 广度摘要 + 缺失告警
-  var bt = r.breadth != null ? r.breadth : 0;
-  var bmag = r.breadthMag != null ? r.breadthMag : 0;
-  var avail = r.breadthAvailable != null ? r.breadthAvailable : 0;
-  var total = r.breadthTotal != null ? r.breadthTotal : 0;
-  var miss = r.breadthMissing || [];
-  var dirTxt = bt > 0.05 ? '上行确认（势齐）' : (bt < -0.05 ? '下行 / 背离（势散）' : '中性背离');
-  if (sumEl) {
-    sumEl.innerHTML = '跨市场广度系数 <b>' + bt.toFixed(2) + '</b>（' + dirTxt + '）｜ 幅度强度 <b>' + bmag.toFixed(2) +
-      '</b> ｜ 确认市场 <b>' + avail + '/' + total + '</b>（恒生/恒生科技/标普500/纳斯达克）。上证自身近20日 <b>' +
-      (shR20 != null ? (shR20 >= 0 ? '+' : '') + shR20.toFixed(2) + '%' : '—') + '</b> 供背离对照（美股为上一交易日）。';
-  }
-  if (warn) {
-    if (miss.length) {
-      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
-        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），跨市场信号已<b>自动降级</b>：广度按可用市场比例缩放，<b>请勿据此满置信判断</b>。待每日管线（16:30）重拉成功后可恢复。</div>';
-    } else {
-      warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 跨市场数据齐全，信号有效。</div>';
-    }
-  }
-})();
 </script>
 </body>
 </html>
