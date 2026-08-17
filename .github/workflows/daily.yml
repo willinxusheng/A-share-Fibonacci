@@ -11,20 +11,22 @@
 #   2) 若 main 分支开启了"Require a pull request before merging"等保护规则，
 #      需允许本工作流推送（或暂时对 main 关闭该保护），否则 push 会被拒。
 #
-# 不确定项：eastmoney 公开接口 (push2his.eastmoney.com) 在 GitHub 海外 runner 上
-#   的可达性无法预判，须首跑实测。若取数失败，preflight/validate 的新鲜度闸门会
-#   让本工作流以非零状态失败（不提交、不破坏线上旧数据），属预期内的安全失败。
+# 取数架构（R271）：多源链式回退，彻底解决海外 runner 取数问题。
+#   fetch_indices.py / build_data._ensure_raw 经 datafeed.py 取数：
+#     ① eastmoney (push2his) —— 中国本地主源（本机/Mac 走此路径，与历史一致）
+#     ② yahoo finance (query1/2.finance.yahoo.com) —— 美国本土服务，
+#         GitHub 海外 runner 可正常访问，是云端每日更新的关键回退
+#     ③ stooq (stooq.com) —— 补充回退（部分网络会被反爬挑战，解析失败即跳过）
+#   任一源成功即写入与 read_kline_md 兼容的 6 列 markdown 表；全失败才告警降级。
+#   因此：本工作流在 GitHub 海外 runner 上也能拉到当日数据，云端单写成立，
+#   用户本地电脑关机/出差也不影响每日自动更新。
 
 name: Daily A-share Fibonacci update
 
 on:
-  # 2026-08-17 实测：GitHub 海外 runner 无法访问 eastmoney 取数接口，
-  # schedule 定时触发会每天失败并发送通知。暂时注释掉自动定时，只保留
-  # workflow_dispatch 手动触发，作为"本机写入器故障时"的应急备份入口。
-  # 如需恢复云端单写，须先解决海外取数可达性（代理/镜像/换数据源）。
-  # schedule:
-  #   # 北京时间工作日 16:30 = UTC 08:30；GitHub cron 为 UTC，周一至周五 = 1-5
-  #   - cron: "30 8 * * 1-5"
+  # 北京时间工作日 16:30 = UTC 08:30；GitHub cron 为 UTC，周一至周五 = 1-5
+  schedule:
+    - cron: "30 8 * * 1-5"
   workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
 
 # 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署）
@@ -62,7 +64,7 @@ jobs:
         with:
           node-version: "22"   # audit52 的 node 沙箱运行时依赖 PATH 中的 node
 
-      - name: Fetch indices (eastmoney)
+      - name: Fetch indices (multi-source fallback)
         run: python fetch_indices.py
 
       - name: Preflight data sanity

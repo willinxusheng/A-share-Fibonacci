@@ -1,0 +1,241 @@
+# -*- coding: utf-8 -*-
+"""多源回退 K 线取数（R271 海外可达改造）。
+
+背景：GitHub Actions 海外 runner 无法访问 eastmoney（取数失败），导致云端每日自动更新
+整轮失败。本模块提供「eastmoney(中国本地主源) -> yahoo(美国本土服务，海外可达) ->
+stooq(次回退)」的链式取数，归一化为与 read_kline_md 兼容的 6 列 markdown 表：
+
+    | date | open | high | low | last | volume |
+
+- eastmoney：仅中国网络可达，本地/Mac 走此路径（与历史行为完全一致）。
+- yahoo：美国本土服务，从 GitHub 海外 runner 访问正常；是云端更新的关键回退。
+- stooq：补充回退，部分网络会被反爬挑战，解析失败即跳过（绝不崩溃）。
+
+纯标准库实现（urllib/http.cookiejar/csv/json/datetime），不引入第三方依赖，
+可直接在 CI runner 与本地 venv 运行。
+"""
+import csv
+import datetime
+import http.cookiejar
+import io
+import json
+import os
+import sys
+import time
+import urllib.request
+
+# 允许以脚本或模块方式运行，确保同目录可 import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+
+_EASTMONEY_HEADERS = {
+    "User-Agent": UA,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "identity",
+    "Referer": "https://quote.eastmoney.com/",
+    "Connection": "close",
+}
+
+# internal_key -> (eastmoney_secid, yahoo_symbol, stooq_symbol)
+SYMBOLS = {
+    "sh000001": ("1.000001", "000001.SS", "000001.ss"),
+    "sh000300": ("1.000300", "000300.SS", "000300.ss"),
+    "sz399006": ("0.399006", "399006.SZ", "399006.sz"),
+    "sh000016": ("1.000016", "000016.SS", "000016.ss"),
+    "sh000905": ("1.000905", "000905.SS", "000905.ss"),
+    "sh000688": ("1.000688", "000688.SS", "000688.ss"),
+    "hkHSI":    ("100.HSI", "^HSI", "hsi"),
+    "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech"),
+    "usINX":    ("100.SPX", "^GSPC", "spx"),
+    "usIXIC":   ("100.NDX", "^IXIC", "ixic"),
+}
+
+
+def _http_get(url, headers=None, timeout=25, retries=2):
+    """带 cookie jar 与 UA 的 GET；失败/限流重试；最终失败返回 None（不抛）。"""
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    hdrs = {"User-Agent": UA, "Accept-Encoding": "identity", "Connection": "close"}
+    if headers:
+        hdrs.update(headers)
+    for _ in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers=hdrs)
+            with opener.open(req, timeout=timeout) as r:
+                return r.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 - 网络层任意异常均降级
+            time.sleep(2.0)
+    return None
+
+
+def _fmt_price(x):
+    try:
+        return "%.2f" % float(x)
+    except (ValueError, TypeError):
+        return "0.00"
+
+
+def _fmt_vol(x):
+    try:
+        return str(int(round(float(x))))
+    except (ValueError, TypeError):
+        return "0"
+
+
+def _eastmoney_rows(secid):
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
+           "&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56"
+           "&klt=101&fqt=0&beg=20210805&end=20991231") % secid
+    raw = _http_get(url, _EASTMONEY_HEADERS, retries=2)
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        kl = (d.get("data") or {}).get("klines") or []
+        if not kl:
+            return None
+        rows = []
+        for row in kl:
+            f = row.split(",")
+            if len(f) < 6:
+                continue
+            # eastmoney: f51日期,f52开,f53收,f54高,f55低,f56量
+            rows.append((f[0], f[1], f[3], f[4], f[2], f[5]))
+        return rows if rows else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _yahoo_rows(symbol):
+    # 先取 fc.yahoo.com cookie，降低 sad-panda 概率
+    _http_get("https://fc.yahoo.com", retries=1)
+    for host in ("query1", "query2"):
+        url = ("https://%s.finance.yahoo.com/v8/finance/chart/%s"
+               "?interval=1d&range=5y") % (host, symbol)
+        raw = _http_get(url, retries=2)
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+            res = (d.get("chart") or {}).get("result")
+            if not res:
+                continue
+            r = res[0]
+            ts = r.get("timestamp") or []
+            q = (r.get("indicators") or {}).get("quote") or [{}]
+            q0 = q[0]
+            o = q0.get("open") or []
+            h = q0.get("high") or []
+            lo = q0.get("low") or []
+            c = q0.get("close") or []
+            v = q0.get("volume") or []
+            rows = []
+            for i, t in enumerate(ts):
+                if i >= len(c) or c[i] is None:
+                    continue
+                try:
+                    dt = datetime.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")
+                except Exception:
+                    continue
+                cv = c[i]
+                ov = o[i] if (i < len(o) and o[i] is not None) else cv
+                hv = h[i] if (i < len(h) and h[i] is not None) else cv
+                lv = lo[i] if (i < len(lo) and lo[i] is not None) else cv
+                vv = v[i] if (i < len(v) and v is not None and v[i] is not None) else 0
+                rows.append((dt, _fmt_price(ov), _fmt_price(hv),
+                             _fmt_price(lv), _fmt_price(cv), _fmt_vol(vv)))
+            return rows if rows else None
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _stooq_rows(symbol):
+    url = "https://stooq.com/q/d/l/?s=%s&i=d" % symbol
+    raw = _http_get(url, retries=1)
+    if not raw:
+        return None
+    if not raw.lstrip().lower().startswith("date,"):
+        # 反爬挑战页或非 CSV -> 视为失败
+        return None
+    try:
+        rd = csv.reader(io.StringIO(raw))
+        header = next(rd)
+        idx = {h.lower(): i for i, h in enumerate(header)}
+        di = idx.get("date")
+        oi = idx.get("open")
+        hi = idx.get("high")
+        li = idx.get("low")
+        ci = idx.get("close")
+        vi = idx.get("volume")
+        if di is None or ci is None:
+            return None
+        rows = []
+        for parts in rd:
+            if len(parts) <= max(di, ci):
+                continue
+            try:
+                dt = parts[di]
+                c = parts[ci]
+                o = parts[oi] if (oi is not None and oi < len(parts)) else c
+                hh = parts[hi] if (hi is not None and hi < len(parts)) else c
+                ll = parts[li] if (li is not None and li < len(parts)) else c
+                v = parts[vi] if (vi is not None and vi < len(parts)) else "0"
+                rows.append((dt, _fmt_price(o), _fmt_price(hh),
+                             _fmt_price(ll), _fmt_price(c), _fmt_vol(v)))
+            except Exception:  # noqa: BLE001
+                continue
+        return rows if rows else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def fetch_rows(key):
+    """链式取数：eastmoney -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。"""
+    if key not in SYMBOLS:
+        return None
+    em, yh, st = SYMBOLS[key]
+    rows = _eastmoney_rows(em)
+    if rows:
+        return rows
+    rows = _yahoo_rows(yh)
+    if rows:
+        return rows
+    rows = _stooq_rows(st)
+    if rows:
+        return rows
+    return None
+
+
+def write_raw_md(path, rows):
+    """写出与 fetch_indices/_ensure_raw 完全一致的 6 列 markdown 表（last=收盘列）。"""
+    lines = ["| date | open | high | low | last | volume |",
+             "| --- | --- | --- | --- | --- | --- |"]
+    for (d, o, h, l, c, v) in rows:
+        lines.append("| %s | %s | %s | %s | %s | %s |" % (d, o, h, l, c, v))
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write("\n".join(lines) + "\n")
+    return True
+
+
+def fetch_and_write(key, path):
+    """取数并写 raw.md；成功返回 True，全源失败返回 False。"""
+    rows = fetch_rows(key)
+    if not rows:
+        return False
+    write_raw_md(path, rows)
+    return True
+
+
+if __name__ == "__main__":
+    # 简单自检：打印各源首末行（调试用）
+    for k in ("sh000001", "sh000300", "sz399006",
+              "sh000016", "sh000905", "sh000688",
+              "hkHSI", "hkHSTECH", "usINX", "usIXIC"):
+        r = fetch_rows(k)
+        if r:
+            print("%s OK rows=%d %s~%s" % (k, len(r), r[0][0], r[-1][0]))
+        else:
+            print("%s FAIL (all sources)" % k)

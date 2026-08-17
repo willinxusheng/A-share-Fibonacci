@@ -14,8 +14,11 @@ v3 新增：艾略特通道（浪2-浪4连线+过浪3顶平行线）、三铁律
 import json
 import math
 import os
+import shutil
 import statistics
 import datetime as _dt
+import time
+import urllib.request
 
 import numpy as np
 import pandas as pd
@@ -23,6 +26,7 @@ import pandas as pd
 from analyze import zigzag_pct, read_kline_md
 from backtest import run_backtest, MIN_SAMPLE
 from calibrate import run_calibration as _run_calib   # 概率模型 walk-forward 实证校准
+import datafeed  # R271 多源回退取数（eastmoney 主源 -> yahoo/stooq 海外可达回退）
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -486,28 +490,8 @@ def main():
         except Exception:
             return False
 
-    def _ensure_raw(name, fn, secid):
-        # 三级回退(R62/R165)：① 本地 raw 内容有效即用(并刷新缓存) → ② 本地缓存内容有效
-        # (不受每日 *_raw.md 清理影响、无需网络) → ③ eastmoney 拉取(3次重试)成功后写 raw+缓存。
-        # 关键修复(R165)：任一级都先 _valid_raw 校验内容，拒绝 429 错误 JSON / 空壳，杜绝损坏文件
-        # 被当有效数据永久复用；全失败优雅回退(上游按可用比例缩放 breadth)，绝不影响其余计算。
-        import shutil
-        import urllib.request
-        _p = os.path.join(BASE, "data", fn)
-        _cache = os.path.join(BASE, "data", ".idx_cache", fn)
-        if os.path.exists(_p) and _valid_raw(_p):
-            try:
-                os.makedirs(os.path.dirname(_cache), exist_ok=True)
-                shutil.copyfile(_p, _cache)   # 刷新缓存(管线写入的 sh000001_raw.md 亦入缓存)
-            except Exception:
-                pass
-            return True
-        if os.path.exists(_cache) and _valid_raw(_cache):   # 缓存兜底：不依赖网络，但同样校验内容
-            try:
-                shutil.copyfile(_cache, _p)
-                return True
-            except Exception:
-                pass
+    def _try_eastmoney(secid, _p, _cache):
+        """原 ③：eastmoney push2 拉取（中国本地主源）。成功写 raw+缓存返回 True。"""
         _url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
                 "&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56"
                 "&klt=101&fqt=0&beg=20210805&end=20991231") % secid
@@ -534,11 +518,45 @@ def main():
                 return True
             except Exception as _e:
                 if _attempt < 2:
-                    import time
                     time.sleep(2.0)
                     continue
-                print("  [warn] 自动拉取 %s 失败(共振回退): %s" % (name, _e))
+                print("  [warn] eastmoney 拉取 %s 失败(转回退源): %s" % (secid, _e))
                 return False
+        return False
+
+    def _try_datafeed(key, _p, _cache):
+        """R271 海外可达回退：yahoo -> stooq（datafeed 内部链式）。成功写 raw+缓存返回 True。"""
+        try:
+            if datafeed.fetch_and_write(key, _p):
+                os.makedirs(os.path.dirname(_cache), exist_ok=True)
+                shutil.copyfile(_p, _cache)
+                return True
+        except Exception as _e:
+            print("  [warn] 回退源拉取 %s 失败: %s" % (key, _e))
+        return False
+
+    def _ensure_raw(name, fn, secid):
+        # R271 取数优先级：① eastmoney(中国主源) -> ② yahoo/stooq(海外可达回退)
+        # -> ③ 已提交/缓存旧 raw.md(可能滞后，但保证不崩溃)。
+        # 此前 ① 直接用本地 committed raw 会短路，导致海外 runner 永远用滞后数据；
+        # 改为网络优先，确保云端每日拉到当日新数据。本地 eastmoney 主源成功即同前行为。
+        _p = os.path.join(BASE, "data", fn)
+        _cache = os.path.join(BASE, "data", ".idx_cache", fn)
+        _key = fn[:-8] if fn.endswith("_raw.md") else fn   # 文件名 stem 即 datafeed key
+        if _try_eastmoney(secid, _p, _cache):
+            return True
+        if _try_datafeed(_key, _p, _cache):
+            return True
+        # 兜底：已提交/缓存的旧 raw.md（滞后但可用，绝不让管线崩溃）
+        if os.path.exists(_p) and _valid_raw(_p):
+            return True
+        if os.path.exists(_cache) and _valid_raw(_cache):
+            try:
+                shutil.copyfile(_cache, _p)
+                return True
+            except Exception:
+                pass
+        print("  [warn] %s 全源取数失败，共振回退为 0" % name)
         return False
 
     def _common_base(*paths, min_date=wave_points[5]["date"]):
