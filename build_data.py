@@ -1660,14 +1660,15 @@ def main():
     _key_line = trade_plan["stopLine"]["price"]   # 3674.40 铁律线
     _prev_high = w3_hi                              # 4258.86 浪③顶（前高）
     _bz_hi = trade_plan["buyZones"][0]["hi"]
+    # R278：与 scenarioSwitch 三段判定同源（避免头部徽章与情景联动/子浪推演自相矛盾）。
+    # 旧逻辑用「≥浪③顶4258.86才认浪⑤/≤买区hi才认买点」的旧阈值，导致 3741–4258 全区间
+    # （含当前收盘 3982.65 ≥ 浪④底 3741.11）被错误标为「浪④回调中·等待回踩」，与 strong 情景冲突。
     if last_close < _key_line:
         state = {"text": "铁律线跌破 · 数浪证伪 · 转防御", "cls": "danger"}
-    elif last_close >= _prev_high:
-        state = {"text": "浪④结束 · 浪⑤运行中", "cls": "gold"}
-    elif last_close <= _bz_hi:
-        state = {"text": "浪④买点区 · 分批低吸", "cls": "ok"}
+    elif last_close < w4_low:
+        state = {"text": "浪④磨底中 · 子浪待激活", "cls": "ghost"}
     else:
-        state = {"text": "浪④回调中 · 等待回踩", "cls": "ghost"}
+        state = {"text": "浪⑤已启动 · 子浪推进", "cls": "gold"}
 
     # ---------- 图3(panel p3)注释：子浪幅度/回撤由 subWavePoints 派生（消除 +993/22%/4258.86 双份真值）----------
     _p3_amp = sub_wave_points[1]["price"] - sub_wave_points[0]["price"]
