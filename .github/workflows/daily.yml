@@ -123,6 +123,16 @@ jobs:
       - name: OOS Brier regression gate (R85 discipline, 8th gate)
         run: python selfcheck/oos_guard.py
 
+      # ②a v2：缠论视角面板每日自动刷新（best-effort，非阻塞）。
+      # 缠论分析模块已 vendored 进 lib/chanlun/（零第三方依赖），输入复用本流程已抓的
+      # data/sh000001.csv（单数据源、云端必成功），不再走 chanlun 原中国源。
+      # 该步骤失败仅意味着 chanlun_view.js 不更新，Fib 主看板照常部署——故 continue-on-error。
+      # 生成的 data/chanlun_view.js 会被下方「Commit & push」的 `git add data/` 一并提交。
+      - name: Refresh chanlun view (best-effort, non-blocking)
+        id: chanlun-view
+        continue-on-error: true
+        run: python gen_chanlun_view.py
+
       - name: Commit & push data back to main
         run: |
           git config user.name  "github-actions[bot]"

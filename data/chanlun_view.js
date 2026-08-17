@@ -48,5 +48,6 @@ window.CHANLUN_VIEW = {
     "hi": 4752.14,
     "lo": 3645.16
   },
-  "generatedBy": "gen_chanlun_view.py (local snapshot; v2=CI daily refresh)"
+  "generatedBy": "gen_chanlun_view.py v2 (CI daily refresh from data/sh000001.csv)",
+  "klinesSource": "data/sh000001.csv"
 };
