@@ -115,6 +115,14 @@ jobs:
       - name: Contract check (data.js front-end contract, 7th gate)
         run: node selfcheck/verify_contract.js data/data.js
 
+      # 第 8 道闸门：OOS Brier 防退化（R85 纪律自动化，落实项③）。
+      # 复用 R217 的 walk-forward OOS 逐字复刻生产「分桶经验校准」的验证集 Brier，
+      # 与 selfcheck/oos_baseline.json 比对；若概率引擎(build_data/calibrate)改动致
+      # Brier 退化>5%，即 EXIT≠0 阻断推送（绝不污染线上旧数据，安全失败）。
+      # OOS Brier 只读 git 跟踪的 data/sh000001.csv（每日仅追加），跨日稳定、确定性守门。
+      - name: OOS Brier regression gate (R85 discipline, 8th gate)
+        run: python selfcheck/oos_guard.py
+
       - name: Commit & push data back to main
         run: |
           git config user.name  "github-actions[bot]"

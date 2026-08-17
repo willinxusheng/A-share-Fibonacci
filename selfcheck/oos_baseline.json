@@ -1,0 +1,6 @@
+{
+  "bucket_oos_brier": 0.1362,
+  "note": "概率引擎(分桶经验校准, 已含 PAVA 单调后处理)的 OOS 验证集 Brier 基线。任何 build_data/calibrate 引擎改动若使其退化>5% 将被 daily.yml 闸门阻断(R85)。",
+  "asOf": "vol_bucket=高, drift_conf=0.60",
+  "captured_by": "R217_segcal_check.run_oos (2026-08-17)"
+}

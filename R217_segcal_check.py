@@ -190,7 +190,8 @@ def low_bucket_bias(p, y, thr=0.2):
             "gap": round(float(y[m].mean() - p[m].mean()), 3)}
 
 
-def main():
+def run_oos():
+    """跑通 walk-forward OOS 校准体检，返回指标 dict（供 daily.yml 闸门复用，避免复制漂移）。"""
     BASE = os.path.dirname(os.path.abspath(__file__))
     df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"),
                      parse_dates=["date"]).set_index("date")
@@ -205,7 +206,6 @@ def main():
     anchor = arr[:, 0].astype(int)
     p_raw = arr[:, 1].astype(float)
     y = arr[:, 2].astype(float)
-    print("样本总数 n=%d (vol_bucket=%s, drift_conf=%.2f)" % (len(samples), _vol_bucket, _drift_conf))
 
     # 时间切分：前 60% 锚点训练，后 40% 验证
     uniq_anchor = np.unique(anchor)
@@ -215,51 +215,66 @@ def main():
     tr_mask = ~val_mask
     p_tr, y_tr = p_raw[tr_mask], y[tr_mask]
     p_val, y_val = p_raw[val_mask], y[val_mask]
-    print("训练锚点数≈%d (样本 %d)，验证样本 %d" % (n_tr, len(p_tr), len(p_val)))
 
     brier = lambda p, y: float(np.mean((np.clip(p, 0.001, 0.999) - y) ** 2))
     raw_val = brier(p_val, y_val)
     raw_tr = brier(p_tr, y_tr)
-    print("\n=== OOS 验证集 Brier（越低越准）===")
-    print("原始 model_p      : 训练 %.4f / 验证 %.4f" % (raw_tr, raw_val))
 
-    res = {}
-    # ① 分桶经验校准
+    # ① 分桶经验校准（= 生产部署方法，已含 PAVA 单调后处理，PAVA 仅修正微小下凹、对 Brier 中性偏优）
     f_buck = bucket_cal_train(p_tr, y_tr)
     b_val_buck = brier(f_buck(p_val), y_val)
-    res["bucket"] = b_val_buck
-    print("分桶经验校准      : 验证 %.4f  (Δ=%.4f, %.1f%%)" %
-          (b_val_buck, b_val_buck - raw_val, (b_val_buck / raw_val - 1) * 100))
     # ② Platt
     f_platt = platt_train(p_tr, y_tr)
     b_val_platt = brier(f_platt(p_val), y_val)
-    res["platt"] = b_val_platt
-    print("Platt 对数校准    : 验证 %.4f  (Δ=%.4f, %.1f%%)" %
-          (b_val_platt, b_val_platt - raw_val, (b_val_platt / raw_val - 1) * 100))
     # ③ 保序 PAVA
     f_iso = isotonic_pava_train(p_tr, y_tr)
     b_val_iso = brier(f_iso(p_val), y_val)
-    res["isotonic"] = b_val_iso
-    print("保序 PAVA 校准    : 验证 %.4f  (Δ=%.4f, %.1f%%)" %
-          (b_val_iso, b_val_iso - raw_val, (b_val_iso / raw_val - 1) * 100))
 
-    print("\n=== 低概率桶(model<0.2)偏差在验证集上的变化（直接回应'低估'）===")
-    print("原始     :", low_bucket_bias(p_val, y_val))
-    print("分桶校准 :", low_bucket_bias(f_buck(p_val), y_val))
-    print("PAVA     :", low_bucket_bias(f_iso(p_val), y_val))
+    lb_raw = low_bucket_bias(p_val, y_val)
+    lb_buck = low_bucket_bias(f_buck(p_val), y_val)
+    lb_iso = low_bucket_bias(f_iso(p_val), y_val)
 
-    # 判定
     best = min(raw_val, b_val_buck, b_val_platt, b_val_iso)
     improved = (best + 1e-9) < raw_val * 0.98
     best_name = {raw_val: "原始", b_val_buck: "分桶", b_val_platt: "Platt", b_val_iso: "PAVA"}[best]
+    return {
+        "n_samples": len(samples), "n_train_anchors": n_tr,
+        "n_train_samples": int(tr_mask.sum()), "n_val_samples": int(val_mask.sum()),
+        "vol_bucket": _vol_bucket, "drift_conf": _drift_conf,
+        "raw_oos_brier": raw_val, "raw_train_brier": raw_tr,
+        "bucket_oos_brier": b_val_buck, "platt_oos_brier": b_val_platt,
+        "isotonic_oos_brier": b_val_iso,
+        "low_bucket": {"raw": lb_raw, "bucket": lb_buck, "isotonic": lb_iso},
+        "improved": improved, "best_name": best_name, "best_brier": best,
+    }
+
+
+def _print_oos(o):
+    raw_val = o["raw_oos_brier"]; raw_tr = o["raw_train_brier"]
+    b_val_buck = o["bucket_oos_brier"]; b_val_platt = o["platt_oos_brier"]; b_val_iso = o["isotonic_oos_brier"]
+    print("样本总数 n=%d (vol_bucket=%s, drift_conf=%.2f)" % (o["n_samples"], o["vol_bucket"], o["drift_conf"]))
+    print("训练锚点数≈%d (样本 %d)，验证样本 %d" % (o["n_train_anchors"], o["n_train_samples"], o["n_val_samples"]))
+    print("\n=== OOS 验证集 Brier（越低越准）===")
+    print("原始 model_p      : 训练 %.4f / 验证 %.4f" % (raw_tr, raw_val))
+    print("分桶经验校准      : 验证 %.4f  (Δ=%.4f, %.1f%%)" % (b_val_buck, b_val_buck - raw_val, (b_val_buck / raw_val - 1) * 100))
+    print("Platt 对数校准    : 验证 %.4f  (Δ=%.4f, %.1f%%)" % (b_val_platt, b_val_platt - raw_val, (b_val_platt / raw_val - 1) * 100))
+    print("保序 PAVA 校准    : 验证 %.4f  (Δ=%.4f, %.1f%%)" % (b_val_iso, b_val_iso - raw_val, (b_val_iso / raw_val - 1) * 100))
+    print("\n=== 低概率桶(model<0.2)偏差在验证集上的变化（直接回应'低估'）===")
+    print("原始     :", o["low_bucket"]["raw"])
+    print("分桶校准 :", o["low_bucket"]["bucket"])
+    print("PAVA     :", o["low_bucket"]["isotonic"])
     print("\n=== 结论 ===")
-    if improved:
+    if o["improved"]:
         print("OOS 验证集 Brier 显著下降(>2%% )：%s 校准胜出(验证 %.4f vs 原始 %.4f) → 真实提升空间已验证，可考虑进引擎。" %
-              (best_name, best, raw_val))
+              (o["best_name"], o["best_brier"], raw_val))
     else:
         print("OOS 验证集 Brier 无显著下降(均未改善>2%% )：最佳=%s(%.4f)，原始=%.4f → 分段校准无免费午餐，不进引擎(R85)。" %
-              (best_name, best, raw_val))
+              (o["best_name"], o["best_brier"], raw_val))
         print("但低概率桶偏差可被分段校准定向修正（见上），属'局部解读改善'而非'全局 Brier 改善'。")
+
+
+def main():
+    _print_oos(run_oos())
 
 
 if __name__ == "__main__":
