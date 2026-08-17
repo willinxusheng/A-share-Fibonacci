@@ -1385,9 +1385,15 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var fibLine = fib.map(function (s, i) {
     return '卖' + (i + 1) + ' ' + s.price.toFixed(2) + '(' + s.prob + '%)';
   }).join(' · ');
+  // 交易日偏移(T+n) → 具体日历日期（跳过周末；基准为数据截至日 lastDate）
+  function _bd(){ var p=(CV.lastDate||'').split('-'); return p.length===3?new Date(+p[0],+p[1]-1,+p[2]):null; }
+  function _at(d,n){ var dt=new Date(d.getFullYear(),d.getMonth(),d.getDate()),a=0; while(a<(n||0)){dt.setDate(dt.getDate()+1);var w=dt.getDay();if(w!==0&&w!==6)a++;} return dt; }
+  function _fm(d){ var m=('0'+(d.getMonth()+1)).slice(-2),g=('0'+d.getDate()).slice(-2); return d.getFullYear()+'-'+m+'-'+g; }
+  var _base=_bd();
+  function _dl(t){ return _base?_fm(_at(_base,t)):('T+'+(t||0)); }
   var kp = CV.keyProjection || [];
   var rows = kp.map(function (k) {
-    return '<tr><td>T+' + k.t + '</td><td><b>' + k.main.toFixed(2) + '</b></td>' +
+    return '<tr><td>' + _dl(k.t) + '</td><td><b>' + k.main.toFixed(2) + '</b></td>' +
       '<td>' + k.lo.toFixed(2) + ' ~ ' + k.hi.toFixed(2) + '</td>' +
       '<td>' + k.med.toFixed(2) + '</td></tr>';
   }).join('');
@@ -1398,9 +1404,9 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<span class="tag" style="background:#fef6e7;color:#b8872a">推演置信度：' + (CV.confidence != null ? CV.confidence : '—') + '/100</span>' +
       '<span class="tag" style="background:#f0fdf4;color:#2f7d2f">数据截至：' + (CV.lastDate || '—') + '（上证 ' + (CV.lastClose != null ? CV.lastClose.toFixed(2) : '—') + '）</span>' +
     '</div>' +
-    '<table style="margin-bottom:10px"><tr><th>缠论路径</th><th>主路径目标</th><th>P05–P95 置信带</th><th>中位</th></tr>' + rows + '</table>' +
+    '<table style="margin-bottom:10px"><tr><th>日期</th><th>主路径目标</th><th>P05–P95 置信带</th><th>中位</th></tr>' + rows + '</table>' +
     '<div class="note" style="font-size:12px;line-height:1.8">' +
-      '🔍 <b>对照解读</b>：缠论主路径在 <b>T+' + dip.t + '（≈8/27）先洗盘至 ' + dip.main.toFixed(2) + '</b>（近端回踩位），随后回升——T+15 主路径 ' + (t15 ? t15.main.toFixed(2) : '—') + '、T+30 ' + tail.main.toFixed(2) + '，上沿带达 ' + tail.hi.toFixed(2) + '。' +
+      '🔍 <b>对照解读</b>：缠论主路径在 <b>' + _dl(dip.t) + ' 先洗盘至 ' + dip.main.toFixed(2) + '</b>（近端回踩位），随后回升——' + _dl(15) + ' 主路径 ' + (t15 ? t15.main.toFixed(2) : '—') + '、' + _dl(30) + ' ' + tail.main.toFixed(2) + '，上沿带达 ' + tail.hi.toFixed(2) + '。' +
       '斐波那契长周期卖点【' + fibLine + '】落在缠论置信带<b>上沿附近</b>（卖① ' + (fib[0] ? fib[0].price.toFixed(2) : '—') + ' ≈ 缠论 T+15 P95 ' + (t15 ? t15.hi.toFixed(2) : '—') + '）——两模型在"上行可达"上自洽，并非矛盾。' +
       '你此前看到的"Fib 4039 vs 缠论 3896"是<b>早期一档斐波那契扩展位 vs 缠论近端回踩</b>的时空错配，非同向可比目标。' +
       '<br><span style="color:#9a6a00">⏱ 缠论时间轴同斐波那契一样为低置信（walk-forward OOS 显示触达时间系统性偏短），仅作方向性参考。</span>' +
