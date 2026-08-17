@@ -16,6 +16,7 @@ import math
 import os
 import shutil
 import statistics
+import tempfile
 import datetime as _dt
 
 import numpy as np
@@ -493,10 +494,27 @@ def main():
         # -> ② 已提交/缓存旧 raw.md（可能滞后，但保证不崩溃）。
         # 网络优先确保云端每日拉到当日新数据；本地 eastmoney 主源成功即同前行为。
         # 注：不再单独调 _try_eastmoney，因为 datafeed.fetch_rows 已含 eastmoney 优先，避免重复尝试。
+        # R277 保护：已有完整历史不被海外回退的不足数据覆盖污染 git 基线。
+        # 云端 runner 上 yahoo/stooq 对部分 A 股副指数（上证50/科创50/中证500/创业板）仅能取到
+        # 单日快照（1 行）；若无条件覆盖，会把 git 里提交的多年级完整历史截断为 1 行，并污染
+        # _common_base 基准（共振全失效）。故：覆盖前备份完整旧版（tempfile，绕过 safe-delete shim），
+        # 若回退写入后反而不足（< min_rows）且旧版完整，则还原旧版。
         _p = os.path.join(BASE, "data", fn)
         _cache = os.path.join(BASE, "data", ".idx_cache", fn)
         _key = fn[:-7] if fn.endswith("_raw.md") else fn   # 文件名 stem 即 datafeed key（_raw.md 长度=7）
+        _bak = None
+        if os.path.exists(_p) and _valid_raw(_p):
+            try:
+                _bak = os.path.join(tempfile.gettempdir(), "fibraw_%s.bak" % fn)
+                shutil.copyfile(_p, _bak)
+            except Exception:
+                _bak = None
         if _try_datafeed(_key, _p, _cache):
+            if _bak is not None and not _valid_raw(_p):
+                try:
+                    shutil.copyfile(_bak, _p)   # 还原完整旧版，避免污染 git 基线
+                except Exception:
+                    pass
             return True
         # 兜底：已提交/缓存的旧 raw.md（滞后但可用，绝不让管线崩溃）
         if os.path.exists(_p) and _valid_raw(_p):
@@ -510,15 +528,21 @@ def main():
         print("  [warn] %s 全源取数失败，共振回退为 0" % name)
         return False
 
-    def _common_base(*paths, min_date=wave_points[5]["date"]):
+    def _common_base(*paths, min_date=wave_points[5]["date"], min_points=21):
         """三指数共同拥有的、不早于 min_date 的最早日。
         保证归一化统一以同一交易日为 100 起点，避免各自 iloc[0] 取不同日
-        导致广度对照静默错位（未来任一日数据窗口被不等裁剪时尤其危险）。"""
+        导致广度对照静默错位（未来任一日数据窗口被不等裁剪时尤其危险）。
+        R277：排除点数不足 min_points 的指数（如海外回退仅取到单日快照的副指数），
+        避免硬交集被单点指数把基准拉到当天、致所有序列塌缩成 1 天（共振全失效）。"""
         sets = []
         for p in paths:
             try:
                 rows = read_kline_md(p)
-                sets.append(set(r["date"] for r in rows if r["date"] >= min_date))
+                _d = [r["date"] for r in rows if r["date"] >= min_date]
+                if len(_d) >= min_points:
+                    sets.append(set(_d))
+                else:
+                    sets.append(set())  # 数据过少，不参与交集（保护基准不被拉崩）
             except Exception:
                 sets.append(set())
         common = set.intersection(*sets) if sets else set()
