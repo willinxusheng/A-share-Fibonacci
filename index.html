@@ -1406,7 +1406,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   if (warn) {
     if (miss.length) {
       warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
-        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），共振信号已<b>自动降级</b>：广度按可用宽基比例缩放，<b>请勿据此满置信判断</b>。待每日管线（18:30）重拉成功后可恢复。</div>';
+        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），共振信号已<b>自动降级</b>：广度按可用宽基比例缩放，<b>请勿据此满置信判断</b>。待每日管线（16:30）重拉成功后可恢复。</div>';
     } else {
       warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 确认宽基数据齐全，共振信号有效。</div>';
     }
@@ -1484,7 +1484,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   if (warn) {
     if (miss.length) {
       warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fdecec;border:1px solid #f3c4c4;color:#8a2b2b;font-size:12.5px">' +
-        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），跨市场信号已<b>自动降级</b>：广度按可用市场比例缩放，<b>请勿据此满置信判断</b>。待每日管线（18:30）重拉成功后可恢复。</div>';
+        '⚠️ <b>' + miss.join('、') + '</b> 数据缺失（取数限流 / 拉取失败），跨市场信号已<b>自动降级</b>：广度按可用市场比例缩放，<b>请勿据此满置信判断</b>。待每日管线（16:30）重拉成功后可恢复。</div>';
     } else {
       warn.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#eef6ee;border:1px solid #cfe6cf;color:#3f6b3f;font-size:12.5px">✓ 跨市场数据齐全，信号有效。</div>';
     }

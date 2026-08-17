@@ -115,7 +115,7 @@ NODE_PATH=/path/to/node_modules node _audit_overlap2.js; echo "_audit_overlap2 E
 ## 6. 推送到 GitHub（SSH，免密码/令牌）
 
 ### 常态数据更新：由 CI 独家负责（本机无需任何自动推送）
-> **架构铁律（R234/R237）**：`data/` 目录（看板数据 `data.js` 等）**唯一写入方是 GitHub Actions CI**（`daily.yml`，北京时间工作日 18:30 自动跑 取数→体检→分析→构建→六门禁→仅 `git add data/ && commit && push`）。**本机切勿**启用任何自动推送（launchd / schtasks / WorkBuddy 定时任务）去写 `data/`——否则会与 CI 并发双写 `main`，导致 push 被拒、数据竞争、或丢失当日更新。**换多少台电脑都一样：数据只信 CI，本机只读。**
+> **架构铁律（R234/R237）**：`data/` 目录（看板数据 `data.js` 等）**唯一写入方是 GitHub Actions CI**（`daily.yml`，北京时间工作日 16:30 自动跑 取数→体检→分析→构建→六门禁→仅 `git add data/ && commit && push`）。**本机切勿**启用任何自动推送（launchd / schtasks / WorkBuddy 定时任务）去写 `data/`——否则会与 CI 并发双写 `main`，导致 push 被拒、数据竞争、或丢失当日更新。**换多少台电脑都一样：数据只信 CI，本机只读。**
 
 ### 何时需要本机推送
 - **源码改动**（改了 `.py`/`.js`/`.html`/`.yml`）：你手动 `git pull --rebase` → 编辑 → `git add <具体文件>` → `git commit` → `git push`。
@@ -146,7 +146,7 @@ git push origin main
 
 - `backtest.py` 闭环已接线：`archive`（按 date,key,cat 去重）→ `evaluate`（用记录自身日期的 vol regime 重算命中，避免前视泄漏）→ `aggregate`（写 `backtest.json`）。
 - 观察窗 = `max(30, expDays)` 交易日；最短周期目标约 **2026-09-15** 起开始有真实评估数据（此前 `totalEvaluated=0` 为冷启动，非 bug）。
-- 每日构建由 GitHub Actions CI（`daily.yml`）在工作日 18:30 跑（取数→体检→分析→构建→六门禁→仅回写 `data/`）；首次真实命中率复验由一次性自动化于 **2026-09-21 20:00** 触发。
+- 每日构建由 GitHub Actions CI（`daily.yml`）在工作日 16:30 跑（取数→体检→分析→构建→六门禁→仅回写 `data/`）；首次真实命中率复验由一次性自动化于 **2026-09-21 20:00** 触发。
 
 ---
 
