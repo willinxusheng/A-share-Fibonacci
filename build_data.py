@@ -1524,13 +1524,16 @@ def main():
         _hcap = _hist_calib(price, _exp)                  # 历史可达上限(%)，None=无样本
         _prior = _p_drift + _breadth * _dir * 5.0         # 漂移先验 = 漂移模型 + 跨指数共振加权(R50 建议5)
         if _bt is not None and _bt[0] is not None:
-            # 贝叶斯融合：实证命中率 _hr 取自 backtest.summary 的 hitRate——aggregate 已对其做
-            # Laplace 收缩 (hits+1)/(n+2)（小样本向中性 0.5 收缩，避免 0/3→0%、3/3→100% 硬跳变），
-            # 此为 R58 修复后的【现行 live 路径】，非已废弃逻辑。本 _enrich 融合不再额外收缩 _hr，
-            # 而是用「先验伪计数 K=_FUSE_K」把融合结果拉向漂移先验 _prior（n 越大越偏实证、越小越偏先验）。
-            # 故实证项=Laplace 收缩后的 hitRate，融合项=K 伪计数先验收缩；两层收缩口径一致、不冲突。
-            # 平滑/收缩由本融合的「先验伪计数 K=_FUSE_K」提供：n=K 时 先验/实证 各半，
-            # n 越大越偏实证——天然避免 n 刚越阈值时的硬跳变(如 0/3→10% 砸落、3/3→70% 拉高)，更准更稳。
+            # 贝叶斯融合：实证命中率 _hr 取自 bt_lookup（{(cat,key):(hitRate,n)}），其填充有两级来源：
+            #   ① 优先 _empirical_rates 的【原始 walk-forward 频率】_hr=_whit/_wsum*100（未收缩，line 1215），
+            #      只要该 (cat,key) 有波动率匹配锚点即于 line 1250 覆盖 aggregate 值——这是线上常态
+            #      （锚点池≥20，empiricalActive=True）。
+            #   ② 仅当 _emp 为空（锚点池<20、实证级降级，line 1242）时，bt_lookup 才保留 backtest.aggregate
+            #      的 Laplace 收缩值 (hits+1)/(n+2)（小样本向中性 0.5 收缩，R58 修复）。aggregate 仍是
+            #      【现行 live 路径】，绝非"已废弃"——只是作为 fallback 而非主路径（原注释称其"已废弃"亦误）。
+            # 故：主路径 _hr 为原始频率(未收缩)，由本融合的「先验伪计数 K=_FUSE_K」提供收缩；
+            #     fallback 路径 _hr 已含 Laplace 收缩，再经 K 伪计数拉向漂移先验 _prior。两层收缩口径一致、不冲突。
+            # 平滑/收缩：n=_bn 越大越偏实证、越小(K 主导)越偏先验——天然避免 n 刚越阈值时的硬跳变，更准更稳。
             # (R72 修正：原注释误称"实证率已含 (hits+0.5)/(n+2) 收缩"，与代码事实不符，已更正。)
             _hr, _bn = _bt
             _K = _FUSE_K   # R90：增大伪计数→融合更偏向校准良好的漂移先验(实证率系统性低估命中率)，OOS Brier −8%
