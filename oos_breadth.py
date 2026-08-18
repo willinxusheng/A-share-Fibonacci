@@ -272,37 +272,49 @@ def actual_hit(price, exp, t):
 targets = [("sellTarget", t["name"], t["price"], t["expDays"]) for t in sell_targets] + \
           [("subwave", r["wave"], r["target"], r["expDays"]) for r in sub_rows]
 max_exp = max(t[3] for t in targets)
-brier2 = brier5 = cnt = 0
-per2 = {}
-per5 = {}
-for t in range(20, _nn - max_exp):
-    b2 = breadth_at(t, BREADTH2_NAMES)
-    b5 = breadth_at(t, BREADTH5_NAMES)
-    if b2 is None or b5 is None:
-        continue
-    for cat, key, price, exp in targets:
-        ah = actual_hit(price, exp, t)
-        if ah is None:
-            continue
-        p2 = enrich(cat, key, price, exp, b2) / 100.0
-        p5 = enrich(cat, key, price, exp, b5) / 100.0
-        brier2 += (p2 - ah) ** 2
-        brier5 += (p5 - ah) ** 2
-        cnt += 1
-        per2[(cat, key)] = per2.get((cat, key), 0) + (p2 - ah) ** 2
-        per5[(cat, key)] = per5.get((cat, key), 0) + (p5 - ah) ** 2
 
-print("=== 板块联动广度口径 OOS 复验 (R166) ===")
-print("empirical 锚点数 = %d；测试目标数 = %d；有效(测试日,目标)对 = %d" % (len(_anchors), len(targets), cnt))
-if cnt == 0:
-    print("⚠️ 有效(测试日,目标)对为 0，无样本可评估 OOS，复验中止（请检查 empirical 锚点与 targets 是否覆盖测试区间）。")
-    raise SystemExit(1)
-print("Brier2 (2只宽基=%s) = %.5f" % (sorted(BREADTH2_NAMES), brier2 / cnt))
-print("Brier5 (5只宽基=%s) = %.5f" % (sorted(BREADTH5_NAMES), brier5 / cnt))
-_delta = (brier5 - brier2) / cnt
-print("ΔBrier(Brier5-Brier2) = %+.5f  -> %s" % (_delta, "5只更差✗" if _delta > 1e-9 else "5只不恶化✓(可部署)"))
-print("\n--- 逐目标 Brier(5只 - 2只)，正=5只更差 ---")
-for (cat, key, price, exp) in targets:
-    k = (cat, key)
-    d = (per5.get(k, 0) - per2.get(k, 0))
-    print("  %-14s %-12s  Δ=%.5f" % (cat, key, d))
+
+def compute_production_oos_brier():
+    """生产啮合式 walk-forward OOS Brier（逐字复刻 build_data._enrich：含 empirical 融合/_FUSE_K/_hist_calib/_breadth 共振）。
+
+    单一真源：selfcheck/oos_guard 的"生产线守门员"复用本函数，使 OOS 闸门真正守护生产概率引擎
+    （而非仅守护裸首达公式）。返回 (brier2, brier5, cnt, per2, per5)。
+    """
+    brier2 = brier5 = cnt = 0
+    per2 = {}
+    per5 = {}
+    for t in range(20, _nn - max_exp):
+        b2 = breadth_at(t, BREADTH2_NAMES)
+        b5 = breadth_at(t, BREADTH5_NAMES)
+        if b2 is None or b5 is None:
+            continue
+        for cat, key, price, exp in targets:
+            ah = actual_hit(price, exp, t)
+            if ah is None:
+                continue
+            p2 = enrich(cat, key, price, exp, b2) / 100.0
+            p5 = enrich(cat, key, price, exp, b5) / 100.0
+            brier2 += (p2 - ah) ** 2
+            brier5 += (p5 - ah) ** 2
+            cnt += 1
+            per2[(cat, key)] = per2.get((cat, key), 0) + (p2 - ah) ** 2
+            per5[(cat, key)] = per5.get((cat, key), 0) + (p5 - ah) ** 2
+    return brier2, brier5, cnt, per2, per5
+
+
+if __name__ == "__main__":
+    brier2, brier5, cnt, per2, per5 = compute_production_oos_brier()
+    print("=== 板块联动广度口径 OOS 复验 (R166) ===")
+    print("empirical 锚点数 = %d；测试目标数 = %d；有效(测试日,目标)对 = %d" % (len(_anchors), len(targets), cnt))
+    if cnt == 0:
+        print("⚠️ 有效(测试日,目标)对为 0，无样本可评估 OOS，复验中止（请检查 empirical 锚点与 targets 是否覆盖测试区间）。")
+        raise SystemExit(1)
+    print("Brier2 (2只宽基=%s) = %.5f" % (sorted(BREADTH2_NAMES), brier2 / cnt))
+    print("Brier5 (5只宽基=%s) = %.5f" % (sorted(BREADTH5_NAMES), brier5 / cnt))
+    _delta = (brier5 - brier2) / cnt
+    print("ΔBrier(Brier5-Brier2) = %+.5f  -> %s" % (_delta, "5只更差✗" if _delta > 1e-9 else "5只不恶化✓(可部署)"))
+    print("\n--- 逐目标 Brier(5只 - 2只)，正=5只更差 ---")
+    for (cat, key, price, exp) in targets:
+        k = (cat, key)
+        d = (per5.get(k, 0) - per2.get(k, 0))
+        print("  %-14s %-12s  Δ=%.5f" % (cat, key, d))
