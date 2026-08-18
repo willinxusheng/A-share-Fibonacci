@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>上证指数 · 斐波那契波浪专业分析看板</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <!-- 防缓存：每次刷新强制拉取最新 data.js，避免旧版子浪时间轴(曾错画到2027)被缓存 -->
@@ -200,41 +200,108 @@
     .trigger-callout .tiers { grid-template-columns: 1fr; }
   }
 
-  /* ===== 手机横屏深度优化：宽屏矮高 → 内容双列瀑布流，大幅削减纵向滚动；图表/字号/留白再压缩 ===== */
-  @media (orientation: landscape) and (max-height: 560px) {
-    .wrap { padding: 0 12px 18px; }
-    .hero { padding: 8px 14px; gap: 12px; }
-    .hero h1 { font-size: 15px; margin: 2px 0 3px; }
-    .hero .price { font-size: 22px; margin-top: 2px; }
-    .hero .price-row { margin-top: 4px; gap: 8px; }
+  /* ===== 手机横屏全面深度优化（orientation:landscape + 屏宽≤960 = 覆盖所有手机横屏）=====
+     横屏特征：宽裕、矮高（通常 320–430px 高）。策略：用宽度换高度——
+     ① 面板区改稳健 2 列 CSS Grid（替代 multicolumn 瀑布流：ECharts 容器尺寸测量更可靠，旋转后正确重绘，避免错位）；
+     ② Hero 压成 slim 横条、导航紧凑且触控达标、仪表/发现保持 4 列紧凑带；
+     ③ 图表高度 !important 压过内联 640/680；④ 刘海屏安全区(env safe-area)左右避让；
+     ⑤ 极窄横屏(≤600)回落单列避免图表过窄。仅改外壳 CSS，不动任何 ECharts option（不触动标注重叠门禁）。 */
+  @media (orientation: landscape) and (max-width: 960px) {
+    html { scroll-padding-top: 38px; }   /* 贴合横屏更矮的吸顶导航，锚点跳转不再留大空隙 */
+    .wrap { padding: 0 12px 12px; }
+    /* 刘海屏横屏：左右安全区避让（需 viewport-fit=cover） */
+    .nav, .hero, .wrap { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+
+    /* 顶部导航：更紧凑、触控目标达标（≥32px）、安全区左右 */
+    .nav { padding-top: 0; padding-bottom: 0; gap: 2px; }
+    .nav a { font-size: 11px; padding: 9px 9px; }
+    .nav a .ni { width: 16px; height: 16px; line-height: 16px; font-size: 10px; margin-right: 4px; }
+    .nav a, .nav .brand { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+
+    /* Hero：slim 横条（左：品牌+标题2行钳制；右：价格+涨跌），省出纵向空间 */
+    .hero { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: 6px; gap: 12px; }
+    .hero-main { display: flex; flex: 1 1 auto; align-items: center; gap: 12px; min-width: 0; }
+    .hero-text { flex: 1 1 auto; min-width: 0; }
+    .hero .kicker { font-size: 10px; letter-spacing: 1.5px; }
+    .hero h1 { font-size: 14px; margin: 1px 0; line-height: 1.18;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .hero .meta { font-size: 10px; }
+    .hero .price-row { margin-top: 0; gap: 10px; flex: none; align-items: center; }
+    .hero .price { font-size: 22px; margin-top: 0; line-height: 1.1; }
     .spark-box { display: none; }
-    .nav a { font-size: 10.5px; padding: 7px 6px; }
-    .gauges { grid-template-columns: repeat(4, 1fr); }
-    .findings { grid-template-columns: repeat(4, 1fr); }
-    .rules { grid-template-columns: repeat(3, 1fr); }
-    .panel { padding: 10px 12px; margin-bottom: 10px; break-inside: avoid; -webkit-column-break-inside: avoid; }
-    .panel h2 { font-size: 13.5px; }
-    .panel h2 .no { width: 22px; height: 22px; font-size: 12px; }
-    .chart-lg, #chart2, #chartSubF { height: 300px !important; }
-    .chart-md { height: 240px; }
-    .chart-sm { height: 200px; }
-    .cols2 { grid-template-columns: 1fr; gap: 12px; }   /* 窄列内堆叠表格，避免挤压 */
-    .trigger-callout { padding: 10px 12px; margin: 2px 0 10px; }
-    .trigger-callout .tiers { grid-template-columns: repeat(3, 1fr); }
-    .trigger-callout .lead { font-size: 12px; margin-bottom: 8px; }
+
+    /* 仪表盘 / 发现：横屏宽裕，保持 4 列紧凑带（位于面板之上、仅占一行高度） */
+    .gauges { grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 9px 0; }
+    .gauges .gauge { padding: 8px 10px 7px; }
+    .gauges .gauge .v { font-size: 16px; }
+    .gauges .gauge .t { font-size: 10.5px; }
+    .gauges .gauge .d { font-size: 9.5px; margin-top: 3px; }
+    .gauges .gauge .bar { margin-top: 5px; }
+    .findings { grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+    .findings .finding { padding: 8px 10px; }
+    .findings .finding .ft { font-size: 12px; }
+    .findings .finding p { font-size: 11px; }
+
+    /* 面板区：双列网格（优于 multicolumn，ECharts 尺寸测量稳、旋转不乱） */
+    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+    .panel { padding: 9px 11px; margin-bottom: 0; break-inside: auto; -webkit-column-break-inside: auto; }
+    .panel h2 { font-size: 13px; gap: 7px; }
+    .panel h2 .no { width: 20px; height: 20px; font-size: 11px; border-radius: 7px; }
+    .panel .note { font-size: 11px; margin: 4px 0 8px; }
+
+    /* 面板内栅格在窄栏中收单/双列，避免表格被压得过窄 */
+    .cols2 { grid-template-columns: 1fr; gap: 10px; }
+    .rules { grid-template-columns: repeat(2, 1fr); gap: 7px; margin: 8px 0 12px; }
+    .rules .rn { font-size: 12px; }
+    .rules .rd { font-size: 10.5px; }
+    .timeline { margin: 8px 0 4px; }
+    .tl { min-width: 116px; padding: 7px 9px; font-size: 10.5px; }
+    .tl + .tl { margin-left: 14px; }
+    .tl b { font-size: 12.5px; }
+
+    /* 图表：横屏高度收紧（!important 压过内联 640/680） */
+    .chart-lg, #chart2, #chartSubF { height: 260px !important; min-height: 220px; }
+    .chart-md { height: 200px; }
+    .chart-sm { height: 170px; }
+
+    /* 触达提示：横屏内更紧凑、三档并排 */
+    .trigger-callout { padding: 8px 11px; margin: 2px 0 8px; }
+    .trigger-callout h3 { font-size: 13px; margin-bottom: 6px; }
+    .trigger-callout .lead { font-size: 11px; margin-bottom: 7px; }
+    .trigger-callout .tiers { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .trigger-callout .tier { padding: 8px 10px; }
+    .trigger-callout .tier .tn { font-size: 12.5px; }
+    .trigger-callout .tier .tb, .trigger-callout .tier .tp, .trigger-callout .tier .foot { font-size: 10.5px; }
+
+    /* 表格：窄栏内可横向滚动，避免溢出截断；字号收紧 */
+    .panel table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; font-size: 11px; }
     table { font-size: 11px; }
-    th, td { padding: 5px 7px; }
-    /* 表格在窄列内可横向滚动，避免溢出截断 */
-    .panel table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    /* 弹层在窄列内收窄，避免溢出 */
-    .info-pop { width: 260px; font-size: 11.5px; }
-    /* 双列瀑布流：面板并排，减少纵向滚动 */
-    .panels { column-count: 2; column-gap: 12px; }
-    /* 极窄横屏（小屏手机）回落单栏，避免图表被压得过窄 */
-    @media (max-width: 640px) {
-      .panels { column-count: 1; }
+    th, td { padding: 5px 7px; font-size: 11px; }
+    .sub-h { font-size: 12px; margin: 2px 0 6px; }
+
+    /* 弹层在窄栏内收窄并向左展开（贴右缘，不溢出视口） */
+    .info-pop { width: min(240px, 76vw); font-size: 11px; left: auto; right: 0; }
+    .info-wrap { margin-left: 6px; }
+
+    /* 情景切换器 / 状态条：横屏内紧凑 */
+    .scn-switch { margin: 6px 0 3px; font-size: 12px; gap: 8px; }
+    .scn-switch select { font-size: 12px; padding: 4px 7px; }
+    .scn-switch label { font-size: 12px; }
+    .scn-auto { font-size: 11px; }
+    .scn-status { font-size: 11px; padding: 5px 9px; margin: 0 0 5px; }
+    .scen-premise { font-size: 11px; padding: 7px 10px; margin: 6px 0 8px; gap: 7px; }
+
+    /* 免责声明 / 通用说明：横屏压扁 */
+    .disc { font-size: 11px; padding: 10px 13px; }
+    .note { font-size: 11px; }
+
+    /* 极窄横屏（小屏手机，屏宽≤600）回落更稳的单列，避免图表被压得过窄 */
+    @media (max-width: 600px) {
+      .panels { grid-template-columns: 1fr; }
       .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
+      .rules { grid-template-columns: 1fr; }
       .trigger-callout .tiers { grid-template-columns: 1fr; }
+      .chart-lg, #chart2, #chartSubF { height: 320px !important; min-height: 260px; }
     }
   }
   /* ===== 统一悬浮微交互：卡片轻微抬升 + 加深阴影，提升质感与可点感 ===== */
@@ -326,10 +393,12 @@
 <body>
 
 <div class="hero">
-  <div>
-    <div class="kicker">FIBONACCI · ELLIOTT WAVE · 每日自动更新</div>
-    <h1>上证指数（000001.SH）斐波那契波浪专业分析看板</h1>
-    <div class="meta"><span id="upd0"></span> ~ <span id="upd1"></span>（日K线）｜数据源：腾讯自选股</div>
+  <div class="hero-main">
+    <div class="hero-text">
+      <div class="kicker">FIBONACCI · ELLIOTT WAVE · 每日自动更新</div>
+      <h1>上证指数（000001.SH）斐波那契波浪专业分析看板</h1>
+      <div class="meta"><span id="upd0"></span> ~ <span id="upd1"></span>（日K线）｜数据源：腾讯自选股</div>
+    </div>
     <div class="price-row">
       <div class="price" id="heroPrice"></div>
       <span class="badge gold" id="heroWave"></span>
