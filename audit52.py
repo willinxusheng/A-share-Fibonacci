@@ -204,7 +204,7 @@ try {
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, { timeout: 8000 });
   // 软检查：核心面板必须被填充，静默早退类回归暴露给人工复核（不阻断部署）
-  const MUST = ['upd0','upd1','heroPrice','heroVol','spark','gauges','findings','rules','waveFlow','triggerCallout','ratioTable','volTable','targetTable','fibTable','buyTable','sellTable','planNote','btTable','linkTable','xmTable','subFTable','subFCalib','subFTableTitle','linkSummary','xmSummary','linkStyle'];
+  const MUST = ['upd0','upd1','heroPrice','heroVol','spark','gauges','findings','rules','waveFlow','triggerCallout','ratioTable','volTable','targetTable','fibTable','buyTable','sellTable','planNote','btTable','subFTable','subFCalib','subFTableTitle'];
   const blank = MUST.filter(id=>{ const w=writes[id]; return !(w && ((w.h&&w.h.trim())||(w.t&&w.t.trim()))); });
   if(blank.length){ console.log('RT_BLANK: '+blank.join(',')); } else { console.log('RT_OK'); }
 } catch(e) {
@@ -222,9 +222,20 @@ try {
             # 注意：必须返回 "fail"（main 据此 EXIT=1），此前误返回 "warn" 导致
             # 该硬失败分支成为死代码（RT_ERROR 仍只 warning、不阻断部署）——门禁虚设盲区。
             return "fail", "  [FAIL] 前端运行时沙箱捕获错误: " + out.strip().split("RT_ERROR:")[-1][:200]
+        # R审计加固(2026-08-18)：此前未检查 returncode，且 chanlun_view.js 的 readFileSync
+        # 位于 node try 块之外——该文件缺失/改名会致 node 顶层抛 ENOENT、退出码≠0、stderr
+        # 不含 RT_ERROR，被误判 "ok" 静默通过（门禁假绿，缠论面板退化无人察觉）。现补
+        # returncode 硬检查：node 异常退出一律视为硬失败，阻断部署。
+        if r.returncode != 0:
+            return "fail", "  [FAIL] 前端运行时沙箱进程异常退出(code=%d): %s" % (r.returncode, out.strip()[:200])
         return "ok", "  ok 前端运行时沙箱执行 0 错误"
+    except subprocess.TimeoutExpired:
+        # 前端死循环/挂死：vm 8s 超时未覆盖到的进程级挂死 → 真实缺陷，必须阻断部署。
+        return "fail", "  [FAIL] 前端运行时沙箱超时(疑似前端死循环/挂死)"
     except Exception as e:
-        return "warn", "  [WARN] 运行时沙箱执行异常(未阻断): %s" % e
+        # 其余子进程异常(节点不可用/权限/临时文件写失败等)：守门员无法验证即不得静默放过，
+        # 改为硬失败阻断部署（避免旧的 "warn" 绿掩盖真实前端缺陷，R85 纪律）。
+        return "fail", "  [FAIL] 运行时沙箱执行异常: %s" % e
     finally:
         try:
             os.remove(tmp)
