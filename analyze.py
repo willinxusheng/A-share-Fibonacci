@@ -181,6 +181,49 @@ def load_data():
             % len(rows))
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"])
+    # ---------- 交易日缺口补全（R-新，防今日涨幅等静默错算）----------
+    # 取数源(eastmoney/yahoo/stooq)偶发缺失某交易日(如 T+1 延迟)：主源返回的序列有缺口但不算
+    # 失败，_ensure_raw 的"整源失败才回退"不会触发，缺口静默流入 csv/kline，导致前端"今日涨幅"
+    # 把倒数第二根(非昨收)当基准、zigzag/MA 等连续性指标错算。此处用多渠道历史**真实**数据
+    # 补全缺失交易日——绝不编造，仅补确有数据的缺失日：
+    #   ① .idx_cache/<同名>.md（上次成功 fetch 的本地缓存，含最新历史）
+    #   ② git HEAD 版 sh000001.csv（历史真实收盘）
+    _cols = ["date", "open", "close", "high", "low", "volume"]
+    df = df[[c for c in _cols if c in df.columns]]
+    _gap_sources = []
+    _cache_p = os.path.join(BASE, "data", ".idx_cache", os.path.basename(raw_path))
+    if os.path.exists(_cache_p):
+        try:
+            _gap_sources.append(pd.DataFrame(read_kline_md(_cache_p)))
+        except Exception:
+            pass
+    _hist_csv = os.path.join(BASE, "data", "sh000001.csv")
+    if os.path.exists(_hist_csv):
+        try:
+            _gap_sources.append(pd.read_csv(_hist_csv))
+        except Exception:
+            pass
+    if _gap_sources:
+        try:
+            _bd = pd.bdate_range(df["date"].min(), df["date"].max())
+            _have = set(df["date"])
+            _miss = [d for d in _bd if d not in _have]
+            if _miss:
+                _fills = []
+                for _s in _gap_sources:
+                    _s2 = _s.copy()
+                    if "date" in _s2.columns:
+                        _s2["date"] = pd.to_datetime(_s2["date"], errors="coerce")
+                        _s2 = _s2[[c for c in _cols if c in _s2.columns]]
+                        _fills.append(_s2[_s2["date"].isin(_miss)])
+                if _fills:
+                    _fill = pd.concat(_fills, ignore_index=True).drop_duplicates("date")
+                    if len(_fill):
+                        df = pd.concat([df, _fill], ignore_index=True).drop_duplicates("date")
+                        print("  [gap-fill] 补全 %d 个缺失交易日: %s"
+                              % (len(_fill), [str(d.date()) for d in _fill["date"]]))
+        except Exception as e:
+            print("  [warn] 缺口补全失败(跳过): %s" % e)
     df = df.sort_values("date").set_index("date")
     df.to_csv(os.path.join(BASE, "data", "sh000001.csv"))
     return df

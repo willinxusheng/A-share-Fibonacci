@@ -1,8 +1,8 @@
 {
-  "bucket_oos_brier": 0.1362,
+  "bucket_oos_brier": 0.1441,
   "note": "OOS Brier 防退化双守卫基线(R85)。① bucket_oos_brier=裸首达公式 Brier(稳健但仅守护裸公式，对生产 empirical 融合/_FUSE_K/_hist_calib/共振无感)；② production_oos_brier=生产啮合式 Brier(逐字复刻 build_data._enrich，含全部融合逻辑，真正守护引擎)。任一退化>5% 将被 daily.yml 第8道闸门阻断。",
   "asOf": "vol_bucket=高, drift_conf=0.60",
-  "captured_by": "R217_segcal_check.run_oos (2026-08-17)",
-  "production_oos_brier": 0.2396,
-  "production_captured_by": "production_oos.py v2 (brier5/5只宽基口径 + R217 _recal_g 校准, 2026-08-18 修复假绿后重采)"
+  "captured_by": "补 2026-08-17 缺失交易日后重采 (2026-08-18, numpy2.1.3)",
+  "production_oos_brier": 0.2276,
+  "production_captured_by": "production_oos.py v2 (brier5/5只宽基口径 + R217 _recal_g 校准, 2026-08-18 补 08-17 缺失交易日后重采)"
 }
