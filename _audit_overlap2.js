@@ -75,7 +75,8 @@ const document = {
   body: makeEl('body'),
   // echarts 模块求值阶段会读 document.documentElement.style（env 探测），SSR 下需一个最小可用的元素
   documentElement: { style: {}, clientWidth: 1000, clientHeight: 600, getElementsByTagName: function () { return []; } },
-  addEventListener() {}, querySelector() { return null; }
+  addEventListener() {}, querySelector() { return null; },
+  querySelectorAll() { return []; }, getElementsByClassName() { return []; }, getElementsByTagName() { return []; }
 };
 
 const windowObj = { devicePixelRatio: 1, addEventListener() {}, FIB_DATA: D, navigator: { userAgent: 'node' } };
