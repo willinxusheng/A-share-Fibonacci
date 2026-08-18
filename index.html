@@ -22,8 +22,12 @@
   /* ===== 吸顶导航 ===== */
   .nav { position: sticky; top: 0; z-index: 100; background: rgba(22,33,62,.96); backdrop-filter: blur(6px); display: flex; gap: 4px; padding: 0 22px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; box-shadow: 0 2px 8px rgba(22,33,62,.25); }
   .nav::-webkit-scrollbar { display: none; }
-  .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 11px 13px; white-space: nowrap; border-bottom: 2px solid transparent; }
+  .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 10px 14px; white-space: nowrap; border-bottom: 2px solid transparent; border-radius: 999px; position: relative; }
   .nav a:hover { color: var(--gold); border-bottom-color: var(--gold); }
+  .nav a.active { background: #2563eb; color: #fff; border-bottom-color: transparent; }
+  .nav a.active:hover { color: #fff; border-bottom-color: transparent; }
+  .nav a .ni { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: rgba(255,255,255,.12); color: rgba(255,255,255,.85); font-size: 11px; font-weight: 700; margin-right: 5px; transition: background .18s ease, color .18s ease; }
+  .nav a.active .ni { background: rgba(255,255,255,.25); color: #fff; }
   .nav .brand { color: var(--gold); font-weight: 700; letter-spacing: 1px; }
 
   /* ===== 顶部横幅 ===== */
@@ -266,7 +270,12 @@
 
 <nav class="nav">
   <a class="brand" href="#">Φ 波浪看板</a>
-  <a href="#p1">全景K线</a><a href="#p2">数浪校验</a><a href="#p3">通道推演</a><a href="#p4">子浪预测</a><a href="#p5">买卖框架</a><a href="#p6">预测回测</a>
+  <a href="#p1"><span class="ni">一</span>全景K线</a>
+  <a href="#p2"><span class="ni">二</span>数浪校验</a>
+  <a href="#p3"><span class="ni">三</span>通道推演</a>
+  <a href="#p4"><span class="ni">四</span>子浪预测</a>
+  <a href="#p5"><span class="ni">五</span>买卖框架</a>
+  <a href="#p6"><span class="ni">六</span>预测回测</a>
 </nav>
 
 <div class="wrap">
@@ -1469,6 +1478,52 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote;
 })();
 
+
+/* ---------- 滚动监听导航（scrollspy）：页面划到哪里，顶部标题底色就跟到哪里 ---------- */
+(function () {
+  // SSR/无头环境（如 _audit_overlap2.js）没有 IntersectionObserver，优雅降级不报错
+  if (typeof IntersectionObserver === 'undefined') return;
+  var navLinks = document.querySelectorAll('.nav a[href^="#p"]');
+  var sections = document.querySelectorAll('.panel[id^="p"]');
+  if (!navLinks.length || !sections.length) return;
+
+  function setActive(href) {
+    navLinks.forEach(function (a) {
+      a.classList.toggle('active', a.getAttribute('href') === href);
+    });
+  }
+
+  // 点击立即高亮（平滑滚动动画期间先给出视觉反馈）
+  navLinks.forEach(function (a) {
+    a.addEventListener('click', function () {
+      var href = a.getAttribute('href');
+      if (href) setActive(href);
+    });
+  });
+
+  // 以视口中央为判定线，哪个面板穿过中央线即高亮
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        setActive('#' + entry.target.id);
+      }
+    });
+  }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+
+  sections.forEach(function (s) { observer.observe(s); });
+
+  // 刷新/锚点进入时按 hash 初始化 active
+  function setActiveByHash() {
+    var hash = location.hash;
+    if (hash && document.querySelector(hash)) {
+      setActive(hash);
+    } else {
+      setActive('#p1');
+    }
+  }
+  setActiveByHash();
+  window.addEventListener('hashchange', setActiveByHash);
+})();
 
 </script>
 </body>
