@@ -247,6 +247,80 @@
   .tl:hover { border-color: var(--gold); box-shadow: 0 5px 16px rgba(22,33,62,.1); transform: translateY(-2px); }
   /* badge / nav 轻量过渡 */
   .nav a, .badge { transition: color .18s ease, background .18s ease, border-color .18s ease; }
+
+  /* ============================================================
+     深度美化层 · 2026-08-18
+     在既有 navy/gold 体系上做「质感 / 层次 / 动效 / 排版」增强。
+     仅作用于页面外壳（卡片 / 排版 / 动效），不改任何 ECharts option，
+     避免触动 _audit_overlap2 标注重叠门禁。
+     ============================================================ */
+  :root {
+    --bg-grad: radial-gradient(1200px 620px at 82% -12%, #f5f8fd 0%, #eef1f6 52%, #e8edf4 100%);
+    --shadow-sm: 0 1px 2px rgba(22,33,62,.06);
+    --shadow-md: 0 8px 22px rgba(22,33,62,.09);
+    --shadow-lg: 0 16px 42px rgba(22,33,62,.13);
+    --hairline: #e7ebf2;
+    --gold-grad: linear-gradient(135deg, #e0c089 0%, #c9a063 48%, #b3863f 100%);
+    --navy-grad: linear-gradient(135deg, #243a66 0%, #16213e 100%);
+  }
+  body { background: var(--bg-grad); background-attachment: fixed; }
+
+  /* 顶部导航：加一道细金线收口品牌色 */
+  .nav { border-bottom: 1px solid rgba(201,160,99,.30); }
+
+  /* 入场动效（滚动渐显上浮） —— 守卫见脚本末尾：无 JS / 无 IO / 异常 均兜底显示 */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  .js .reveal { opacity: 0; }
+  .reveal.in { animation: fadeUp .62s cubic-bezier(.22,.61,.36,1) both; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1 !important; animation: none !important; } }
+
+  /* Hero：金线收口 + 细微点纹理 + 文字层次 */
+  .hero { position: relative; overflow: hidden; border-bottom: 3px solid var(--gold); box-shadow: var(--shadow-md); }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1.5px); background-size: 22px 22px; opacity: .55; }
+  .hero h1 { letter-spacing: .4px; text-shadow: 0 1px 3px rgba(0,0,0,.22); }
+  .hero .kicker { text-transform: uppercase; letter-spacing: 3.5px; }
+  .hero .price { line-height: 1.08; text-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .spark-box { box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), var(--shadow-sm); }
+
+  /* 面板：渐变金顶饰 + 分层阴影 + 更大圆角 + navy 渐变序号徽章 */
+  .panel { border-radius: 16px; border: 1px solid var(--hairline); border-top: 3px solid transparent;
+    background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%); box-shadow: var(--shadow-md); position: relative; }
+  .panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 16px 16px 0 0; background: var(--gold-grad); }
+  .panel h2 { font-weight: 800; letter-spacing: .3px; }
+  .panel h2 .no { background: var(--navy-grad); border-radius: 9px; box-shadow: 0 2px 6px rgba(22,33,62,.28); }
+  .panel .note { color: #6b7480; }
+
+  /* 卡片质感（仪表盘 / 发现 / 规则 / 时间线） */
+  .gauge, .finding { border-radius: 14px; background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+    box-shadow: var(--shadow-sm); border: 1px solid var(--hairline); }
+  .gauge .t, .finding .ft { letter-spacing: .2px; }
+  .finding .ft { color: var(--navy); }
+  .rule { background: linear-gradient(180deg, #fbfcff 0%, #f5f8fc 100%); border: 1px solid var(--hairline); }
+  .gauge .v { letter-spacing: .3px; }
+  .gauge .bar { box-shadow: inset 0 1px 2px rgba(0,0,0,.06); border-radius: 4px; }
+  .gauge .bar i { box-shadow: 0 0 6px rgba(0,0,0,.12); }
+  .tl { background: linear-gradient(180deg, #fafcff 0%, #f3f6fb 100%); box-shadow: var(--shadow-sm); }
+  .tl.cur { background: linear-gradient(180deg, #fdf8ef 0%, #f8efd8 100%); box-shadow: 0 4px 14px rgba(201,160,99,.22); }
+
+  /* 表格精致化 */
+  table { box-shadow: var(--shadow-sm); }
+  th { background: linear-gradient(180deg, #f6f8fc 0%, #eef2f8 100%); color: #5b6473; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody tr:hover { background: #eaf1fb; }
+  .tag { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+  /* 提示框 / 弹层阴影统一升级 */
+  .info-pop { box-shadow: var(--shadow-lg); }
+  .trigger-callout { box-shadow: 0 8px 22px rgba(194,53,49,.10); }
+  .scn-status { background: linear-gradient(180deg, #f6f8fc 0%, #eef2f8 100%); }
+  .disc { box-shadow: var(--shadow-sm); border: 1px solid var(--hairline); }
+
+  /* 滚动条美化（webkit） */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #c7cedb; border-radius: 6px; border: 2px solid #eef1f6; }
+  ::-webkit-scrollbar-thumb:hover { background: #aab4c5; }
 </style>
 </head>
 <body>
@@ -377,6 +451,9 @@
 
 <script>
 var D = window.FIB_DATA;
+// 深度美化：标记 JS 可用，CSS 仅在 .js 下隐藏 .reveal 元素；无 JS 时内容始终可见（降级安全）
+// 守卫：audit52 沙箱 document 为 mock，无 documentElement，须判空避免抛错中断脚本
+if (document && document.documentElement) { document.documentElement.className += ' js'; }
 // 统一日期转本地时间戳，避免 ECharts 对 'YYYY-MM-DD' 字符串在不同浏览器/时区解析歧义
 // A股 2026 官方休市日（上交所 上证公告〔2025〕45号）；2027 安排待公布后补充。
 // R207/R208：addBizDays 顶层全局工具，卖出目标/触达参考日期统一排假（与子浪预测图同源）。
@@ -1525,6 +1602,28 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   window.addEventListener('hashchange', setActiveByHash);
 })();
 
+/* ---------- 深度美化：滚动渐显入场动效（守卫：无 IO / 异常 / 降级 均兜底显示） ---------- */
+(function () {
+  try {
+    var revealEls = document.querySelectorAll('.panel, .gauges, .findings, .disc');
+    revealEls.forEach(function (e) { e.classList.add('reveal'); });
+    if (!('IntersectionObserver' in window)) {
+      revealEls.forEach(function (e) { e.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -6% 0px', threshold: 0.04 });
+    revealEls.forEach(function (e) { io.observe(e); });
+    // 兜底：3s 后强制显示，防止观察器异常导致内容永久隐藏
+    setTimeout(function () { revealEls.forEach(function (e) { e.classList.add('in'); }); }, 3000);
+  } catch (err) {
+    var all = document.querySelectorAll('.reveal');
+    all.forEach(function (e) { e.classList.add('in'); });
+  }
+})();
 </script>
 </body>
 </html>
