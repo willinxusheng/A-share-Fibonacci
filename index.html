@@ -94,7 +94,7 @@
   .finding { background: var(--card); border-radius: 12px; padding: 15px 17px; box-shadow: 0 1px 3px rgba(22,33,62,.07); border: 1px solid var(--line); font-size: 12.5px; }
   .finding .ft { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .dot.good { background: var(--green); } .dot.warn { background: #e6a23c; } .dot.neutral { background: var(--navy2); }
+  .dot.good { background: var(--green); } .dot.warn { background: #e6a23c; } .dot.neutral { background: var(--navy2); } .dot.ghost { background: #b0b8c8; }
   .finding p { color: #4a5261; }
 
   /* ===== 规则校验卡 ===== */
@@ -553,7 +553,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     { n: '浪④?', p: w3.price.toFixed(2) + ' → ' + w4.price.toFixed(2),
       d: '回撤 ' + ((w3.price - w4.price) / w3a * 100).toFixed(1) + '%',
       s: '急促锯齿，低点待确认', cur: true },
-    { n: '浪⑤?', p: '目标 ' + sell[0].price.toFixed(2) + ' / ' + sell[1].price.toFixed(2) + ' / ' + sell[2].price.toFixed(2),
+    { n: '浪⑤?', p: '目标 ' + sell.map(function (t) { return (t && typeof t.price === 'number') ? t.price.toFixed(2) : '—'; }).join(' / '),
       d: '三口径目标区', s: '待浪④确认后启动', cur: true }
   ];
   document.getElementById('waveFlow').innerHTML = waves.map(function (w) {
@@ -904,6 +904,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       upd[sidx] = { lineStyle: { width: isAct ? SCN_W_ACT : SCN_W_IN, opacity: isAct ? 1 : SCN_OP_LINE_IN }, itemStyle: { opacity: isAct ? 1 : SCN_OP_DOT_IN }, z: isAct ? 6 : 1, symbolSize: isAct ? 6 : 4 };
     }
     c2.setOption({ series: upd });
+    _renderC2ScnStatus(mode);
   };
   function _renderC2ScnStatus(mode) {
     var el = document.getElementById('c2ScnStatus');
