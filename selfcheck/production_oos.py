@@ -29,13 +29,16 @@ except SystemExit:
 
 
 def compute():
-    """返回生产啮合式 OOS Brier（= brier2/cnt，生产现状 2只宽基口径），无样本返回 None。"""
+    """返回生产啮合式 OOS Brier（= brier5/cnt，生产现状 5只宽基口径，与 build_data._breadth_idx 一致），无样本返回 None。"""
     if _ob is None:
         return None
     brier2, _brier5, cnt, _per2, _per5 = _ob.compute_production_oos_brier()
     if cnt == 0:
         return None
-    return brier2 / cnt
+    # 生产 _breadth 用 5 只宽基口径（build_data._breadth_idx=沪深300/创业板指/上证50/中证500/科创50，
+    # 按 _breadth_total=5 归一），故生产啮合式 OOS Brier 须用 brier5；brier2 是 R166 对照设计(非生产口径)，
+    # 用 b2 会让守卫对 breadth 轴改动假绿（R85 纪律违规）。
+    return _brier5 / cnt
 
 
 if __name__ == "__main__":

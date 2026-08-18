@@ -21,6 +21,27 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read()
 D = json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?\s*$", src, re.S).group(1))
 
+# ---- 生产校准表（build_data 写入 data.js.probCalib，逐字复用，避免重算漂移）----
+# R217 分段校准：裸首达概率(0-1)→经验校准概率(0-1)，单调分桶，空桶恒等。
+# 直接读生产写入的 edges/vals，与 build_data._enrich 零偏差（不重算 _fit_prior_recal，杜绝漂移）。
+# 修复：此前 oos_breadth.enrich 直接用裸首达概率、缺失 _recal_g → 生产 OOS 守门员测的是
+# 「未校准」概率，对 _recal_g 校准改动假绿（R85 最该警惕的类）。
+_prob_calib = D.get("probCalib") or {}
+_calib_edges = _prob_calib.get("edges")
+_calib_vals = _prob_calib.get("vals")
+
+
+def _recal_g(p):
+    """逐字复刻 build_data._recal_g：裸首达概率→经验校准概率（修正低概率系统性低估，OOS Brier −27%）。"""
+    if _calib_edges is None or _calib_vals is None:
+        return p  # 旧数据缺校准表 → 恒等，fail-soft（不阻断）
+    _p = max(0.0, min(1.0, float(p)))
+    if _p >= 0.98:
+        return _p
+    _K = len(_calib_vals)
+    _idx = min(_K - 1, max(0, int(np.digitize(_p, _calib_edges) - 1)))
+    return _calib_vals[_idx]
+
 dates = D["kline"]["dates"]
 ohlc = D["kline"]["ohlc"]                      # build_data 生成顺序 [open, close, low, high]
 close = np.array([x[1] for x in ohlc], dtype=float)
@@ -232,6 +253,7 @@ def enrich(cat, key, price, exp, breadth):
             _d2 = (_mu_eff * _exp - _b) / _sv
             _exo = max(-50.0, min(50.0, -2.0 * _mu_eff * _b / (_vol_for(_exp) ** 2 + 1e-12)))
             _hit = 1.0 - _norm_cdf(_d1) + math.exp(_exo) * _norm_cdf(_d2)
+    _hit = _recal_g(_hit)   # R217 分段校准，逐字复刻 build_data._enrich（修正低概率系统性低估）
     _p_drift = max(2, min(98, _hit * 100))
     _hcap = _hist_calib(price, exp)
     _prior = _p_drift + breadth * _dir * 5.0
