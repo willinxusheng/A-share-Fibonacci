@@ -125,7 +125,6 @@ def build_samples(df, sigma_model):
     samples = []
     for i in range(_MIN_GAP, n - _MAX_H - 1):
         base = close[i]
-        w = min(_WINDOWS[-1], max(_WINDOWS[0], 0))  # placeholder; real w inside loop
         for H in _H_GRID:
             if i + H >= n:
                 continue

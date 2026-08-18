@@ -91,7 +91,7 @@ for _i in range(len(st.get("zigzag", [])) - 1):
     if _ld < 10:
         continue
     try:
-        _lr = math.log(float(_p1["close"]) / float(_p0["close"]))
+        _lr = math.log(float(_p1["price"]) / float(_p0["price"]))
     except Exception:
         continue
     _hist_legs.append((_lr, _ld, str(_p0["date"]), str(_p1["date"])))

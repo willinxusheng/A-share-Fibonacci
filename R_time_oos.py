@@ -132,7 +132,6 @@ def main():
     # ---- 时间校准 OOS 验证（R85：证明修复真降 MAPE 才考虑进引擎）----
     # 按锚点时间顺序 60/40 切分；训练集拟合「预测TTR→真实天数」保序(PAVA)映射，
     # 验证集测校准前后 MAPE。若显著下降，则时间校准是经 OOS 验证的可落实修复。
-    order = np.argsort(actual)  # 仅用于稳定切分（不影响无前视）
     n_tr = int(len(recs) * 0.6)
     tr = recs[:n_tr]; val = recs[n_tr:]
     p_tr, a_tr = tr[:, 1], tr[:, 2]
