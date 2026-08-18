@@ -38,13 +38,15 @@ def _load_hist_legs():
         _p0, _p1 = st["zigzag"][_i], st["zigzag"][_i + 1]
         try:
             _ld = max(1, len(pd.bdate_range(pd.Timestamp(_p0["date"]), pd.Timestamp(_p1["date"]))) - 1)
-        except Exception:
+        except Exception as _e:
+            print("[WARN] R227 跳过历史腿 %s→%s：%s" % (_p0.get("date"), _p1.get("date"), _e))
             continue
         if _ld < 10:
             continue
         try:
             _lr = math.log(float(_p1["price"]) / float(_p0["price"]))
-        except Exception:
+        except Exception as _e:
+            print("[WARN] R227 跳过历史腿 %s→%s：价格比非正或不可解析 %s" % (_p0.get("date"), _p1.get("date"), _e))
             continue
         legs.append((_lr, _ld, _p0["date"], _p1["date"]))
     return legs

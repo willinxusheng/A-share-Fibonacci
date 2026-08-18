@@ -31,7 +31,8 @@ def _detect_five_wave_runs(zigzag, min_leg_days=12, min_net=0.02):
         try:
             ld = max(1, len(pd.bdate_range(pd.Timestamp(p0["date"]), pd.Timestamp(p1["date"]))) - 1)
             lr = math.log(float(p1["price"]) / float(p0["price"]))
-        except Exception:
+        except Exception as _e:
+            print("[WARN] R228 跳过 zigzag 腿 %s→%s：%s" % (p0.get("date"), p1.get("date"), _e))
             continue
         if ld < min_leg_days:
             continue

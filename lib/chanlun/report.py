@@ -224,6 +224,7 @@ def chart_svg(klines, r, sym, captured=None):
         pg.append(f'<rect x="{x0:.1f}" y="{y0:.1f}" width="{max(x1 - x0, 3):.1f}" height="{y1 - y0:.1f}" fill="{BLUE}" fill-opacity="0.10" stroke="{BLUE}" stroke-opacity="0.45" stroke-dasharray="4,3"/>')
 
     # 最后中枢 ZG/ZD 金色虚线（标签做垂直防重叠）
+    zs = None
     if zss:
         zs = zss[-1]
         _zz = sorted([(y(zs["zg"]), "ZG", zs["zg"]), (y(zs["zd"]), "ZD", zs["zd"])])
@@ -1586,7 +1587,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
 
     # 趋势外推（独立交叉验证）：对数线性回归外推 horizon 日，青色虚线叠加
     p.append(f'<line x1="{PAD_L + hist_w:.1f}" y1="{y(last):.1f}" x2="{xp(1):.1f}" y2="{y(trend_end_price):.1f}" stroke="#0891b2" stroke-width="1.3" stroke-dasharray="2,5" stroke-opacity="0.85"/>')
-    p.append(f'<circle cx="{xp(1):.1f}" cy="{y(trend_end):.1f}" r="2.8" fill="#0891b2"/>')
+    p.append(f'<circle cx="{xp(1):.1f}" cy="{y(trend_end_price):.1f}" r="2.8" fill="#0891b2"/>')
 
     draw_path(main_p, RED, "none")
     draw_path(alt_p, "#94a3b8", "6,4")
@@ -1872,7 +1873,9 @@ def compare_svg(data):
     n = len(common)
     series = {}
     for sym, m in date_close.items():
-        base = m[common[0]]
+        base = m.get(common[0])
+        if base is None:
+            continue
         series[sym] = [m[dt] / base * 100 for dt in common]
     allv = [v for s in series.values() for v in s]
     lo, hi = min(allv), max(allv)
