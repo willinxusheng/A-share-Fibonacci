@@ -471,10 +471,13 @@ def find_signals(bis, zss, beichis, klines=None, merged=None):
             _e = merged[bj["end"]]["idx_end"]
             if _e >= 13:
                 _trs = []
-                for _j in range(_e - 13, _e + 1):
-                    _h, _l, _c0 = klines[_j]["high"], klines[_j]["low"], klines[_j - 1]["close"]
+                # 钳制下界 >=0 并对 _j==0 兜底：否则 _j==0 时 klines[_j-1] 负索引回绕到
+                # 最后一根(WRONG)，污染首根真实波幅(TR)。首根无前收，TR 退化为 high-low。
+                for _j in range(max(0, _e - 13), _e + 1):
+                    _h, _l = klines[_j]["high"], klines[_j]["low"]
+                    _c0 = klines[_j - 1]["close"] if _j > 0 else klines[_j]["close"]
                     _trs.append(max(_h - _l, abs(_h - _c0), abs(_l - _c0)))
-                _atr = sum(_trs) / 14.0
+                _atr = sum(_trs) / len(_trs)
                 if s["dir"] == 1:
                     stop = min(stop, price - 1.5 * _atr)
                 else:

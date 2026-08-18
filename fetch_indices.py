@@ -14,10 +14,22 @@ sys.path.insert(0, BASE)
 import datafeed
 
 # (展示名, 文件名)；取数 key = 文件名去掉 "_raw.md" 后缀
+# 必须与 preflight.py 的 CRITICAL_FILES + SECONDARY_FILES 以及 build_data._idx_raw /
+# crossMarket 取的索引【完全一致】。否则每日 CI 编排（daily.yml: fetch_indices→preflight→
+# analyze→build）里 preflight 在 build 之前(step2)检查不到这些副指数文件、副指数守门员永久
+# 失灵（本该拦坏数据却永远看不到文件），且每次 CI 误报"文件缺失"告警（假绿/噪音）。
+# R271 多源回退链(datafeed)对所有指数生效，海外 runner 也能取到，故全部纳入本步预取。
 INDICES = [
-    ("上证指数", "sh000001_raw.md"),
+    ("上证指数", "sh000001_raw.md"),   # 主指数(关键)：缺失即全盘作废
     ("沪深300", "sh000300_raw.md"),
     ("创业板指", "sz399006_raw.md"),
+    ("上证50", "sh000016_raw.md"),
+    ("中证500", "sh000905_raw.md"),
+    ("科创50", "sh000688_raw.md"),
+    ("恒生指数", "hkHSI_raw.md"),
+    ("恒生科技", "hkHSTECH_raw.md"),
+    ("标普500", "usINX_raw.md"),
+    ("纳斯达克", "usIXIC_raw.md"),
 ]
 
 
