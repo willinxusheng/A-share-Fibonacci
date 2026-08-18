@@ -1318,8 +1318,14 @@ def health_score(klines, r, wcls):
 def forecast_confidence(r, wcls, bt, breadth_bias=0):
     c = 40
     cls = r["classify"]
-    aligned = cls.get("last_bi_dir") == wcls.get("last_bi_dir")
-    c += 20 if aligned else -10
+    # 周线对齐项：仅在真正提供周线分类(wcls)时才计入。gen_chanlun_view 仅做日线分析、
+    # 无周线数据，此前误把日线 cls 当 wcls 传入→等价于「日线比自己」恒 aligned=True→
+    # 置信度被伪周线对齐恒 +20（最高虚高 30 分）。缺失周线信息时按中性处理（不奖不罚），
+    # 使日线面板置信度反映日线结构本身，而非一段不存在的跨周期共振。report.py 传入真实周线
+    # classify 时行为不变。
+    if wcls is not None:
+        aligned = cls.get("last_bi_dir") == wcls.get("last_bi_dir")
+        c += 20 if aligned else -10
     recent_bc = [b for b in r["beichi"] if b["bi_index"] >= len(r["bis"]) - 3]
     if any(b["type"] == "top" for b in recent_bc):
         c -= 15

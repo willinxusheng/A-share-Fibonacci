@@ -219,7 +219,7 @@
     .nav a, .nav .brand { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 
     /* Hero：slim 横条（左：品牌+标题2行钳制；右：价格+涨跌），省出纵向空间 */
-    .hero { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: 6px; gap: 12px; }
+    .hero { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: 6px; gap: 12px; flex-wrap: nowrap; }
     .hero-main { display: flex; flex: 1 1 auto; align-items: center; gap: 12px; min-width: 0; }
     .hero-text { flex: 1 1 auto; min-width: 0; }
     .hero .kicker { font-size: 10px; letter-spacing: 1.5px; }
@@ -245,6 +245,8 @@
     /* 面板区：双列网格（优于 multicolumn，ECharts 尺寸测量稳、旋转不乱） */
     .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
     .panel { padding: 9px 11px; margin-bottom: 0; break-inside: auto; -webkit-column-break-inside: auto; }
+    /* 五年全景（p1）是主图：横屏宽裕时独占整行，给足横向分辨率读出长周期结构（其余面板仍 2 列） */
+    #p1 { grid-column: 1 / -1; }
     .panel h2 { font-size: 13px; gap: 7px; }
     .panel h2 .no { width: 20px; height: 20px; font-size: 11px; border-radius: 7px; }
     .panel .note { font-size: 11px; margin: 4px 0 8px; }
@@ -259,10 +261,12 @@
     .tl + .tl { margin-left: 14px; }
     .tl b { font-size: 12.5px; }
 
-    /* 图表：横屏高度收紧（!important 压过内联 640/680） */
-    .chart-lg, #chart2, #chartSubF { height: 260px !important; min-height: 220px; }
-    .chart-md { height: 200px; }
-    .chart-sm { height: 170px; }
+    /* 图表：横屏高度收紧（!important 压过内联 640/680）。手机横屏高约 380–430px，
+       加高到 300px 给三宫格图更多纵向空间；配合下方 ECharts grid 底部预留 MOB 时缩到 30px，
+       最下方 RSI/子浪图从 ~20px 提升到 ~45px 可读高度（不再被压扁）。 */
+    .chart-lg, #chart2, #chartSubF { height: 300px !important; min-height: 270px; }
+    .chart-md { height: 240px; }
+    .chart-sm { height: 210px; }
 
     /* 触达提示：横屏内更紧凑、三档并排 */
     .trigger-callout { padding: 8px 11px; margin: 2px 0 8px; }
@@ -301,7 +305,7 @@
       .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
       .rules { grid-template-columns: 1fr; }
       .trigger-callout .tiers { grid-template-columns: 1fr; }
-      .chart-lg, #chart2, #chartSubF { height: 320px !important; min-height: 260px; }
+      .chart-lg, #chart2, #chartSubF { height: 360px !important; min-height: 300px; }
     }
   }
   /* ===== 统一悬浮微交互：卡片轻微抬升 + 加深阴影，提升质感与可点感 ===== */
@@ -856,7 +860,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     grid: [
       { left: 80, right: 60, top: 44, bottom: '44%' },
       { left: 80, right: 60, top: '58%', height: '9%' },
-      { left: 80, right: 60, top: '71%', bottom: 55 }
+      { left: 80, right: 60, top: '71%', bottom: (MOB ? 30 : 55) }
     ],
     xAxis: [
       { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false } },
@@ -1031,7 +1035,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     legend: { type: 'scroll', top: 0, show: !MOB, textStyle: { fontSize: 12 } },
     grid: [
       { left: 80, right: 60, top: 44, bottom: '42%' },
-      { left: 80, right: 60, top: '60%', bottom: (window.innerWidth <= 760 ? 56 : 46) }
+      { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 46) }
     ],
     xAxis: [
       { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false } },
@@ -1225,7 +1229,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         legend: { data: ['实际收盘'].concat(_maNames).concat(['浪⑤子浪推演', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
         grid: [
           { left: 80, right: 60, top: 44, bottom: '42%' },
-          { left: 80, right: 60, top: '60%', bottom: 55 }
+          { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
         xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: maxTs, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), maxTs, function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: _yMin, max: _yMax, interval: _yInterval, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
@@ -1246,7 +1250,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         legend: { data: ['实际收盘'].concat(_maNames).concat(['基准走势(非子浪)', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
         grid: [
           { left: 80, right: 60, top: 44, bottom: '42%' },
-          { left: 80, right: 60, top: '60%', bottom: 55 }
+          { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
         xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: bEnd[0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), bEnd[0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: bYMin, max: bYMax, interval: bYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
@@ -1268,7 +1272,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         legend: { data: ['实际收盘'].concat(_maNames).concat(['风险下行(子浪失效)', 'RSI(14)']), top: 0, textStyle: { fontSize: 12 } },
         grid: [
           { left: 80, right: 60, top: 44, bottom: '42%' },
-          { left: 80, right: 60, top: '60%', bottom: 55 }
+          { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
         xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: rYMin, max: rYMax, interval: rYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],

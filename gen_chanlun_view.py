@@ -67,7 +67,9 @@ def main():
     cls = r.get("classify")
     horizon = adaptive_horizon(r["bis"], r["merged"])
     _svg, _note, _probs, _leg, fc = forecast_svg(kl, r, cls, 50.0, 0.0, SYM, horizon)
-    conf = forecast_confidence(r, cls, {})
+    # 仅日线分析、无周线数据：wcls 传 None（中性），避免把日线 cls 当周线→伪对齐恒 +20。
+    # 若日后接入周线数据，应改为传入周线 classify 以做真实跨周期对齐。
+    conf = forecast_confidence(r, None, {})
     proj = fc.get("proj", [])
 
     # 每个 tplus 取首条主路径（叙事主线），构建精简路径
