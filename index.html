@@ -1398,7 +1398,15 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<td>' + k.lo.toFixed(2) + ' ~ ' + k.hi.toFixed(2) + '</td>' +
       '<td>' + k.med.toFixed(2) + '</td></tr>';
   }).join('');
-  var dip = CV.dip || {}, tail = CV.tail || {}, t15 = kp[1] || null;
+  var dip = (CV.dip && CV.dip.main != null) ? CV.dip : null,
+      tail = (CV.tail && CV.tail.main != null) ? CV.tail : null,
+      t15 = kp[1] || null;
+  // 缠论主路径退化（dip/tail 为 null）时优雅降级，避免 undefined.toFixed 崩溃（gen_chanlun_view 空路径已写 null）
+  var _dipT = dip ? _dl(dip.t) : '—', _dipMain = dip ? dip.main.toFixed(2) : '—';
+  var _tailMain = tail ? tail.main.toFixed(2) : '—', _tailHi = tail ? tail.hi.toFixed(2) : '—';
+  var _clNote = (dip && tail)
+    ? '落在缠论置信带<b>上沿附近</b>（卖① ' + (fib[0] ? fib[0].price.toFixed(2) : '—') + ' ≈ 缠论 T+15 P95 ' + (t15 ? t15.hi.toFixed(2) : '—') + '）——两模型在"上行可达"上自洽，并非矛盾。'
+    : '（缠论主路径数据不足，暂不可比，请以斐波那契视图为准）。';
   el.innerHTML =
     '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">' +
       '<span class="tag" style="background:#eef4ff;color:#2f6fb2">结构研判：' + (CV.scenario || '—') + '</span>' +
@@ -1407,8 +1415,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     '</div>' +
     '<table style="margin-bottom:10px"><tr><th>日期</th><th>主路径目标</th><th>P05–P95 置信带</th><th>中位</th></tr>' + rows + '</table>' +
     '<div class="note" style="font-size:12px;line-height:1.8">' +
-      '🔍 <b>对照解读</b>：缠论主路径在 <b>' + _dl(dip.t) + ' 先洗盘至 ' + dip.main.toFixed(2) + '</b>（近端回踩位），随后回升——' + _dl(15) + ' 主路径 ' + (t15 ? t15.main.toFixed(2) : '—') + '、' + _dl(30) + ' ' + tail.main.toFixed(2) + '，上沿带达 ' + tail.hi.toFixed(2) + '。' +
-      '斐波那契长周期卖点【' + fibLine + '】落在缠论置信带<b>上沿附近</b>（卖① ' + (fib[0] ? fib[0].price.toFixed(2) : '—') + ' ≈ 缠论 T+15 P95 ' + (t15 ? t15.hi.toFixed(2) : '—') + '）——两模型在"上行可达"上自洽，并非矛盾。' +
+      '🔍 <b>对照解读</b>：缠论主路径在 <b>' + _dipT + ' 先洗盘至 ' + _dipMain + '</b>（近端回踩位），随后回升——' + _dl(15) + ' 主路径 ' + (t15 ? t15.main.toFixed(2) : '—') + '、' + _dl(30) + ' ' + _tailMain + '，上沿带达 ' + _tailHi + '。' +
+      '斐波那契长周期卖点【' + fibLine + '】' + _clNote +
       '你此前看到的"Fib 4039 vs 缠论 3896"是<b>早期一档斐波那契扩展位 vs 缠论近端回踩</b>的时空错配，非同向可比目标。' +
       '<br><span style="color:#9a6a00">⏱ 缠论时间轴同斐波那契一样为低置信（walk-forward OOS 显示触达时间系统性偏短），仅作方向性参考。</span>' +
       '<br><span style="color:#1f6fb2">📊 OOS 实测（缠论自身滚动回测·五指数）：P05–P95 置信带实测覆盖 ~98%（保守安全）、中心偏误 &lt;1%（无偏）；但主路径短期方向仅 ~39–44%（弱于抛硬币）——故缠论视图应作"宽幅情景区间"参考，而非精确点位。</span>' +

@@ -98,22 +98,41 @@ def main():
                 "hi": round(p0["f95l"] + p0["f95h"], 2),
             })
     # 近端最低主路径（洗盘位）与末端主路径（恢复位）
-    dip = min(path, key=lambda x: x["main"])
-    tail = path[-1]
-    view = {
-        "symbol": SYM,
-        "name": name,
-        "lastDate": kl[-1]["date"],
-        "lastClose": round(kl[-1]["close"], 2),
-        "scenario": cls.get("scenario") if isinstance(cls, dict) else cls,
-        "confidence": conf,
-        "adaptiveHorizon": horizon,
-        "keyProjection": keys,
-        "dip": {"t": dip["t"], "main": dip["main"], "lo": dip["lo"], "hi": dip["hi"]},
-        "tail": {"t": tail["t"], "main": tail["main"], "hi": tail["hi"], "lo": tail["lo"]},
-        "generatedBy": "gen_chanlun_view.py v2 (CI daily refresh from data/sh000001.csv)",
-        "klinesSource": "data/sh000001.csv",
-    }
+    if not path:
+        # 缠论推演主路径为空（退化输入/分析失败）：写「数据缺失」视图而非抛未捕获异常。
+        # 否则 min([])/path[-1] 会崩溃生成器，导致 CI 追踪栈且 chanlun 静默停更；
+        # 此处仍写出合法 CHANLUN_VIEW（dip/tail=None），前端按 null 守卫优雅降级。
+        view = {
+            "symbol": SYM,
+            "name": name,
+            "lastDate": kl[-1]["date"],
+            "lastClose": round(kl[-1]["close"], 2),
+            "scenario": "数据缺失",
+            "confidence": None,
+            "adaptiveHorizon": horizon,
+            "keyProjection": [],
+            "dip": None,
+            "tail": None,
+            "generatedBy": "gen_chanlun_view.py v2 (CI daily refresh from data/sh000001.csv)",
+            "klinesSource": "data/sh000001.csv",
+        }
+    else:
+        dip = min(path, key=lambda x: x["main"])
+        tail = path[-1]
+        view = {
+            "symbol": SYM,
+            "name": name,
+            "lastDate": kl[-1]["date"],
+            "lastClose": round(kl[-1]["close"], 2),
+            "scenario": cls.get("scenario") if isinstance(cls, dict) else cls,
+            "confidence": conf,
+            "adaptiveHorizon": horizon,
+            "keyProjection": keys,
+            "dip": {"t": dip["t"], "main": dip["main"], "lo": dip["lo"], "hi": dip["hi"]},
+            "tail": {"t": tail["t"], "main": tail["main"], "hi": tail["hi"], "lo": tail["lo"]},
+            "generatedBy": "gen_chanlun_view.py v2 (CI daily refresh from data/sh000001.csv)",
+            "klinesSource": "data/sh000001.csv",
+        }
     out = "window.CHANLUN_VIEW = %s;\n" % json.dumps(view, ensure_ascii=False, indent=2)
     dest = os.path.join(HERE, "data", "chanlun_view.js")
     with open(dest, "w", encoding="utf-8") as f:

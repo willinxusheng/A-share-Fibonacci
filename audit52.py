@@ -166,6 +166,11 @@ const BASE = process.argv[2];
 const ds = fs.readFileSync(path.join(BASE,'data','data.js'),'utf-8');
 const m = ds.match(/window\.FIB_DATA\s*=\s*(\{[\s\S]*\})\s*;?\s*$/);
 const dataObj = JSON.parse(m[1]);
+// R审计加固：加载缠论视图快照，使 index.html 缠论面板渲染代码在沙箱中被真正执行
+// （此前仅加载 data.js，缠论面板整段从未跑过 -> 该面板崩溃 audit52 也抓不到，盲区）。
+const cvs = fs.readFileSync(path.join(BASE,'data','chanlun_view.js'),'utf-8');
+const cm = cvs.match(/window\.CHANLUN_VIEW\s*=\s*(\{[\s\S]*\})\s*;?\s*$/);
+const chanlunView = cm ? JSON.parse(cm[1]) : undefined;
 const html = fs.readFileSync(path.join(BASE,'index.html'),'utf-8');
 // R审计加固：解析 HTML 真实 id，未知 id 真实返回 null（对齐浏览器），
 // 让「引用了但未兜底缺失 id」的崩溃类回归可被捕获（此前 stub 永远非 null 漏检）。
@@ -188,7 +193,7 @@ const document = {
   createElement:()=>({ style:{}, appendChild(){}, setAttribute(){}, getContext:()=>({}) }),
   addEventListener:()=>{}, body:{ innerHTML:'', style:{}, appendChild(){} }, write:()=>{} };
 const echarts = { init:()=>({ setOption:()=>{}, resize:()=>{}, on:()=>{}, dispose:()=>{} }) };
-const window = { FIB_DATA: dataObj, addEventListener:()=>{}, devicePixelRatio:1, location:{} };
+const window = { FIB_DATA: dataObj, CHANLUN_VIEW: chanlunView, addEventListener:()=>{}, devicePixelRatio:1, location:{} };
 const sandbox = { window, document, echarts, console, setTimeout:()=>{}, clearTimeout:()=>{},
   setInterval:()=>{}, Math, JSON, Date, parseInt, parseFloat, isNaN,
   Array, Object, String, Number, RegExp, FIB_DATA: dataObj };
