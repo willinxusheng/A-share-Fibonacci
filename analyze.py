@@ -6,6 +6,7 @@
 import json
 import os
 import sys
+from datetime import datetime as _dtmod
 
 import numpy as np
 import pandas as pd
@@ -109,6 +110,23 @@ def read_kline_md(path):
         except (ValueError, TypeError):
             return None
 
+    def _valid_date(s):
+        # 纵深防御(R148/R170)：date 列与 open/high/low 数字列同等关键——非法日期字符串
+        # ("--"/""/"NOTADATE" 等)若被 ack 进 rows，会在 load_data 的 pd.to_datetime 抛未捕获
+        # 异常拖垮整条无人值守管线；空串 "" 则静默产生 NaT 污染 DataFrame 与 CSV 输出(下游
+        # sort_values/iloc[-1] 取末值错位)。此处与 _num 同一哲学：非法即跳过该行，不依赖
+        # preflight 兜底(手动跑 analyze 或 preflight 漏查时仍能自保)。
+        if not s:
+            return False
+        s = str(s).strip()
+        for _f in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+            try:
+                _dtmod.strptime(s, _f)
+                return True
+            except ValueError:
+                continue
+        return False
+
     rows, header = [], None
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -134,7 +152,7 @@ def read_kline_md(path):
             h = col(parts, "high")
             lo = col(parts, "low")
             v = col(parts, "volume")
-            if d is None or c is None:
+            if not _valid_date(d) or c is None:     # date 非法(含 None/空/乱码)整行跳过，防 to_datetime 崩/NaT 污染
                 continue
             _c = _num(c)
             if _c is None:                          # 收盘缺失/非数字 → 该行无效，跳过而非崩溃
