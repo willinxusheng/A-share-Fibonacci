@@ -101,11 +101,16 @@ def run_calibration_scripts():
         print("--- %s ---" % name)
         try:
             out = subprocess.run([venv, p], cwd=BASE, capture_output=True, text=True, timeout=600)
-            for ln in out.stdout.splitlines():
-                if any(k in ln for k in ("Brier", "OOS", "验证", "改善", "恶化", "Δ", "best", "raw", "分桶", "PAVA", "Platt", "不进", "胜出", "无显著")):
-                    print("  " + ln.strip())
+            out_lines = [ln.strip() for ln in out.stdout.splitlines()
+                         if any(k in ln for k in ("Brier", "OOS", "验证", "改善", "恶化", "Δ", "best", "raw", "分桶", "PAVA", "Platt", "不进", "胜出", "无显著"))]
+            for ln in out_lines:
+                print("  " + ln)
             if out.returncode != 0:
-                print("  [注意] %s 退出码 %d（末尾打印格式化字符 bug 不影响结论，见 R217/R221 记录）" % (name, out.returncode))
+                if out_lines:
+                    print("  [注意] %s 退出码 %d（已捕获上述输出，可能末尾格式化报错，结论以输出为准）" % (name, out.returncode))
+                else:
+                    print("  [失败] %s 退出码 %d 且未捕获任何 Brier/OOS 输出 → 真实运行失败，非格式化问题！stderr: %s"
+                          % (name, out.returncode, (out.stderr or '').strip()[:500]))
         except Exception as e:
             print("  [错误] 运行 %s 失败: %s" % (name, e))
 
