@@ -573,15 +573,19 @@ def classify(bis, zss, beichis, close, wcls=None, segments=None, seg_beichi=None
         nest = (nest + "；" + mdesc) if nest else mdesc
 
     if bc_top and last["dir"] == 1:
+        # 取同类型(顶)最近一笔背驰的面积比，避免 recent_bc[-1] 在顶+底同现时取到底背驰的值
+        _bc = next((b for b in reversed(recent_bc) if b["type"] == "top"), recent_bc[-1])
         scenario = "背驰见顶风险"
-        detail = "最近向上笔价格创新高但MACD红柱面积明显萎缩（面积比 %.2f）" % recent_bc[-1]["area_ratio"]
+        detail = "最近向上笔价格创新高但MACD红柱面积明显萎缩（面积比 %.2f）" % _bc["area_ratio"]
         if seg_top:
             detail += "，且走势段级别同步出现顶背驰"
         detail += ("，构成顶背驰%s。短线警惕一类卖点确认，回落目标先看最近中枢ZG(%.1f)。"
                    % (_bc_qual, last_zs["zg"] if last_zs else close))
     elif bc_bot and last["dir"] == -1:
+        # 取同类型(底)最近一笔背驰的面积比，避免 recent_bc[-1] 在顶+底同现时取到顶背驰的值
+        _bc = next((b for b in reversed(recent_bc) if b["type"] == "bottom"), recent_bc[-1])
         scenario = "背驰见底机会"
-        detail = "最近向下笔价格创新低但MACD绿柱面积明显萎缩（面积比 %.2f）" % recent_bc[-1]["area_ratio"]
+        detail = "最近向下笔价格创新低但MACD绿柱面积明显萎缩（面积比 %.2f）" % _bc["area_ratio"]
         if seg_bot:
             detail += "，且走势段级别同步出现底背驰"
         detail += ("，构成底背驰%s。关注一类买点后的反弹，第一压力看最近中枢ZD(%.1f)。"
