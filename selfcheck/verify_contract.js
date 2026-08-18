@@ -65,15 +65,23 @@ chk(Array.isArray(D.scenarios) && D.scenarios.length >= 3 &&
 chk(D.subForecast && Array.isArray(D.subForecast.points) && D.subForecast.points.length >= 2,
   'D.subForecast（强势子浪校准）缺失/非法');
 
-// ★ 关键越界检查：前端 L552-557 用 signals[i] 配 kline.ohlc[i]
+// ★ 关键契约（修正 R29 假绿）：前端 L681-691 用 dateIdx[s.date] 按【日期】取 kline 索引，
+// 而非数组下标。真实不变量是「每个 signals[i].date 必须存在于 kline.dates」，且对应 ohlc 行
+// 价格非 NaN（前端取 ohlc[idx][2]=低 / [3]=高）。原检查按数组下标比对且 signals 长度远小于
+// ohlc，恒通过——属假绿，从未真正校验前端依赖的日期对齐。
 chk(Array.isArray(D.signals), 'signals 非数组');
-chk(D.kline && Array.isArray(D.kline.ohlc), 'kline.ohlc 缺失/非数组');
-if (Array.isArray(D.signals) && D.kline && Array.isArray(D.kline.ohlc)) {
-  chk(D.signals.length <= D.kline.ohlc.length,
-    '★ 越界风险: signals.length(' + D.signals.length + ') > kline.ohlc.length(' + D.kline.ohlc.length + ') → 前端 L555 读 kline.ohlc[i] 越界');
+chk(D.kline && Array.isArray(D.kline.dates) && Array.isArray(D.kline.ohlc), 'kline.dates/ohlc 缺失/非数组');
+if (Array.isArray(D.signals) && D.kline && Array.isArray(D.kline.dates) && Array.isArray(D.kline.ohlc)) {
+  const dateSet = new Set(D.kline.dates);
+  const ohlcByDate = {};
+  D.kline.dates.forEach((d, i) => { ohlcByDate[d] = D.kline.ohlc[i]; });
   D.signals.forEach((s, i) => {
     chk(s.signal === 1 || s.signal === -1 || s.signal === 0, 'signals[' + i + '].signal 异常值 ' + s.signal);
-    chk(Array.isArray(D.kline.ohlc[i]), 'signals[' + i + '] 对应 kline.ohlc[' + i + '] 缺失');
+    chk(typeof s.date === 'string' && dateSet.has(s.date),
+      'signals[' + i + '].date(' + s.date + ') 不在 kline.dates → 前端 L683 按 dateIdx 查不到将跳过该信号（孤儿信号）');
+    const row = ohlcByDate[s.date];
+    chk(Array.isArray(row) && numOK(row[2]) && numOK(row[3]),
+      'signals[' + i + '] 对应 kline.ohlc[' + s.date + '] 行缺位/价格 NaN（前端取 [2]=低/[3]=高）');
   });
 }
 
@@ -98,5 +106,5 @@ console.log('sellTargets =', ((D.tradePlan && D.tradePlan.sellTargets) || []).le
   ' kline.ohlc =', ((D.kline && D.kline.ohlc) || []).length);
 console.log('精确字段契约检查: ' + (issues.length
   ? ('发现 ' + issues.length + ' 处:\n- ' + issues.join('\n- '))
-  : '全部通过 — 无 NaN / undefined / 越界，前端消费字段齐全，signals↔kline.ohlc 长度匹配'));
+  : '全部通过 — 无 NaN / undefined / 越界，前端消费字段齐全，signals 日期全部落在 kline.dates 且与 ohlc 行对齐'));
 process.exit(issues.length ? 1 : 0);

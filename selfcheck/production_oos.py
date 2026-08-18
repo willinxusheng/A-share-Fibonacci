@@ -21,11 +21,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
-try:
-    import oos_breadth as _ob
-except SystemExit:
-    # oos_breadth 在样本为 0 时会 raise SystemExit(1)；视为无样本，安全降级
-    _ob = None
+# 直接导入生产 OOS 真源 oos_breadth（仓根模块，REPO 已入 sys.path）。
+# 注意：oos_breadth 仅在 __main__ 入口（cnt==0 时）raise SystemExit(1)，模块 import
+# 阶段不会抛 SystemExit；若 data.js/structures.json 缺失或损坏导致 import 失败，
+# 异常按 CI 门禁设计上抛 fail-loud（exit 1 阻断部署），这比静默跳过生产线守卫更安全，
+# 因为其它 8 道门禁会先捕获数据损坏。故此处不做吞错降级。
+import oos_breadth as _ob
 
 
 def compute():

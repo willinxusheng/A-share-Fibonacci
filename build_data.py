@@ -510,12 +510,18 @@ def main():
             except Exception:
                 _bak = None
         if _try_datafeed(_key, _p, _cache):
-            if _bak is not None and not _valid_raw(_p):
+            if _valid_raw(_p):
+                return True                    # 回退源写入有效(>=min_rows) -> 成功
+            # 回退源写入不足(如境外回退仅取到单日快照)：R277 保护仅在存在有效旧版时还原，
+            # 否则不接受为成功，落入下方 cache/基线兜底或回退 0，避免把 1 行残桩当有效数据
+            # 喂入 norm_series(致 indexCompare 出现 1 点平线伪信号、共振被静默污染)。
+            if _bak is not None:
                 try:
                     shutil.copyfile(_bak, _p)   # 还原完整旧版，避免污染 git 基线
                 except Exception:
                     pass
-            return True
+                return True
+            # 无有效旧版可还原且回退源不足 -> 不 return True，继续走 cache/基线兜底或回退 0
         # 兜底(R278+)：fetch 全失败时，优先用近期 .idx_cache（fetch 成功时写入，时效性最佳），
         # 覆盖可能陈旧/死基线的 _p（git 跟踪的 raw.md 基线可能停在数年前的死数据，如副指数 2021 基线）。
         # 仅当 cache 也缺失/无效时才退化到 git 基线 _p，避免 2021 死数据静默污染共振(R277 灾难重演)。

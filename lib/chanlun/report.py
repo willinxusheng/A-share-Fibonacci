@@ -1223,7 +1223,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
     # 否则低拟合度或方向分歧下"吻合"纯属巧合，据此 +2% 概率属虚增置信度。
     _main_mid = (main_p[0][1] + main_p[-1][1]) / 2
     _R2_TH = 0.25
-    trend_agree = bool(_main_mid and abs(trend_end - _main_mid) / _main_mid < 0.06
+    trend_agree = bool(_main_mid and abs(trend_end_price - _main_mid) / _main_mid < 0.06
                        and _r2 >= _R2_TH and _agree_dir)
     trend_weak = _r2 < _R2_TH
     # 趋势衰减提示（多窗口上行共识但主窗口加速度衰减）：背驰可能的量化信号，
@@ -1480,7 +1480,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
         band_ext.append(_bandf(_f, 1.645))   # 经验上沿(P95)
         band_ext.append(_bandf(_f, -1.645))  # 经验下沿(P05)
     band_ext.append(_medf(1.0))
-    all_prices = tail + [v for _, v in main_p + alt_p + risk_p] + [zg, zd] + band_ext + [trend_end] \
+    all_prices = tail + [v for _, v in main_p + alt_p + risk_p] + [zg, zd] + band_ext + [trend_end_price] \
         + [g["top"] for g in _gap_refs] + [g["bottom"] for g in _gap_refs]
     lo, hi = min(all_prices), max(all_prices)
     pad = (hi - lo) * 0.06
@@ -1623,7 +1623,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
         f'<div class="fc-targets">结构演绎目标(主路径终点) ≈ <b>{main_p[-1][1]:.0f}</b> · '
         f'均值期望终点 ≈ <b>{_medf(1.0):.0f}</b> · '
         f'风险止损位(风险路径终点) ≈ <b>{risk_p[-1][1]:.0f}</b> · '
-        f'趋势外推位 ≈ <b>{trend_end:.0f}</b> · '
+        f'趋势外推位 ≈ <b>{trend_end_price:.0f}</b> · '
         f'主路径失效位(有效跌破ZD) ≈ <b>{zd:.0f}</b> · '
         f'结构存续概率(锥) ≈ <b>{_p_hold*100:.0f}%</b></div>'
     )
@@ -1636,7 +1636,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
                 if trend_weak
                 else ("其终点与主路径吻合（误差<6%）且拟合较稳（R²={_r2:.2f}），两法指向同一区间，预测可信度更高；"
                       if trend_agree
-                      else f"其终点 ≈ {trend_end:.0f}，与主路径中点存在偏差（R²={_r2:.2f}），提示两种视角对后市节奏判断不完全一致，宜结合仓位管理；"))
+                      else f"其终点 ≈ {trend_end_price:.0f}，与主路径中点存在偏差（R²={_r2:.2f}），提示两种视角对后市节奏判断不完全一致，宜结合仓位管理；"))
              + f"若趋势外推也跌漏 ZD，则风险路径概率进一步上升。\n"
              f"主图叠加的斐波那契回调位（F38/F50/F62）与本路径上行目标、ZD 支撑相互印证：若回踩至 F61.8 附近获支撑，反弹结构更可靠；若直接跌漏 ZD，则风险路径概率上升。\n"
              f"时间轴：左侧历史区为真实交易日（MM-DD）；右侧投影区日期按「从最后交易日往后推算相应交易日、跳过周末及法定节假日（A股日历）」得到，仅供参照。")

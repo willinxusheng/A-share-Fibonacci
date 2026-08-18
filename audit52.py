@@ -228,7 +228,15 @@ try {
         # returncode 硬检查：node 异常退出一律视为硬失败，阻断部署。
         if r.returncode != 0:
             return "fail", "  [FAIL] 前端运行时沙箱进程异常退出(code=%d): %s" % (r.returncode, out.strip()[:200])
-        return "ok", "  ok 前端运行时沙箱执行 0 错误"
+        # R审计加固(2026-08-18b)：RT_BLANK 软警告（核心面板未填充=静默早退类回归）原被
+        # 静默吞噬、不打印到 CI 日志，与上方注释"暴露给人工复核"承诺不符，运维看不见前端
+        # 退化信号。现提取并打印（仍不阻断部署，仅提升可见性，lvl 保持 "ok"）。
+        _blank = ""
+        for _ln in (r.stdout or "").splitlines():
+            if _ln.startswith("RT_BLANK:"):
+                _blank = "\n  [note] 前端运行时软警告(不阻断): 未填充面板 -> " + _ln[len("RT_BLANK:"):].strip()
+                break
+        return "ok", "  ok 前端运行时沙箱执行 0 错误" + _blank
     except subprocess.TimeoutExpired:
         # 前端死循环/挂死：vm 8s 超时未覆盖到的进程级挂死 → 真实缺陷，必须阻断部署。
         return "fail", "  [FAIL] 前端运行时沙箱超时(疑似前端死循环/挂死)"

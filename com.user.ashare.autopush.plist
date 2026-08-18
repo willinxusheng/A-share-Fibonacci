@@ -8,8 +8,12 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <!-- 改为你 Mac 上 clone 出的仓库绝对路径（第3节 clone 默认是 ~/A-share-Fibonacci） -->
-    <string>/Users/YOUR_USER/A-share-Fibonacci/push_to_github.sh</string>
+    <string>-c</string>
+    <!-- 只读同步：仅 git pull 拉取云端最新 data/ 供本机查看，绝不 push data/。
+         改你 Mac 上 clone 出的仓库绝对路径（第3节 clone 默认是 ~/A-share-Fibonacci）。
+         ⚠️ 多机纪律：云端 daily.yml(CI) 是 data/ 唯一写入器；本机严禁自动 push data/，
+         否则会与 CI 争写、把本地/陈旧 data/ 覆盖到线上。需要提交源码改动请手动跑 push_to_github.sh。 -->
+    <string>cd /Users/YOUR_USER/A-share-Fibonacci &amp;&amp; git pull --ff-only origin main</string>
   </array>
 
   <key>WorkingDirectory</key>

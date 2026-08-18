@@ -1,6 +1,11 @@
 # A股斐波那契波浪看板 - Python 依赖
 # 安装：pip install -r requirements.txt
-# 须与本地 venv 完全一致（经六门禁全绿验证：numpy 2.5.1 / pandas 3.0.5），
-# 避免 CI 装到不同小版本导致数值行为漂移（确定性/可复现性缺口）。
-numpy==2.5.1
+# 须与本地 venv 完全一致（经八门禁全绿验证：numpy 2.1.3 / pandas 3.0.5），
+# 避免 CI / 本地装到不同小版本导致数值行为漂移（确定性/可复现性缺口）。
+#
+# ⚠️ numpy 版本铁律（R16/R20）：numpy 2.5.x 在 Windows 触发 C 扩展崩溃(segfault)，
+# 致 build_data.py 无 traceback 退出码1；本地 venv 已固定 2.1.3（cp313 预编译 wheel，
+# Linux/Windows 双平台可用、CI ubuntu 同样兼容）。切勿改回 2.5.x，否则本地 Windows
+# 跑管线直接崩。pandas 3.0.5 保留（仅支持 numpy>=2，与 2.1.3 兼容）。
+numpy==2.1.3
 pandas==3.0.5

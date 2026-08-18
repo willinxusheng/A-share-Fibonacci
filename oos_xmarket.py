@@ -25,6 +25,27 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(BASE, "data", "data.js"), encoding="utf-8").read()
 D = json.loads(re.search(r"window\.FIB_DATA\s*=\s*(\{.*\})\s*;?\s*$", src, re.S).group(1))
 
+# ---- 生产校准表（build_data 写入 data.js.probCalib，逐字复用，避免重算漂移）----
+# R217 分段校准：与 oos_breadth / audit50 / build_data._enrich 一致，生产啮合式 OOS 必须含 _recal_g，
+# 否则本实验的「基线(生产现状 5只宽基口径)」测的是「未校准」概率，对 _recal_g 校准改动假绿
+# （R85 最该警惕的类），且打印的基线 Brier 与 oos_breadth 的 Brier5 对不上、误导对照。
+_prob_calib = D.get("probCalib") or {}
+_calib_edges = _prob_calib.get("edges")
+_calib_vals = _prob_calib.get("vals")
+
+
+def _recal_g(p):
+    """逐字复刻 build_data._recal_g：裸首达概率→经验校准概率（修正低概率系统性低估，OOS Brier −27%）。"""
+    if _calib_edges is None or _calib_vals is None:
+        return p  # 旧数据缺校准表 → 恒等，fail-soft（不阻断）
+    _p = max(0.0, min(1.0, float(p)))
+    if _p >= 0.98:
+        return _p
+    _K = len(_calib_vals)
+    _idx = min(_K - 1, max(0, int(np.digitize(_p, _calib_edges) - 1)))
+    return _calib_vals[_idx]
+
+
 dates = D["kline"]["dates"]
 ohlc = D["kline"]["ohlc"]
 close = np.array([x[1] for x in ohlc], dtype=float)
@@ -294,6 +315,7 @@ def enrich(cat, key, price, exp, breadth, xbreadth, W):
             _d2 = (_mu_eff * _exp - _b) / _sv
             _exo = max(-50.0, min(50.0, -2.0 * _mu_eff * _b / (_vol_for(_exp) ** 2 + 1e-12)))
             _hit = 1.0 - _norm_cdf(_d1) + math.exp(_exo) * _norm_cdf(_d2)
+    _hit = _recal_g(_hit)   # R217 分段校准，逐字复刻 build_data._enrich（修正低概率系统性低估）
     _p_drift = max(2, min(98, _hit * 100))
     _hcap = _hist_calib(price, exp)
     # 基线: 仅 A股 breadth*5.0；处理: 再叠加 跨市场 xbreadth*W
