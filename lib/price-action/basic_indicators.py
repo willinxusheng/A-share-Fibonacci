@@ -23,8 +23,8 @@ def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     rs = avg_gain / avg_loss
     return 100 - 100 / (1 + rs)
 
@@ -66,9 +66,9 @@ def compute_adx(
 
     # Wilder 平滑
     alpha = 1 / period
-    smoothed_tr = tr.ewm(alpha=alpha, min_periods=period).mean()
-    smoothed_plus_dm = plus_dm.ewm(alpha=alpha, min_periods=period).mean()
-    smoothed_minus_dm = minus_dm.ewm(alpha=alpha, min_periods=period).mean()
+    smoothed_tr = tr.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+    smoothed_plus_dm = plus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+    smoothed_minus_dm = minus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
 
     # +DI / -DI
     plus_di = 100 * smoothed_plus_dm / smoothed_tr
@@ -78,7 +78,7 @@ def compute_adx(
     di_sum = plus_di + minus_di
     di_sum = di_sum.replace(0, np.nan)
     dx = 100 * (plus_di - minus_di).abs() / di_sum
-    adx = dx.ewm(alpha=alpha, min_periods=period).mean()
+    adx = dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
 
     return pd.DataFrame({"plus_di": plus_di, "minus_di": minus_di, "adx": adx})
 

@@ -105,6 +105,7 @@ class SignalEngine:
                 signal = self._compute_signal(ohlc, df.index)
             except Exception as e:
                 print(f"  {code} SMC计算异常: {e}")
+                raise  # 不静默降级为全零（避免被误读为'无信号'），真实错误 fail-loud
 
             result[code] = signal
         return result
