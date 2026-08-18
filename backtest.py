@@ -72,7 +72,8 @@ def archive(data):
                 except (json.JSONDecodeError, ValueError):
                     # 容忍半行/损坏行，不崩溃；后续重写时丢弃。
                     continue
-    seen = {(e["date"], e["key"], e["cat"]) for e in existing}
+    seen = {(e.get("date"), e.get("key"), e.get("cat")) for e in existing
+            if e.get("date") and e.get("key") and e.get("cat")}
     new = 0
     fresh = []
     for r in extract_targets(data):
@@ -88,11 +89,15 @@ def archive(data):
     if new:
         # 先写历史有效行，再追加本次新增；丢弃坏行、按 (date,key,cat) 去重，
         # 消除半行粘连后续记录导致的连锁 JSON 崩溃与重复计数。
-        with open(LOG_PATH, "w", encoding="utf-8") as f:
+        # 原子写：写临时文件后 os.replace 整体替换，避免 CI 进程写一半被杀导致
+        # LOG_PATH 含半行/不完整内容（下次 archive 虽容忍坏行但会丢失该次原子性）。
+        _tmp = LOG_PATH + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as f:
             for e in existing:
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
             for rec in fresh:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        os.replace(_tmp, LOG_PATH)
     return new
 
 
@@ -139,6 +144,8 @@ def evaluate(df):
             if not line:
                 continue
             rec = json.loads(line)
+            if not rec.get("date"):
+                continue
             i0 = _safe_idx(dates, rec["date"])
             # 观察窗口自适应：中长期目标(卖②③/子浪ⅲⅴ 等)真实触达需数月，
             # 固定 HORIZON=30 会让其观察期一到即被永久记 miss→命中率系统性失真。

@@ -190,6 +190,14 @@ def load_data():
     #   ② git HEAD 版 sh000001.csv（历史真实收盘）
     _cols = ["date", "open", "close", "high", "low", "volume"]
     df = df[[c for c in _cols if c in df.columns]]
+    # 纵深防御：read_kline_md 若因取数源格式变化返回非标准列名(如 'last' 而非 'close')，
+    # 上一步过滤会静默丢弃核心列，写出缺列 csv → build_data 读时 KeyError（静默失败）。
+    # 在此硬失败，而非静默丢列。
+    for _must in ("date", "open", "close", "high", "low"):
+        if _must not in df.columns:
+            raise RuntimeError(
+                "K线核心列缺失 '%s'：read_kline_md 返回列名=%s，取数源格式可能变化。"
+                "请检查 fetch_indices.py / datafeed.py。" % (_must, list(df.columns)))
     _gap_sources = []
     _cache_p = os.path.join(BASE, "data", ".idx_cache", os.path.basename(raw_path))
     if os.path.exists(_cache_p):

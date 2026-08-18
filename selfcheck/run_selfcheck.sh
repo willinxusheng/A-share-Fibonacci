@@ -36,11 +36,17 @@ echo
 echo "=== [2/3] 前端 SVG 渲染核查 (check_svg) ==="
 echo "  (先 AUDIT_DUMP=1 落 SVG 到仓库根)"
 NODE_PATH="${NODE_PATH:-$HOME/.workbuddy/binaries/node/workspace/node_modules}" AUDIT_DUMP=1 "$NODE" _audit_overlap2.js >/dev/null 2>&1
+_overlap_rc=$?
+if [ $_overlap_rc -ne 0 ]; then
+  echo "❌ overlap 审计未通过(退出码=$_overlap_rc)，[2/3] 核查失败" >&2
+  exit 1
+fi
 if ls _dbg_*.svg >/dev/null 2>&1; then
   "$NODE" "$SCRIPT_DIR/check_svg.js" || { echo "❌ SVG 核查失败"; rm -f _dbg_*.svg; exit 1; }
   rm -f _dbg_*.svg
 else
-  echo "  (未生成 _dbg_*.svg，跳过 SVG 核查——可能 node_modules 缺失或 overlap 审计异常)"
+  echo "❌ 未生成 _dbg_*.svg（overlap 审计未落盘，环境异常），[2/3] 核查失败" >&2
+  exit 1
 fi
 
 echo
