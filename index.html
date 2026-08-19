@@ -158,7 +158,7 @@
   @media (max-width: 960px) { .trigger-callout .tiers { grid-template-columns: 1fr; } }
   @media (max-width: 960px) { .gauges, .findings, .rules { grid-template-columns: repeat(2,1fr); } .cols2 { grid-template-columns: 1fr; }
     /* 中等屏（平板/小笔电）图表高度断点：避免 900px 桌面高在窄宽屏下又高又窄、比例失衡 */
-    .chart-lg, #chart2, #chartSubF { height: 600px !important; } .chart-md { height: 440px !important; } .chart-sm { height: 360px !important; } }
+    .chart-lg, #chart2, #chartSubF { height: 680px !important; } .chart-md { height: 440px !important; } .chart-sm { height: 360px !important; } }
   @media (max-width: 640px) {
     .wrap { padding: 0 12px 40px; }
     .hero { padding: 20px 18px 16px; }
@@ -190,7 +190,7 @@
     .panel h2 { font-size: 15px; flex-wrap: wrap; }
     .nav { padding: 0 10px; }
     .nav a { font-size: 11px; padding: 9px 7px; }
-    .chart-lg, #chart2, #chartSubF { height: 460px !important; }
+    .chart-lg, #chart2, #chartSubF { height: 520px !important; }
     .chart-md { height: 360px; }
     .chart-sm { height: 300px; }
     table { font-size: 11.5px; }
@@ -262,9 +262,9 @@
     .tl b { font-size: 12.5px; }
 
     /* 图表：横屏高度收紧（!important 压过内联 640/680）。手机横屏高约 380–430px，
-       加高到 300px 给三宫格图更多纵向空间；配合下方 ECharts grid 底部预留 MOB 时缩到 30px，
+       加高到 340px 给三宫格图更多纵向空间；配合下方 ECharts grid 底部预留 MOB 时缩到 30px，
        最下方 RSI/子浪图从 ~20px 提升到 ~45px 可读高度（不再被压扁）。 */
-    .chart-lg, #chart2, #chartSubF { height: 300px !important; min-height: 270px; }
+    .chart-lg, #chart2, #chartSubF { height: 340px !important; min-height: 300px; }
     .chart-md { height: 240px; }
     .chart-sm { height: 210px; }
 
@@ -335,7 +335,7 @@
       .gauges, .findings { grid-template-columns: repeat(2, 1fr); }
       .rules { grid-template-columns: 1fr; }
       .trigger-callout .tiers { grid-template-columns: 1fr; }
-      .chart-lg, #chart2, #chartSubF { height: 360px !important; min-height: 300px; }
+      .chart-lg, #chart2, #chartSubF { height: 400px !important; min-height: 340px; }
     }
   }
   /* ===== 统一悬浮微交互：卡片轻微抬升 + 加深阴影，提升质感与可点感 ===== */
@@ -538,7 +538,7 @@
     <h2><span class="no">三</span>艾略特通道 × 未来情景推演</h2>
     <div class="note" id="noteChan">金色平行线=艾略特通道（浪②-浪④连线 + 过浪③顶平行线），浪⑤理论上轨指向通道上沿；虚线=三情景推演路径（月度路标示意）。<b>绿色三角=买点参考区</b>（浪④回踩 0.382~铁律线），<b>红色倒三角=浪⑤兑现目标</b>，绿色横带=买入参考区，黄色实线=3674.40 铁律线/风控位。所有标记均为斐波那契+波浪推导的参考位，非确定性指令。<br><b style="color:#b8740f">三情景是三套不同前提，不可直接比较</b>：『强势』线（浪④底 3741 已成、浪⑤直接启动）与下方子浪细分推演<b>同源</b>；『基准』线（浪4 仍在 3650–3741 磨底，9/30≈3700）与『风险』线（跌破铁律线 3674 证伪）是另外两套前提，不与子浪图直接对比。</div>
     <div id="c2ScnStatus" class="scn-status"></div>
-    <div id="chart2" class="chart-lg" style="height:640px"></div>
+    <div id="chart2" class="chart-lg" style="height:720px"></div>
     <div class="cols2" style="margin-top:16px">
       <div>
         <div class="sub-h">斐波那契扩展目标位</div>
@@ -563,7 +563,7 @@
       <span id="scnAuto" class="scn-auto"></span>
     </div>
     <div id="subFBanner" class="scen-premise"></div>
-    <div id="chartSubF" class="chart-lg" style="height:680px"></div>
+    <div id="chartSubF" class="chart-lg" style="height:760px"></div>
     <div id="subFDebug" style="margin-top:8px;font-size:12px;color:#666;font-family:monospace;"></div>
     <div class="sub-h" id="subFTableTitle" style="margin-top:14px">浪⑤子浪目标位（基准=卖①保守口径细分）</div>
     <table id="subFTable"></table>
@@ -1309,7 +1309,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           { left: 80, right: 60, top: 44, bottom: '42%' },
           { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
-        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: maxTs, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), maxTs, function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; }) ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: maxTs, gridIndex: 0, axisLabel: { show: false, fontSize: 12, formatter: function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), maxTs, function (v) { var d = new Date(v); var y = d.getFullYear(); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return String(y) + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: _yMin, max: _yMax, interval: _yInterval, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
         series: [
           { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
@@ -1330,7 +1330,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           { left: 80, right: 60, top: 44, bottom: '42%' },
           { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
-        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: bEnd[0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), bEnd[0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: bEnd[0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { show: false, fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), bEnd[0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: bYMin, max: bYMax, interval: bYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
         series: [
           { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
@@ -1352,7 +1352,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           { left: 80, right: 60, top: 44, bottom: '42%' },
           { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 55) }
         ],
-        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
+        xAxis: [ { type: 'value', min: toTs('2026-05-01'), max: rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, gridIndex: 0, axisLabel: { show: false, fontSize: 12, formatter: function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; } }, splitLine: { show: false } }, _rsiXAxis(toTs('2026-05-01'), rproj[rproj.length - 1][0] + 30 * 24 * 60 * 60 * 1000, function (v) { var d = new Date(v); var m = d.getMonth() + 1; var day = d.getDate(); if (m === 1 && day <= 7) return d.getFullYear() + '年'; return m + '月' + day + '日'; }) ],
         yAxis: [ { type: 'value', min: rYMin, max: rYMax, interval: rYInt, gridIndex: 0, axisLabel: { fontSize: 12 } }, _rsiYAxis() ],
         series: [
           { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
