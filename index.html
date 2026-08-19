@@ -22,7 +22,8 @@
   /* ===== 吸顶导航 ===== */
   .nav { position: sticky; top: 0; z-index: 100; background: rgba(22,33,62,.96); backdrop-filter: blur(6px); display: flex; gap: 4px; padding: 0 24px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; box-shadow: 0 2px 8px rgba(22,33,62,.25); max-width: 1480px; margin: 0 auto; }
   .nav::-webkit-scrollbar { display: none; }
-  .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 10px 14px; white-space: nowrap; border-bottom: 2px solid transparent; border-radius: 999px; position: relative; }
+  .nav a { color: rgba(255,255,255,.72); text-decoration: none; font-size: 12.5px; padding: 10px 14px; white-space: nowrap; border-bottom: 2px solid transparent; border-radius: 999px; position: relative; flex: 1 1 auto; text-align: center; }
+  .nav a, .nav .brand { display: flex; justify-content: center; align-items: center; }
   .nav a:hover { color: var(--gold); border-bottom-color: var(--gold); }
   .nav a.active { background: #2563eb; color: #fff; border-bottom-color: transparent; }
   .nav a.active:hover { color: #fff; border-bottom-color: transparent; }
@@ -189,7 +190,7 @@
     .panel { padding: 15px 13px; }
     .panel h2 { font-size: 15px; flex-wrap: wrap; }
     .nav { padding: 0 10px; }
-    .nav a { font-size: 11px; padding: 9px 7px; }
+    .nav a { font-size: 11px; padding: 9px 7px; flex: 0 0 auto; }
     .chart-lg, #chart2, #chartSubF { height: 520px !important; }
     .chart-md { height: 360px; }
     .chart-sm { height: 300px; }
