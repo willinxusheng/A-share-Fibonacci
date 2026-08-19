@@ -57,7 +57,9 @@ SYMBOLS = {
     "hkHSI":    ("100.HSI", "^HSI", "hsi"),
     "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech"),
     "usINX":    ("100.SPX", "^GSPC", "spx"),
-    "usIXIC":   ("100.NDX", "^IXIC", "ixic"),
+    # 三源必须为同一指数：yahoo/stooq 的 ^IXIC/ixic = 纳斯达克综合指数(Nasdaq Composite)，
+    # eastmoney 对应代码为 100.IXIC（100.NDX 是纳斯达克100，非同一标的，跨源回退会取错序列）。
+    "usIXIC":   ("100.IXIC", "^IXIC", "ixic"),
 }
 
 

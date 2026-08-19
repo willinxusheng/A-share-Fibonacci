@@ -89,7 +89,7 @@ def check_file(fname, critical):
         fail(target, "文件缺失: %s（eastmoney/fetch_indices 未生成？路径/命令错误？）" % fname)
         return
     size = os.path.getsize(path)
-    if size < 200:
+    if size <= 200:
         fail(target, "文件过小(%d B): %s（eastmoney/fetch_indices 可能报错/返回空，非 K 线表）" % (size, fname))
         return
 
@@ -175,7 +175,9 @@ def check_file(fname, critical):
             continue
         n_ok += 1
 
-    if n_total < MIN_ROWS:
+    # 用有效行数 n_ok 做门槛，与 analyze.load_data 的 len(rows)（有效行）口径一致；
+    # 否则含坏行的 n_total 通过时，下游 analyze 用有效行数判定可能 <600 而崩溃。
+    if n_ok < MIN_ROWS:
         fail(target, "数据行数不足(%d < %d): %s（取数截断/部分失败）" % (n_total, MIN_ROWS, fname))
     ratio = (n_bad / n_total) if n_total else 1.0
     if ratio > MAX_BAD_ROW_RATIO:

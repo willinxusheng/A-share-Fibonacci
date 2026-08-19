@@ -88,9 +88,12 @@ def main():
     # ---------- 判定 ----------
     p1, m1 = _guard("bucket_oos_brier", bucket, base_bucket)
     print(m1)
-    # 生产线守卫：仅在能算出有效值时比对；无样本(None)安全跳过（不阻断），交由其它守门员兜底
-    p2, m2 = (True, "⏭️ production_oos_brier 无样本，跳过生产线守卫（不阻断）") \
-        if prod is None else _guard("production_oos_brier", prod, base_prod)
+    # 生产线守卫是双守卫之一，不得因"无样本"静默消失（否则引擎失效→守卫被掏空，
+    # 违反反假绿纪律）。prod is None 视为计算失败（引擎改动/数据缺失），必须阻断而非放行。
+    if prod is None:
+        p2, m2 = (False, "❌ production_oos_brier 无样本(None)：生产线守卫无法评估，按失败阻断（避免引擎失效假绿）")
+    else:
+        p2, m2 = _guard("production_oos_brier", prod, base_prod)
     print(m2)
 
     if p1 and p2:

@@ -1144,8 +1144,11 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
     _gap_refs = _gap_refs[:2]
     sc = r["classify"]["scenario"]
     cls_dir = r["classify"]["last_bi_dir"]
-    wdir = wcls["last_bi_dir"]
-    aligned = (cls_dir == wdir)
+    if wcls is not None:
+        wdir = wcls["last_bi_dir"]
+        aligned = (cls_dir == wdir)
+    else:
+        aligned = False
     # 最近完成的笔幅度，作为"实测幅度投影"基准
     comp = r["bis"][-2] if len(r["bis"]) >= 2 else r["bis"][-1]
     move = max(abs(comp["end_price"] / comp["start_price"] - 1), 0.03)
@@ -1614,7 +1617,7 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
     # 图例改为图表下方的 HTML 图例条（不再压住推演路径与时间轴）
     legend_html = (
         f'<div class="fc-legend">'
-        f'<span><i class="ln" style="background:{RED}"></i>统计期望路径 ≈ {p_main * 100:.0f}%（均值期望终点 {_medf(1.0):.0f}）</span>'
+        f'<span><i class="ln" style="background:{RED}"></i>结构主路径 ≈ {p_main * 100:.0f}%（均值期望终点 {_medf(1.0):.0f}）</span>'
         f'<span><i class="ln ln-dash" style="background:#94a3b8"></i>次路径：中枢内震荡 ≈ {p_alt * 100:.0f}%</span>'
         f'<span><i class="ln ln-dot" style="background:{GREEN}"></i>风险路径：跌破ZD转空 ≈ {p_risk * 100:.0f}%</span>'
         f'<span><i class="ln ln-band"></i>置信锥 经验分位 P05–P95 / P25–P75（真实分布·非对称）</span>'
@@ -2095,7 +2098,7 @@ def card_html(sym, name, klines, r, wcls, health, conf):
       <div class="card-head"><span class="idx-name">{name}</span><span class="sym">{sym}</span></div>
       <div class="price">{last["close"]:.2f} <span style="color:{color}">{'+' if chg >= 0 else ''}{chg:.2f}%</span></div>
       <div class="spark">{spark}</div>
-      <div class="kv"><span>近5年涨跌(前复权)</span><b style="color:{fy_color}">{'+' if five_yr >= 0 else ''}{five_yr:.2f}%</b></div>
+      <div class="kv"><span>区间累计涨跌(前复权, 自起点)</span><b style="color:{fy_color}">{'+' if five_yr >= 0 else ''}{five_yr:.2f}%</b></div>
       <div class="kv"><span>近1年涨跌</span><b style="color:{oy_color}">{'+' if one_yr >= 0 else ''}{one_yr:.2f}%</b></div>
       <div class="kv"><span>年化波动率</span><b>{vol_txt}</b></div>
       <div class="kv"><span>近20日涨跌(动量)</span><b style="color:{m20_color}">{m20_txt}</b></div>

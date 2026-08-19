@@ -1302,10 +1302,10 @@ def health_score(klines, r, wcls):
         s += 10
     else:
         s -= 10
-    if cls.get("last_bi_dir") == wcls.get("last_bi_dir"):
+    if wcls is not None and cls.get("last_bi_dir") == wcls.get("last_bi_dir"):
         s += 15
     else:
-        s -= 10
+        s -= 10 if wcls is not None else 0
     recent_bc = [b for b in r["beichi"] if b["bi_index"] >= len(r["bis"]) - 3]
     if any(b["type"] == "top" for b in recent_bc):
         s -= 10

@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CHANLUN_DIR = os.environ.get("CHANLUN_DIR", os.path.join(HERE, "lib", "chanlun"))
 sys.path.insert(0, CHANLUN_DIR)
 
-from chanlun import analyze, adaptive_horizon, forecast_confidence  # noqa: E402
+from chanlun import analyze, adaptive_horizon, forecast_confidence, forward_vol  # noqa: E402
 from report import forecast_svg  # noqa: E402
 
 SYM = "sh000001"
@@ -66,10 +66,11 @@ def main():
     r = analyze(kl)
     cls = r.get("classify")
     horizon = adaptive_horizon(r["bis"], r["merged"])
-    _svg, _note, _probs, _leg, fc = forecast_svg(kl, r, cls, 50.0, 0.0, SYM, horizon)
     # 仅日线分析、无周线数据：wcls 传 None（中性），避免把日线 cls 当周线→伪对齐恒 +20。
     # 若日后接入周线数据，应改为传入周线 classify 以做真实跨周期对齐。
-    conf = forecast_confidence(r, None, {})
+    conf = forecast_confidence(r, None, {})  # 日线面板不含胜率项(bt={})，与周线报告不可比，属轻量近似
+    sigma = forward_vol([k["close"] for k in kl], horizon)
+    _svg, _note, _probs, _leg, fc = forecast_svg(kl, r, None, conf, sigma, SYM, horizon)
     proj = fc.get("proj", [])
 
     # 每个 tplus 取首条主路径（叙事主线），构建精简路径

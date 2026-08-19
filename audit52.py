@@ -157,7 +157,7 @@ def _part_a(D, html):
 def _part_b_runtime():
     """node 沙箱执行 index.html 主脚本，捕获运行时错误。返回 (level, text)。"""
     if not NODE_EXE or not os.path.exists(NODE_EXE):
-        return "skip", "  -- node 不可用，跳过运行时沙箱检查（仅静态字段检查生效）"
+        return "fail", "  [FAIL] node 不可用，前端运行时沙箱无法验证：阻断部署（守门员不得因环境缺失而静默放过）"
     js = r"""
 const fs = require('fs');
 const vm = require('vm');
