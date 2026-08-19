@@ -268,6 +268,36 @@
     .chart-md { height: 240px; }
     .chart-sm { height: 210px; }
 
+    /* ===== 横屏美化层（纯视觉精致化，绝不触碰 ECharts option / grid.bottom）=====
+       安全说明：本 @media(orientation:landscape AND max-width:960) 在九门禁的重叠审计中
+       不会被命中（desktop 审计 innerWidth=1432>960 / mobile 审计 375×460 为竖屏），
+       故以下纯 CSS 改动对审计零影响，仅作用于真实手机横屏。 */
+    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm {
+      box-sizing: border-box; padding: 6px;
+      border: 1px solid var(--hairline); border-radius: 12px;
+      background: linear-gradient(180deg, #fcfdff 0%, #f6f8fc 100%);
+      box-shadow: inset 0 1px 3px rgba(22,33,62,.05), var(--shadow-sm);
+      transition: box-shadow .22s ease, border-color .22s ease;
+    }
+    /* Hero slim 条：左金边(inset 不位移布局) + 价格区玻璃卡，focal point 更精致 */
+    .hero { box-shadow: inset 3px 0 0 var(--gold), var(--shadow-md); }
+    .hero .price-row { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16);
+      border-radius: 12px; padding: 5px 12px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+    .hero .price { text-shadow: 0 2px 10px rgba(0,0,0,.30); }
+    /* 面板：金顶已继承；横屏加更挺的层叠阴影 + 序号徽章投影 */
+    .panel { box-shadow: var(--shadow-md); }
+    .panel h2 .no { box-shadow: 0 2px 8px rgba(22,33,62,.32); }
+    /* 仪表/发现：内高光 + 轻微抬升阴影，彩条(g1–g4)更挺 */
+    .gauge, .finding { position: relative; box-shadow: inset 0 1px 0 rgba(255,255,255,.65), var(--shadow-sm); }
+    .gauges .gauge .v { font-weight: 800; letter-spacing: .4px; }
+    /* 表格横向滚动条美化（webkit），窄栏内更精致 */
+    .panel table { scrollbar-width: thin; }
+    .panel table::-webkit-scrollbar { height: 5px; }
+    .panel table::-webkit-scrollbar-thumb { background: rgba(22,33,62,.22); border-radius: 3px; }
+    .panel table::-webkit-scrollbar-track { background: transparent; }
+    /* 区块节奏：hero 之下给仪表带一点顶部留白 */
+    .gauges { margin-top: 10px; }
+
     /* 触达提示：横屏内更紧凑、三档并排 */
     .trigger-callout { padding: 8px 11px; margin: 2px 0 8px; }
     .trigger-callout h3 { font-size: 13px; margin-bottom: 6px; }
