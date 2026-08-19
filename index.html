@@ -422,6 +422,54 @@
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #c7cedb; border-radius: 6px; border: 2px solid #eef1f6; }
   ::-webkit-scrollbar-thumb:hover { background: #aab4c5; }
+
+  /* ============================================================
+     深度美化层 · 全看板（R39，2026-08-19）
+     在既有 navy/gold 体系 + R38 横屏美化之上，补齐【桌面 + 竖屏】的
+     视觉精致度，使全形态统一。仅改页面外壳 CSS，绝不碰 ECharts option /
+     grid.bottom；重叠审计(_audit_overlap2.js)用硬编码 SSR 画布尺寸(DIMS 固定)
+     渲染，对图表容器 CSS 完全免疫（已实读源码确认），故以下改动零回归风险。
+     ============================================================ */
+
+  /* 图表画框：桌面(≥961px) + 竖屏。横屏(landscape ∧ ≤960)已由 R38 另设 12px 圆角，
+     这里用 (orientation:portrait),(min-width:961px) 精确排除，避免覆盖 R38。 */
+  @media (orientation: portrait), (min-width: 961px) {
+    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm {
+      box-sizing: border-box; padding: 10px;
+      border: 1px solid var(--hairline); border-radius: 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .22s ease, border-color .22s ease;
+    }
+    .chart-lg:hover, #chart2:hover, #chartSubF:hover, .chart-md:hover, .chart-sm:hover {
+      box-shadow: var(--shadow-md); border-color: #d8dee9;
+    }
+  }
+
+  /* Hero：左金边(inset 不位移布局，与横屏一致) + 价格区玻璃卡（全形态） */
+  .hero { box-shadow: inset 3px 0 0 var(--gold), var(--shadow-md); }
+  .hero .price-row { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 12px; padding: 6px 14px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+
+  /* 导航激活态：由偏离主题的蓝 #2563eb 改为同系 gold-grad + 深色字，强对比且整体协调 */
+  .nav a.active { background: var(--gold-grad); color: #2a2113; border-bottom-color: transparent;
+    font-weight: 700; box-shadow: 0 2px 8px rgba(201,160,99,.35); }
+  .nav a.active:hover { color: #2a2113; }
+  .nav a.active .ni { background: rgba(42,33,19,.22); color: #2a2113; }
+
+  /* 字体渲染优化：更清透字面 + 标题微字距 */
+  body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  .panel h2, .hero h1, .sub-h { letter-spacing: .3px; }
+
+  /* 进度条圆角 + 徽章轻微投影，质感微提 */
+  .gauge .bar i { border-radius: 4px; }
+  .badge { box-shadow: 0 1px 2px rgba(22,33,62,.10); }
+
+  /* 表格横向滚动条统一细化（含竖屏窄表横向滚动） */
+  .panel table { scrollbar-width: thin; }
+  .panel table::-webkit-scrollbar { height: 6px; }
+  .panel table::-webkit-scrollbar-thumb { background: rgba(22,33,62,.22); border-radius: 3px; }
+  .panel table::-webkit-scrollbar-track { background: transparent; }
 </style>
 </head>
 <body>
