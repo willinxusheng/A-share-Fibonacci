@@ -215,7 +215,7 @@
 
     /* 顶部导航：更紧凑、触控目标达标（≥32px）、安全区左右 */
     .nav { padding-top: 0; padding-bottom: 0; gap: 2px; }
-    .nav a { font-size: 11px; padding: 9px 9px; }
+    .nav a { font-size: 11px; padding: 8px 6px; }
     .nav a .ni { width: 16px; height: 16px; line-height: 16px; font-size: 10px; margin-right: 4px; }
     .nav a, .nav .brand { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 
@@ -243,11 +243,14 @@
     .findings .finding .ft { font-size: 12px; }
     .findings .finding p { font-size: 11px; }
 
-    /* 面板区：双列网格（优于 multicolumn，ECharts 尺寸测量稳、旋转不乱） */
-    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+    /* 面板区：双列网格（优于 multicolumn，ECharts 尺寸测量稳、旋转不乱）。
+       grid-auto-flow: row dense —— 整行大图(p1/p3/p4/p6)夹在双列小面板之间时，
+       后续的半行面板(dense 回填)会自动补进前面整行项留下的半行空洞，消除空白错位。 */
+    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; grid-auto-flow: row dense; }
     .panel { padding: 9px 11px; margin-bottom: 0; break-inside: auto; -webkit-column-break-inside: auto; }
-    /* 五年全景（p1）是主图：横屏宽裕时独占整行，给足横向分辨率读出长周期结构（其余面板仍 2 列） */
-    #p1 { grid-column: 1 / -1; }
+    /* 横屏宽裕：三大图表/回测面板(p1 五年全景 / p3 艾略特通道 / p4 子浪推演 / p6 回测)独占整行全宽，
+       给足横向分辨率读长周期结构；文本面板(p2 数浪校验 / p5 买卖框架)由 dense 回填双列并排，信息密度最高。 */
+    #p1, #p3, #p4, #p6 { grid-column: 1 / -1; }
     .panel h2 { font-size: 13px; gap: 7px; }
     .panel h2 .no { width: 20px; height: 20px; font-size: 11px; border-radius: 7px; }
     .panel .note { font-size: 11px; margin: 4px 0 8px; }
@@ -265,9 +268,9 @@
     /* 图表：横屏高度收紧（!important 压过内联 640/680）。手机横屏高约 380–430px，
        加高到 340px 给三宫格图更多纵向空间；配合下方 ECharts grid 底部预留 MOB 时缩到 30px，
        最下方 RSI/子浪图从 ~20px 提升到 ~45px 可读高度（不再被压扁）。 */
-    .chart-lg, #chart2, #chartSubF { height: 340px !important; min-height: 300px; }
-    .chart-md { height: 240px; }
-    .chart-sm { height: 210px; }
+    .chart-lg, #chart2, #chartSubF { height: 360px !important; min-height: 320px; }
+    .chart-md { height: 250px; }
+    .chart-sm { height: 230px; }
 
     /* ===== 横屏美化层（纯视觉精致化，绝不触碰 ECharts option / grid.bottom）=====
        安全说明：本 @media(orientation:landscape AND max-width:960) 在九门禁的重叠审计中
