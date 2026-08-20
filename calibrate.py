@@ -127,19 +127,30 @@ def run_calibration(df, vol_conf=1.0, daily_vol=None,
             fut_hi = high[i + 1: i + 1 + H]
             fut_lo = low[i + 1: i + 1 + H]
             for r in r_grid:
-                # R90：对齐 build_data._enrich 的 band 定义（R89 修复后）——首达障碍=目标×band边，
+                # R90：对齐 build_data._drift_prior_prob 的 band 定义（R89 修复后）——首达障碍=目标×band边，
                 # 实测命中=触达 band 边(非旧式 0.1% 精确价容差)。_frac 取锚点 i 自身 vol regime
                 # (walk-forward 自洽：部署在日 i 用日 i 的 vol)，使本校准真正验证"线上实际用的"定义。
+                # 守卫(复刻 build_data._drift_prior_prob L1349/1358)：若 band 边已跨过锚点 base，
+                # 则"当前已在 band 内"，首达概率恒=1.0。缺此守卫时：上行目标 a_up<0 会被
+                # first_passage_prob 误判成【下行】首达、下行目标 a_dn>0 误判成【上行】首达
+                # (因函数仅收 a 不含 base 无法识别 band 跨锚点)，致 44% 样本走错分支、realized≈1.0
+                # 而 p 却为中等值 → Brier/斜率/可靠性结论失真(误诊"低概率区系统性低估")。
                 _frac = min(_sig * math.sqrt(_exp) * _vol_scale_at(i), 0.235)
-                # 上行目标：障碍=base*(1+r)*(1-_frac)（band 下缘），首达概率对该障碍
-                a_up = math.log((1.0 + r) * (1.0 - _frac))
-                p_up = first_passage_prob(a_up, _mu_eff, _sig, _exp)
-                hit_up = (fut_hi.max() >= base * (1.0 + r) * (1.0 - _frac))
+                # 上行目标：障碍=base*(1+r)*(1-_frac)（band 下缘）
+                _bar_up = base * (1.0 + r) * (1.0 - _frac)
+                if base >= _bar_up:
+                    p_up = 1.0
+                else:
+                    p_up = first_passage_prob(math.log(_bar_up / base), _mu_eff, _sig, _exp)
+                hit_up = (fut_hi.max() >= _bar_up)
                 samples.append((p_up, 1.0 if hit_up else 0.0))
                 # 下行目标：障碍=base*(1-r)*(1+_frac)（band 上缘）
-                a_dn = math.log((1.0 - r) * (1.0 + _frac))
-                p_dn = first_passage_prob(a_dn, _mu_eff, _sig, _exp)
-                hit_dn = (fut_lo.min() <= base * (1.0 - r) * (1.0 + _frac))
+                _bar_dn = base * (1.0 - r) * (1.0 + _frac)
+                if base <= _bar_dn:
+                    p_dn = 1.0
+                else:
+                    p_dn = first_passage_prob(math.log(_bar_dn / base), _mu_eff, _sig, _exp)
+                hit_dn = (fut_lo.min() <= _bar_dn)
                 samples.append((p_dn, 1.0 if hit_dn else 0.0))
 
     if not samples:
