@@ -251,19 +251,20 @@ jobs:
       # oos_breadth.compute_production_oos_brier 的 production_brier5）与 data/backtest.json 实证命中率，
       # 生成 data/quality_cert.json（退出码恒 0，透明化、不阻断）。index.html 渲染「📊 预测质量自检证书」
       # 常驻区块，与缠论 quality_cert.json 等价定位。下方 git add data/ 会一并提交。
-      - name: Generate prediction quality cert (4th borrowing from chanlun)
-        if: steps.fresh.outputs.skip != 'true'
-        run: python gen_quality_cert.py
-
       # ⑥ 市场情绪温度（R87 借鉴缠论 sentiment/，monitor_only 代理）。
       # 由本仓已有单一真源 data/data.js 推导（量能/动量/波动/牛熊位置 + 宽基与跨市场广度），
       # 不新增第三方接口（涨跌家数只有 eastmoney 中国源，海外 runner 不可达，见 R271），
       # 绝不并入概率/方向预测主模型（守护 OOS Brier 真值）。退出码恒 0（透明化、不阻断）。
+      # 注意：须在 quality_cert 之前运行，让证书读到当天最新的 sentiment（避免延迟一天）。
       - name: Generate market sentiment temperature (6th borrowing from chanlun, monitor_only)
         id: sentiment
         if: steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         run: python gen_sentiment.py
+
+      - name: Generate prediction quality cert (4th borrowing from chanlun)
+        if: steps.fresh.outputs.skip != 'true'
+        run: python gen_quality_cert.py
 
       # ⑤ 预测准确性软门禁（R87 借鉴缠论 16 道准确率门禁：仅告警不阻断）。
       # 读取刚生成的 quality_cert.json，对 OOS Brier 退化 / 命中率异常做软告警，

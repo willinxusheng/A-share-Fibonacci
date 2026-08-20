@@ -49,6 +49,14 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
+def _f(x, default=0.0):
+    """防御性 float 转换：None/非数值 → default（build_data 正常给数值，此处防降级时 None 崩溃）。"""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def _label(score):
     if score < 20:
         return "冰点"
@@ -87,12 +95,12 @@ def _compute(D):
     sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
 
     # 4. 波动恐慌（HV20 五年分位，高波动=恐慌=降温）
-    pctile = float((D.get("volRegime") or {}).get("pctile", 50))
+    pctile = _f((D.get("volRegime") or {}).get("pctile"), 50.0)
     sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
     # 5. 广度确认（宽基共振 + 跨市场共振 平均）
-    res_b = float((D.get("resonance") or {}).get("breadth", 0.0))
-    cross_b = float((D.get("crossMarket") or {}).get("breadth", 0.0))
+    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
+    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
     sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)
 
     dims = [
