@@ -9,6 +9,8 @@
 <script>document.write('<script src="data/data.js?v=' + Date.now() + '"><\/script>');</script>
 <!-- 缠论视角快照（gen_chanlun_view.py 生成；独立于 data.js，不被 build_data 覆盖） -->
 <script>document.write('<script src="data/chanlun_view.js?v=' + Date.now() + '"><\/script>');</script>
+<!-- 预测质量自检证书（gen_quality_cert.py 生成；JS 全局，避免 fetch CORS 受限） -->
+<script>document.write('<script src="data/quality_cert.js?v=' + Date.now() + '"><\/script>');</script>
 <style>
   :root {
     --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
@@ -594,6 +596,16 @@
   <div class="panel" id="p6">
     <h2><span class="no">六</span>预测回测：目标位命中率闭环（提升预测准确性）</h2>
     <div class="note" id="noteBt">每日生成的目标位（卖①②③ + 子浪ⅰ~ⅴ）自动存档，并在其后 30 个交易日内回看是否触及，统计各目标历史命中率。命中率仅基于「已到观察期」的样本；冷启动阶段（样本不足）不展示比率，避免误导。这是后续区间宽度与比率校准的数据地基。</div>
+
+    <!-- 预测质量自检证书（R87 借鉴缠论 quality_cert.json，A股斐波那契适配版；gen_quality_cert.py 生成） -->
+    <div class="cert-card" id="certCard" style="margin:14px 0;padding:14px 16px;border:1px solid #e3e8f0;border-radius:12px;background:linear-gradient(180deg,#fbfdff,#f3f8ff)">
+      <div class="sub-h" style="margin:0 0 8px;">📊 预测质量自检证书
+        <span class="tag" id="certStatus" style="margin-left:8px;font-size:12px;">…</span>
+        <span style="float:right;font-size:12px;color:#8a94a6;" id="certDate"></span>
+      </div>
+      <div id="certBody" style="font-size:13px;line-height:1.75;color:#2a3340;">加载中…</div>
+    </div>
+
     <table id="btTable"></table>
       <div class="note" id="btFoot" style="margin-top:10px"></div>
   </div>
@@ -1722,6 +1734,59 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     : ' 卖出目标与子浪目标的「概率」列已切换为<b>回测实证命中率</b>（基于已评估样本；样本不足者仍显示波动率估算）。';
   foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote;
+})();
+
+/* ---------- 预测质量自检证书渲染（R87 借鉴缠论 quality_cert.json） ---------- */
+(function () {
+  var c = window.QUALITY_CERT;
+  var statusEl = document.getElementById('certStatus');
+  var dateEl = document.getElementById('certDate');
+  var bodyEl = document.getElementById('certBody');
+  if (!bodyEl) return;
+  if (!c) { bodyEl.textContent = '证书暂不可用（首次生成前）。'; return; }
+  var acc = c.accuracy_status || '—';
+  var ob = c.oos_brier || {};
+  var bt = c.backtest || {};
+  var eng = c.engine || {};
+  var COLOR = { OK: '#2f9e44', COLD: '#8a94a6', WATCH: '#b8872a', REVIEW: '#c23531',
+                ok: '#2f9e44', improved: '#2f9e44', regressed: '#c23531', baseline_missing: '#8a94a6' };
+  function tag(txt, key) {
+    var col = COLOR[key] || '#8a94a6';
+    return '<span style="background:' + col + '1a;color:' + col + ';border:1px solid ' + col + '55;' +
+      'padding:1px 9px;border-radius:10px;font-weight:600;">' + txt + '</span>';
+  }
+  if (statusEl) statusEl.innerHTML = tag(acc, acc);
+  if (dateEl) dateEl.textContent = '数据截止 ' + (c.data_last_date || '—');
+  var rows = [
+    ['OOS Brier（生产啮合式）', ob.production_brier5 != null ? ob.production_brier5.toFixed(4) : '—',
+      '基线 ' + (ob.production_baseline != null ? ob.production_baseline.toFixed(4) : '—') +
+      ' · Δ ' + (ob.production_delta_pct != null ? ob.production_delta_pct + '%' : '—')],
+    ['OOS Brier（裸公式分桶）', ob.bucket_brier != null ? ob.bucket_brier.toFixed(4) : '—',
+      '基线 ' + (ob.bucket_baseline != null ? ob.bucket_baseline.toFixed(4) : '—') +
+      ' · Δ ' + (ob.bucket_delta_pct != null ? ob.bucket_delta_pct + '%' : '—')],
+    ['样本量（OOS 测试对）', ob.sample_cnt != null ? ob.sample_cnt : '—', '相对容差 ±' + (ob.tolerance_pct != null ? ob.tolerance_pct : 5) + '%'],
+    ['回测实证命中率（整体）', bt.overall_hit_rate != null ? bt.overall_hit_rate + '%' : '样本不足',
+      '已评估 ' + (bt.total_evaluated || 0) + ' / 存档 ' + (bt.total_logged || 0)],
+    ['波动 regime 桶', eng.vol_bucket || '—', 'driftConf=' + (eng.driftConf != null ? eng.driftConf : '—') +
+      ' · bandScale=' + (eng.bandScale != null ? eng.bandScale : '—') + ' · 共振=' + (eng.resonance_breadth != null ? eng.resonance_breadth : '—')]
+  ];
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+    '<tr style="color:#8a94a6;"><th style="text-align:left;padding:4px 8px;font-weight:600;">指标</th>' +
+    '<th style="text-align:right;padding:4px 8px;font-weight:600;">当前值</th>' +
+    '<th style="text-align:right;padding:4px 8px;font-weight:600;">对照</th></tr>';
+  rows.forEach(function (r) {
+    html += '<tr><td style="padding:4px 8px;border-top:1px solid #eef2f7;">' + r[0] + '</td>' +
+      '<td style="padding:4px 8px;border-top:1px solid #eef2f7;text-align:right;font-weight:600;">' + r[1] + '</td>' +
+      '<td style="padding:4px 8px;border-top:1px solid #eef2f7;text-align:right;color:#8a94a6;">' + r[2] + '</td></tr>';
+  });
+  html += '</table>';
+  var note = '';
+  if (c.error) note = '<div style="margin-top:8px;color:#c23531;">⚠️ ' + c.error + '</div>';
+  else if (acc === 'COLD') note = '<div style="margin-top:8px;color:#8a94a6;">样本量仍处冷启动，命中率暂不评级；OOS Brier 已稳定对照基线。</div>';
+  else if (acc === 'REVIEW') note = '<div style="margin-top:8px;color:#c23531;">⚠️ OOS Brier 退化超容差——当日已软告警，请复核概率引擎改动（R85）。</div>';
+  else if (acc === 'WATCH') note = '<div style="margin-top:8px;color:#b8872a;">⚠️ 命中率偏离常态区间，建议关注。</div>';
+  else note = '<div style="margin-top:8px;color:#2f9e44;">✅ 预测质量自检通过（软门禁，不阻断部署）。</div>';
+  bodyEl.innerHTML = html + note;
 })();
 
 

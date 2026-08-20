@@ -11,6 +11,12 @@
 #   2) 若 main 分支开启了"Require a pull request before merging"等保护规则，
 #      需允许本工作流推送（或暂时对 main 关闭该保护），否则 push 会被拒。
 #
+# ③ 部署架构等价确认（R87 借鉴缠论 deploy.yml 显式 deploy-pages 评估）：
+#   缠论用 configure-pages@v6 + upload-pages-artifact@v5 + deploy-pages@v5 三步显式发布；
+#   本仓采用「Deploy from a branch (main, /root)」——push main 即触发 Pages 自动重新部署，
+#   与上述显式三步在效果上等价（均为 push→Pages 自动发布），且已由 R58 显式 git push origin main 加固。
+#   故不强改部署架构（避免引入 artifact 上传/部署权限带来的额外失败面），仅在上方 ② 补齐 keep-alive 即可。
+#
 # 取数架构（R271）：多源链式回退，彻底解决海外 runner 取数问题。
 #   fetch_indices.py / build_data._ensure_raw 经 datafeed.py 取数：
 #     ① eastmoney (push2his) —— 中国本地主源（本机/Mac 走此路径，与历史一致）
@@ -238,6 +244,42 @@ jobs:
         continue-on-error: true
         run: python selfcheck/oos_guard.py
 
+      # ④ 预测质量自检证书（R87 借鉴缠论 quality_cert.json，做 A股斐波那契适配版）。
+      # 复用生产 OOS 闸门同一对单一真源（R217_segcal_check.run_oos 的 bucket_oos_brier +
+      # oos_breadth.compute_production_oos_brier 的 production_brier5）与 data/backtest.json 实证命中率，
+      # 生成 data/quality_cert.json（退出码恒 0，透明化、不阻断）。index.html 渲染「📊 预测质量自检证书」
+      # 常驻区块，与缠论 quality_cert.json 等价定位。下方 git add data/ 会一并提交。
+      - name: Generate prediction quality cert (4th borrowing from chanlun)
+        if: steps.fresh.outputs.skip != 'true'
+        run: python gen_quality_cert.py
+
+      # ⑤ 预测准确性软门禁（R87 借鉴缠论 16 道准确率门禁：仅告警不阻断）。
+      # 读取刚生成的 quality_cert.json，对 OOS Brier 退化 / 命中率异常做软告警，
+      # 失败不阻断（continue-on-error，透明可见、可回溯，与缠论同款）。
+      - name: Prediction-accuracy soft-alert (5th borrowing from chanlun)
+        id: acc
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json, sys
+          p = "data/quality_cert.json"
+          try:
+              c = json.load(open(p, encoding="utf-8"))
+          except Exception as e:
+              print("::warning::quality_cert.json 缺失/损坏：%s" % e)
+              sys.exit(0)
+          st = c.get("accuracy_status")
+          ob = c.get("oos_brier", {})
+          print("预测质量：accuracy_status=%s, OOS status=%s" % (st, ob.get("status")))
+          if st in ("REVIEW", "WATCH"):
+              print("::warning::预测准确性软告警：accuracy_status=%s —— OOS Δ=%s%% / %s%%, 整体命中率=%s%%"
+                    % (st, ob.get("production_delta_pct"), ob.get("bucket_delta_pct"),
+                       c.get("backtest", {}).get("overall_hit_rate")))
+          else:
+              print("✅ 预测质量自检通过（软门禁不阻断部署）")
+          PY
+
       # ②a v2：缠论视角面板每日自动刷新（best-effort，非阻塞）。
       # 缠论分析模块已 vendored 进 lib/chanlun/（零第三方依赖），输入复用本流程已抓的
       # data/sh000001.csv（单数据源、云端必成功），不再走 chanlun 原中国源。
@@ -281,6 +323,23 @@ jobs:
               exit 1
             fi
           fi
+
+      # ② keep-alive commit（R87 借鉴缠论 deploy.yml，防 GitHub 因长期无 commit 停用 cron 调度）。
+      # GitHub 对长期（约 60 天）无 commit 活动的仓库会**自动停用 scheduled workflows**，
+      # 造成静默漏更且不易察觉。每天追加一个 [skip ci] 的 last_build.txt 戳 commit 即可保持调度活跃。
+      # 本步骤仅在今天确已通过新鲜度门卫后追加一个空戳 commit，失败不阻断（continue-on-error），
+      # 且 [skip ci] 不会触发额外 CI 循环——与缠论同款机制。
+      - name: Keep-alive commit (prevent GitHub disabling scheduled runs)
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > last_build.txt
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase --autostash origin main || true
+          git add last_build.txt
+          git commit -m "chore: keep-alive [skip ci]" || echo "no changes"
+          git push origin main || echo "keep-alive push skipped"
 
       # ── 失败可见告警（R46 加固③）──────────────────────────────────────────────
       # 流水线失败时自动开/更新仓库 issue（label=ci-alert），把"静默漏更"变成可见红标。
