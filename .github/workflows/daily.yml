@@ -262,7 +262,9 @@ jobs:
             # 若 main 在取数期间被并发源码推送前移（双机/手动 push 源码），先 rebase 再推，
             # 避免 non-fast-forward 致当日数据未上线。data/ 与源码改动不冲突，rebase 安全。
             if git pull --rebase --autostash origin main; then
-              git push
+              # R58 加固：显式指定远端与分支，避免 actions/checkout 未设 tracking 时
+              # `fatal: no upstream branch` 致当日数据推不上去（部署同步铁律失守）。
+              git push origin main
               echo "✅ 已推送最新数据到 main，Pages 将自动重新部署"
             else
               git rebase --abort 2>/dev/null || true
