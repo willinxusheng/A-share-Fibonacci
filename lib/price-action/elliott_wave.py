@@ -77,7 +77,7 @@ class SignalEngine:
 
         # 收集所有候选 Swing 点
         raw_points = []
-        for idx in high.index:
+        for _pos, idx in enumerate(high.index):
             is_h = bool(swing_high_mask.get(idx, False))
             is_l = bool(swing_low_mask.get(idx, False))
             if is_h and is_l:
@@ -85,9 +85,9 @@ class SignalEngine:
                 # 它不构成有效 swing 转折点（需相邻反向 K 线确认），跳过以保持 H/L 严格交替
                 pass
             elif is_h:
-                raw_points.append({"index": idx, "price": float(high[idx]), "type": "H"})
+                raw_points.append({"index": idx, "price": float(high[idx]), "type": "H", "pos": _pos})
             elif is_l:
-                raw_points.append({"index": idx, "price": float(low[idx]), "type": "L"})
+                raw_points.append({"index": idx, "price": float(low[idx]), "type": "L", "pos": _pos})
 
         if len(raw_points) < 2:
             return raw_points
@@ -149,26 +149,27 @@ class SignalEngine:
         return True
 
     def _check_min_bars(self, swings: List[Dict], start: int, count: int) -> bool:
-        """检查连续 Swing 点之间是否满足最少 K 线数。
+        """检查连续 Swing 点之间是否满足最少 K 线数（按【K线根数】而非日历日）。
 
         Args:
-            swings: Swing 点列表。
+            swings: Swing 点列表（每个元素含 "pos" = 在原始 df 中的整数位置）。
             start: 起始索引。
             count: 检查的点数。
 
         Returns:
             是否每段都满足最少 K 线数。
+
+        注：必须以 K 线根数计量。原实现用 `(Timestamp(b)-Timestamp(a)).days`（日历日），
+        与「最少 K 线数」语义不符：① 一段恰好 min_wave_bars 根交易日的浪若落在
+        周一~周五，日历差为 (bars-1) 天 → 被误拒（漏掉合法周线级信号）；② 跨周末/假期的
+        仅 3 根 K 线浪，日历差却 ≥5 → 被误放（引入噪声信号）。现改用 swing 在 df 中的整数
+        位置差 +1 = 该浪实际包含 K 线根数，杜绝单位错配。
         """
         for i in range(start, start + count - 1):
-            idx_a = swings[i]["index"]
-            idx_b = swings[i + 1]["index"]
-            # 统一转 pandas.Timestamp 计算天数差——兼容 Timestamp / numpy.datetime64
-            # / datetime.datetime 三种输入。原 hasattr(idx,"value") 探测对 numpy.dtype64
-            # 会误判（无 .value），导致天数差走 int() 得到纳秒差、最小K线数检查静默
-            # 失效；对 datetime.datetime 则 int() 直接崩溃。pd.Timestamp 对 Timestamp
-            # 输入是恒等转换，不改变当前路径数值结果。
-            diff = abs((pd.Timestamp(idx_b) - pd.Timestamp(idx_a)).days)
-            if diff < self.min_wave_bars:
+            pos_a = swings[i]["pos"]
+            pos_b = swings[i + 1]["pos"]
+            bars = abs(pos_b - pos_a) + 1   # 该浪实际包含的 K 线根数（含两端）
+            if bars < self.min_wave_bars:
                 return False
         return True
 
