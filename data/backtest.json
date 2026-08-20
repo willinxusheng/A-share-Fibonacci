@@ -1,8 +1,8 @@
 {
-  "asOf": "2026-08-18",
+  "asOf": "2026-08-20",
   "horizon": 30,
   "minSample": 3,
-  "totalLogged": 99,
+  "totalLogged": 108,
   "totalEvaluated": 0,
   "coldStart": true,
   "summary": []
