@@ -24,6 +24,7 @@
 import ast
 import math
 import os
+import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -163,6 +164,70 @@ def _run_cal(base, price, exp, sigma, mu, vol_scale, drift_conf):
     return first_passage_prob(_a, _mu_eff, sigma, _exp)
 
 
+def _verify_run_calibration_guard():
+    """运行时校验 calibrate.run_calibration 的跨锚点守卫与 build_data 一致（防第四副本漂移）。
+
+    run_calibration 是生产校准诊断，其首达概率调用内含独立守卫副本（calibrate.py L141-152），
+    未被 audit53 既有三副本比对覆盖——既有比对只测"非边界"区间且跳过早返回。
+    若将来 build_data._drift_prior_prob 的守卫被改而 run_calibration 忘了同步，诊断会静默
+    走错反射分支（正是 6893527 修复的 44% 样本 bug），audit53 仍 PASS → 假绿。
+
+    做法（信任但不轻信 / 实跑）：抽取 run_calibration 真实源码，把两处 first_passage_prob
+    调用改写为带方向标签的 _rec_fp（断言 a 的符号与方向上/下行自洽），在合成 df 上实跑，
+    直接捕获"上行目标却传入 a<=0 / 下行目标却传入 a>=0"的走错分支迹象。
+    注：run_calibration 用锚点 i 自身 vol regime（walk-forward），不能改为调用
+    build_data._drift_prior_prob（后者用末日 regime），故守卫须作为独立副本被显式校验。
+    """
+    import numpy as np
+    import pandas as pd
+    from calibrate import first_passage_prob
+    import calibrate as _cal
+
+    cal_src = _read(os.path.join(_HERE, "calibrate.py"))
+    rc_src = _extract_fn_source(cal_src, "run_calibration")
+
+    # 改写两处调用，注入方向标签（上行=up / 下行=dn）
+    up_pat = re.compile(
+        r"first_passage_prob\(\s*math\.log\(_bar_up / base\)\s*,([^)]*)\)")
+    dn_pat = re.compile(
+        r"first_passage_prob\(\s*math\.log\(_bar_dn / base\)\s*,([^)]*)\)")
+    rc2 = up_pat.sub(r'_rec_fp(math.log(_bar_up / base),\1, "up")', rc_src)
+    rc2 = dn_pat.sub(r'_rec_fp(math.log(_bar_dn / base),\1, "dn")', rc2)
+    if rc2.count("_rec_fp(") != 2:
+        raise RuntimeError(
+            "run_calibration 守卫调用改写失败，请人工复核(regex 未命中2处)")
+
+    def _rec_fp(a, mu, sigma, T, direction):
+        # 守卫正确时：上行目标仅当 _bar_up>base(即 a>0)才进首达公式；下行仅当 a<0。
+        # 若守卫缺失/写反，会上行传入 a<=0 或下行传入 a>=0 → 走错反射分支，此处捕获。
+        if direction == "up" and a <= 0:
+            raise AssertionError(
+                "run_calibration 上行目标传入 a<=0（守卫缺失/写反，将走错下行分支）")
+        if direction == "dn" and a >= 0:
+            raise AssertionError(
+                "run_calibration 下行目标传入 a>=0（守卫缺失/写反，将走错上行分支）")
+        return first_passage_prob(a, mu, sigma, T)
+
+    # 合成 df：足够行数触发 walk-forward 锚点 + 随机波动使部分样本跨越锚点(覆盖边界情形)
+    np.random.seed(12345)
+    n = 400
+    rets = np.random.normal(0.0003, 0.015, n)
+    close = 3000.0 * np.cumprod(1.0 + rets)
+    high = close * (1.0 + np.abs(np.random.normal(0, 0.008, n)))
+    low = close * (1.0 - np.abs(np.random.normal(0, 0.008, n)))
+    df = pd.DataFrame({"close": close, "high": high, "low": low})
+
+    ns = {"np": np, "pd": pd, "math": math,
+          "first_passage_prob": first_passage_prob, "_rec_fp": _rec_fp}
+    for name in dir(_cal):
+        if name == "_WINDOWS" or name == "_interp":
+            ns[name] = getattr(_cal, name)
+    exec(compile(rc2, "<run_calibration[guarded]>", "exec"), ns)
+    rc_fn = ns["run_calibration"]
+    rc_fn(df, vol_conf=1.0)
+    print("[audit53] run_calibration 跨锚点守卫与 build_data 一致（合成df实跑，方向自洽）")
+
+
 def main():
     # run_bd / run_oos 在每个 regime 内按桩重建（与 _run_cal 同口径），见下方循环。
 
@@ -234,6 +299,10 @@ def main():
         sys.exit(1)
     print("[audit53] PASS：build_data._drift_prior_prob ≡ calibrate.first_passage_prob ≡ "
           "oos_breadth.enrich 内联首达段（三副本数值一致，且与独立参考实现吻合）")
+
+    # 第四副本校验：calibrate.run_calibration 调用内守卫（诊断旁路，未被上面三副本覆盖）
+    _verify_run_calibration_guard()
+
     sys.exit(0)
 
 
