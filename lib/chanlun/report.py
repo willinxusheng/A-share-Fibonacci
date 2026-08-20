@@ -2891,7 +2891,7 @@ function initForecast(sym){{
   var lo=D.lo, span=D.span;
   function yf(v){{ return PAD_T3+(H-PAD_T3-PAD_B3)*(1-(v-lo)/span); }}
   function showDots(xf,f){{
-    var p=D.proj[Math.max(0,Math.min(D.proj.length-1,Math.round(f*100)))];
+    var p=D.proj[Math.max(0,Math.min(D.proj.length-1,Math.round(f*(D.proj.length-1))))];
     cm.setAttribute('cx',xf); cm.setAttribute('cy',yf(p.main)); cm.setAttribute('opacity','1');
     ca.setAttribute('cx',xf); ca.setAttribute('cy',yf(p.alt)); ca.setAttribute('opacity','1');
     cr.setAttribute('cx',xf); cr.setAttribute('cy',yf(p.risk)); cr.setAttribute('opacity','1');
@@ -2915,7 +2915,7 @@ function initForecast(sym){{
       hideDots();
     }} else {{
       var f=(loc.x-(PAD_L+hist_w))/proj_w;
-      idx=Math.max(0,Math.min(D.proj.length-1,Math.round(f*100)));
+      idx=Math.max(0,Math.min(D.proj.length-1,Math.round(f*(D.proj.length-1))));
       var p=D.proj[idx];
       var red='#e54545', gray='#94a3b8', grn='#18a058';
       html='<b>推演 · T+'+p.tplus+' ('+p.date+')</b><br>'
@@ -2923,8 +2923,8 @@ function initForecast(sym){{
         +'<span style="color:'+gray+'">次路径 '+p.alt.toFixed(2)+'</span>　'+Math.round(D.p_alt*100)+'%<br>'
         +'<span style="color:'+grn+'">风险路径 '+p.risk.toFixed(2)+'</span>　'+Math.round(D.p_risk*100)+'%<br>'
         +'<span style="color:#0891b2">趋势外推 '+p.trend.toFixed(2)+'</span><br>'
-        +'<span style="color:#64748b">±1σ '+p.b1l.toFixed(0)+'~'+p.b1u.toFixed(0)+'</span><br>'
-        +'<span style="color:#64748b">±2σ '+p.b2l.toFixed(0)+'~'+p.b2u.toFixed(0)+'</span>';
+        +'<span style="color:#64748b">经验分位 P05~P95 '+p.f95l.toFixed(0)+'~'+(p.f95l+p.f95h).toFixed(0)+'</span><br>'
+        +'<span style="color:#64748b">P25~P75 '+p.f75l.toFixed(0)+'~'+(p.f75l+p.f75h).toFixed(0)+'</span>';
       showDots(PAD_L+hist_w+proj_w*f, f);
     }}
     tip.innerHTML=html; tip.style.display='block';
