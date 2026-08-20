@@ -70,9 +70,25 @@ jobs:
       # ── 新鲜度门卫（始终运行，不受 skip 条件约束）──────────────────────────────
       # 周末（DOW 6/7）直接跳过整轮（A 股休市，无需更新，避免噪音告警）；
       # 工作日若 data.js fetchedAt 已是今天（北京），说明今天已成功更新，跳过整轮省 runner 分钟。
-      - name: Freshness gate (skip if updated today / weekend)
+      - name: Freshness gate (skip if updated today / weekend / manual intraday)
         id: fresh
         run: |
+          # R49 修复：手动触发落在盘中交易时段时，优雅跳过而非红失败。
+          # 根因：workflow_dispatch 在 09:30–15:00（北京）触发会抓到盘中快照，
+          # validate.py #11 会阻断部署；此守卫提前跳过，避免误发 ci-alert issue。
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            HM=$(TZ=Asia/Shanghai date +%H:%M)
+            H=${HM%:*}
+            M=${HM#*:}
+            tmin=$((10#$H * 60 + 10#$M))
+            echo "manual trigger, Beijing time=$HM -> tmin=$tmin"
+            if [ "$tmin" -ge 570 ] && [ "$tmin" -lt 900 ]; then
+              echo "::notice::手动触发但当前为盘中交易时段（$HM），为避免发布盘中快照当收盘数据，本次跳过。请在 15:00 收盘后重新触发，或等待 16:30/18:30/21:00 自动补跑。"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
           DOW=$(TZ=Asia/Shanghai date +%u)   # 1=Mon .. 7=Sun
           echo "today=$TODAY dow=$DOW"
