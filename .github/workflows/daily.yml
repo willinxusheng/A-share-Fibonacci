@@ -20,18 +20,37 @@
 #   任一源成功即写入与 read_kline_md 兼容的 6 列 markdown 表；全失败才告警降级。
 #   因此：本工作流在 GitHub 海外 runner 上也能拉到当日数据，云端单写成立，
 #   用户本地电脑关机/出差也不影响每日自动更新。
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# R46 云端加强（针对 2026-08-19/08-20 静默漏更事故的根治）：
+#   事故根因 = 单一 cron 偶发被 GitHub 跳过 + 取数零重试 + 失败零告警 → 断更两天无感知。
+#   对标缠论看板「deploy.yml + push 触发 Pages 自动部署」的稳健无人值守模式，做四重加固：
+#     ① 多时段 cron 兜底：北京 16:30 / 18:30 / 21:00 三触 + 22:30 健康检查，
+#        任一时段被 GitHub 跳过，更晚时段仍会补跑（新鲜度门卫保证已更新即跳过）。
+#     ② 取数重试：fetch_indices 包 3 次重试，消除海外 runner 网络抖动的偶发失败。
+#     ③ 失败可见告警：流水线失败时自动开/更新仓库 issue（label=ci-alert），
+#        把"静默漏更"变成你能在 GitHub 看到的红标（issue 通知邮件）。
+#     ④ 新鲜度自检：每轮先判"今天是否已更新 / 是否周末"，已更新或周末直接跳过；
+#        提交前再校验 data.js fetchedAt==今天，防"回退旧值当新数据"的假更新。
+#        22:30 健康检查专门兜底"全天所有触发都被跳过"的极端情形并告警。
+# ─────────────────────────────────────────────────────────────────────────────
 
 name: Daily A-share Fibonacci update
 
 on:
-  # 北京时间每天 16:30 = UTC 08:30；GitHub cron 为 UTC，* 表示每天都跑（周末 A 股休市，preflight 会拦截坏数据自动跳过；若源可用则刷新为上一交易日快照，无害）
+  # 北京时间（=UTC+8）：主 16:30=UTC08:30；兜底 18:30=UTC10:30；21:00=UTC13:00；健康检查 22:30=UTC14:30。
+  # 多触发点互相兜底：GitHub 偶发跳过某次调度时，更晚时段仍会补跑（freshness gate 保证已更新即跳过，不重复提交）。
   schedule:
     - cron: "30 8 * * *"
+    - cron: "30 10 * * *"
+    - cron: "30 13 * * *"
+    - cron: "30 14 * * *"
   workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
 
-# 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署）
+# 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署），并允许就失败开 issue 告警。
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: a-share-fib-daily
@@ -40,7 +59,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -48,32 +67,83 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
+      # ── 新鲜度门卫（始终运行，不受 skip 条件约束）──────────────────────────────
+      # 周末（DOW 6/7）直接跳过整轮（A 股休市，无需更新，避免噪音告警）；
+      # 工作日若 data.js fetchedAt 已是今天（北京），说明今天已成功更新，跳过整轮省 runner 分钟。
+      - name: Freshness gate (skip if updated today / weekend)
+        id: fresh
+        run: |
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          DOW=$(TZ=Asia/Shanghai date +%u)   # 1=Mon .. 7=Sun
+          echo "today=$TODAY dow=$DOW"
+          if [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; then
+            echo "weekend, no trading -> skip entire run"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f data/data.js ]; then
+            echo "data/data.js missing -> must run"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          echo "fetchedAt date=$F"
+          if [ "$F" = "$TODAY" ]; then
+            echo "already refreshed today ($F) -> skip"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python
+        if: steps.fresh.outputs.skip != 'true'
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
 
       - name: Install Python deps
+        if: steps.fresh.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Set up Node
+        if: steps.fresh.outputs.skip != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: "22"   # audit52 的 node 沙箱运行时依赖 PATH 中的 node
 
-      - name: Fetch indices (multi-source fallback)
-        run: python fetch_indices.py
+      # 取数重试（R46 加固②）：海外 runner 网络抖动偶发失败，3 次重试消除单点脆弱。
+      - name: Fetch indices (multi-source fallback, with retry)
+        if: steps.fresh.outputs.skip != 'true'
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            echo "=== fetch attempt $i ==="
+            if python fetch_indices.py; then
+              ok=1
+              echo "fetch ok on attempt $i"
+              break
+            fi
+            echo "fetch attempt $i failed, retrying in 20s..."
+            sleep 20
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::取数 3 次均失败（eastmoney/yahoo/stooq 可能全部不可用）"
+            exit 1
+          fi
 
       - name: Preflight data sanity
+        if: steps.fresh.outputs.skip != 'true'
         run: python preflight.py   # 主指数致命问题 -> exit 1，中止后续步骤
 
       - name: Analyze (Elliott wave)
+        if: steps.fresh.outputs.skip != 'true'
         run: python analyze.py     # 使用仓库内 lib/price-action 副本（CI 自包含）
 
       - name: Build data.js (single source of truth)
+        if: steps.fresh.outputs.skip != 'true'
         run: python build_data.py
 
       # 第 9 道闸门：首达概率三副本同步守门员（audit53）。
@@ -81,6 +151,7 @@ jobs:
       # 与可导入真源 calibrate.first_passage_prob 及一份独立参考实现逐点数值比对；任一副本漂移
       # （改了公式忘改其他副本）即 EXIT≠0 阻断数据推送——杜绝弱守卫自洽假绿（R85 反假绿纪律）。
       - name: Gatekeepers (validate + audit49..53)
+        if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
           for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py; do
@@ -96,6 +167,7 @@ jobs:
       # echarts 版本必须 pin 到本地验证过的 5.4.3，否则新版渲染度量漂移会误报假阳性。
       - name: Install overlap-audit deps (echarts only, pinned)
         id: overlapdeps
+        if: steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         run: |
           # 仅装 echarts（纯 JS）；canvas 已不需要（脚本内纯 JS 兜底）。
@@ -110,6 +182,7 @@ jobs:
           done
 
       - name: Overlap audit (chart label collision gate)
+        if: steps.fresh.outputs.skip != 'true'
         run: |
           if [ ! -d "$RUNNER_TEMP/overlapdeps/node_modules/echarts" ]; then
             # 仅当 echarts 真正装不上才跳过；用 ::warning:: 显式标注，
@@ -128,6 +201,7 @@ jobs:
       # （安全失败，不污染线上旧数据）。默认读 <仓库根>/data/data.js（相对 __dirname 解析，
       # 与 cwd 无关）；此处显式传参避免路径歧义。
       - name: Contract check (data.js front-end contract, 7th gate)
+        if: steps.fresh.outputs.skip != 'true'
         run: node selfcheck/verify_contract.js data/data.js
 
       # 第 8 道闸门：OOS Brier 防退化（R85 纪律自动化，落实项③）。
@@ -136,6 +210,7 @@ jobs:
       # Brier 退化>5%，即 EXIT≠0 阻断推送（绝不污染线上旧数据，安全失败）。
       # OOS Brier 只读 git 跟踪的 data/sh000001.csv（每日仅追加），跨日稳定、确定性守门。
       - name: OOS Brier regression gate (R85 discipline, 8th gate)
+        if: steps.fresh.outputs.skip != 'true'
         run: python selfcheck/oos_guard.py
 
       # ②a v2：缠论视角面板每日自动刷新（best-effort，非阻塞）。
@@ -145,11 +220,21 @@ jobs:
       # 生成的 data/chanlun_view.js 会被下方「Commit & push」的 `git add data/` 一并提交。
       - name: Refresh chanlun view (best-effort, non-blocking)
         id: chanlun-view
+        if: steps.fresh.outputs.skip != 'true'
         continue-on-error: true
         run: python gen_chanlun_view.py
 
+      # 提交前二次新鲜度校验（R46 加固④）：确认 build 后 data.js 的 fetchedAt 确为本日（北京），
+      # 否则说明取数回退到旧快照却伪装成新数据 —— 放弃提交以免"假更新"掩盖取数故障。
       - name: Commit & push data back to main
+        if: steps.fresh.outputs.skip != 'true'
         run: |
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          if [ "$F" != "$TODAY" ]; then
+            echo "::error::取数未拿到本日($TODAY)数据，fetchedAt=$F —— 疑似全源回退旧值，放弃提交以免假更新"
+            exit 1
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # 仅提交生成物（数据快照），不动源码
@@ -169,3 +254,65 @@ jobs:
               exit 1
             fi
           fi
+
+      # ── 失败可见告警（R46 加固③）──────────────────────────────────────────────
+      # 流水线失败时自动开/更新仓库 issue（label=ci-alert），把"静默漏更"变成可见红标。
+      # 仅主触发(16:30)与手动触发告警，避免 18:30/21:00 兜底重试的重复噪音；
+      # 兜底仍全失败的情形由下方 22:30 健康检查统一兜底告警。
+      - name: Alert on failure (open/update issue)
+        if: failure() && steps.fresh.outputs.skip != 'true' && (github.event.schedule == '30 8 * * *' || github.event_name == 'workflow_dispatch')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TITLE = '⚠️ A股斐波那契看板每日数据更新失败';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const ts = new Date().toISOString();
+            const body = `每日更新流水线失败（${ts}）。\n运行日志：${runUrl}\n请检查取数源 / 门禁是否异常（取数重试后仍失败，或某道门禁 EXIT≠0 阻断推送）。`;
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
+            const found = existing.data.find(i => i.title === TITLE);
+            if (found) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `再次失败 @ ${ts}\n${runUrl}` });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] });
+            }
+
+      # ── 22:30 健康检查（R46 加固①兜底告警）────────────────────────────────────
+      # 专门兜底"全天所有触发都被 GitHub 跳过 / 全部失败"的极端情形：到 22:30 若今天仍未更新，
+      # 开/更新 issue 告警。周末与已更新则不告警（无噪音）。
+      - name: Health check (did today get updated?)
+        id: hc
+        if: github.event.schedule == '30 14 * * *'
+        run: |
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          DOW=$(TZ=Asia/Shanghai date +%u)
+          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          echo "health-check: today=$TODAY dow=$DOW fetchedAt=$F"
+          if [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; then
+            echo "weekend, no update expected -> no alert"
+            echo "alert=false" >> "$GITHUB_OUTPUT"
+          elif [ "$F" = "$TODAY" ]; then
+            echo "today already updated -> no alert"
+            echo "alert=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "NOT updated today (fetchedAt=$F, today=$TODAY) -> alert"
+            echo "alert=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Health-check alert (open/update issue)
+        if: steps.hc.outputs.alert == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const TITLE = '⚠️ A股斐波那契看板今日数据未更新';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const ts = new Date().toISOString();
+            const body = `截至本日北京时间 22:30，今日数据仍未更新（最后 fetchedAt 见上一步日志）。\n最后运行：${runUrl}\n可能原因：调度被 GitHub 跳过 / 取数全失败 / 门禁阻断。请检查 Actions 运行记录与取数源。`;
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
+            const found = existing.data.find(i => i.title === TITLE);
+            if (found) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `仍未更新 @ ${ts}\n${runUrl}` });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] });
+            }
