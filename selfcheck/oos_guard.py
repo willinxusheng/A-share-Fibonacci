@@ -69,12 +69,16 @@ def main():
     base_bucket = base.get("bucket_oos_brier")
     base_prod = base.get("production_oos_brier")
 
-    # 若基线缺 production 字段（旧基线向后兼容），补写当前值不阻断
+    # 若基线缺 production 字段（旧基线向后兼容），补写当前值不阻断。
+    # 关键：补写后必须同步更新局部 base_prod，否则下方 _guard 仍以 None 落入"无基线→直接 True 放行"
+    # 分支 → 生产线守卫本次完全不比对就通过（反假绿纪律的 silent 假绿漏洞）。同步后本次即做真实比对
+    # （因刚写入==当前值，Δ≈0% 通过，消息准确）。
     if base_prod is None and prod is not None:
         base["production_oos_brier"] = round(prod, 4)
         with open(BASELINE_PATH, "w", encoding="utf-8") as f:
             json.dump(base, f, indent=2, ensure_ascii=False)
-        print("ℹ️ 旧基线缺 production_oos_brier，已补写=%.4f（不阻断本次）" % prod)
+        base_prod = base["production_oos_brier"]
+        print("ℹ️ 旧基线缺 production_oos_brier，已补写=%.4f（本次按新基线真实比对，Δ≈0%% 通过）" % prod)
 
     print("OOS 闸门：")
     print("  ① 裸公式 bucket_oos_brier=%.4f，基线=%s，上限=%.4f (容差 +%.0f%%)"
