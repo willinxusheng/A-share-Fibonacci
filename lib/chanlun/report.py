@@ -101,7 +101,9 @@ def dedup_mark_labels(items, n, y_min, y_max, plot_w, plot_h, grid_l, grid_t,
     for m in recs:
         if any(abs(m["x"] - k["x"]) < (m["w"] + k["w"]) / 2 + 2 and
                abs(m["yc"] - k["yc"]) < 13 for k in kept):
-            m["p"]["label"]["show"] = False
+            _lbl = m["p"].get("label") or {}
+            m["p"]["label"] = _lbl
+            _lbl["show"] = False
         else:
             kept.append(m)
 
