@@ -178,7 +178,7 @@ def check_file(fname, critical):
     # 用有效行数 n_ok 做门槛，与 analyze.load_data 的 len(rows)（有效行）口径一致；
     # 否则含坏行的 n_total 通过时，下游 analyze 用有效行数判定可能 <600 而崩溃。
     if n_ok < MIN_ROWS:
-        fail(target, "数据行数不足(%d < %d): %s（取数截断/部分失败）" % (n_total, MIN_ROWS, fname))
+        fail(target, "数据行数不足(%d < %d): %s（取数截断/部分失败）" % (n_ok, MIN_ROWS, fname))
     ratio = (n_bad / n_total) if n_total else 1.0
     if ratio > MAX_BAD_ROW_RATIO:
         fail(target, "坏行比例过高(%.1f%% > %.0f%%): %s（大量非数字/乱序行，eastmoney 格式可能已变）"
