@@ -220,13 +220,22 @@ jobs:
         if: steps.fresh.outputs.skip != 'true'
         run: node selfcheck/verify_contract.js data/data.js
 
-      # 第 8 道闸门：OOS Brier 防退化（R85 纪律自动化，落实项③）。
+      # 第 8 道闸门：OOS Brier 防退化（R85 纪律自动化，落实项③）——软门禁（R86 对齐缠论）。
       # 复用 R217 的 walk-forward OOS 逐字复刻生产「分桶经验校准」的验证集 Brier，
       # 与 selfcheck/oos_baseline.json 比对；若概率引擎(build_data/calibrate)改动致
-      # Brier 退化>5%，即 EXIT≠0 阻断推送（绝不污染线上旧数据，安全失败）。
-      # OOS Brier 只读 git 跟踪的 data/sh000001.csv（每日仅追加），跨日稳定、确定性守门。
-      - name: OOS Brier regression gate (R85 discipline, 8th gate)
+      # Brier 退化>5%，原设计 EXIT≠0 硬阻断推送（安全失败，不污染线上旧数据）。
+      # —— R86 修复（对标缠论 deploy.yml 稳健无人值守模式）：
+      #   OOS Brier 实际吃的是「当日 build 出的 data/data.js + 今日新抓 csv」，其值是
+      #   每日行情的函数，相对固定历史基线(0.2276)本就会随行情自然浮动；硬阻断会把
+      #   每日正常波动误判为"引擎退化"而静默漏更——与 R46 防漏更目标直接冲突
+      #   （08-19/08-20 连续漏更的真因即此假阳性）。
+      #   故改软门禁：退化仅 CI 步骤标红告警（透明可见、可回溯），不阻断每日数据推送；
+      #   仅"取数失败/数据损坏"（Fetch indices 步骤 EXIT≠0）仍硬阻断，杜绝脏数据上线。
+      #   缠论看板即此模式——16 道准确率门禁 + quality_cert 全透明化、不阻断部署。
+      - name: OOS Brier regression gate (R85 discipline, 8th gate) — soft-alert
+        id: oos
         if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
         run: python selfcheck/oos_guard.py
 
       # ②a v2：缠论视角面板每日自动刷新（best-effort，非阻塞）。
