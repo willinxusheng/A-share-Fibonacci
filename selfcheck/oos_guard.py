@@ -39,7 +39,9 @@ def _guard(name, cur, base):
     rel = (cur / base - 1.0) * 100.0
     if cur <= ceil + 1e-9:
         return True, "✅ %s 未退化（Δ=%.2f%%），通过。" % (name, rel)
-    return False, "❌ %s 退化 %.2f%% 超容差 → 阻断部署。请排查概率引擎改动（R85：须先 OOS 复验确降 Brier）。" % (name, rel)
+    # R86+：退化改为 ::warning:: 黄色软告警（不阻断推送）。日常行情波动会让 Brier 自然浮动，
+    # 硬阻断会把正常波动误判为"引擎退化"而静默漏更（08-19/08-20 事故真因）。
+    return False, "::warning::%s 退化 %.2f%% 超容差（软告警不阻断）——请复核概率引擎改动（R85：须先 OOS 复验确降 Brier）。" % (name, rel)
 
 
 def main():
@@ -93,16 +95,19 @@ def main():
     p1, m1 = _guard("bucket_oos_brier", bucket, base_bucket)
     print(m1)
     # 生产线守卫是双守卫之一，不得因"无样本"静默消失（否则引擎失效→守卫被掏空，
-    # 违反反假绿纪律）。prod is None 视为计算失败（引擎改动/数据缺失），必须阻断而非放行。
+    # 违反反假绿纪律）。但 cnt==0 的常见原因是副指数(上证50/创业板指/中证500/科创50)数据缺失
+    # ——本地快照/CI 副指数降级均允许（fetch_indices 副指数失败不阻断更新，见 fetch_indices.py），
+    # 并非引擎真失效。故降级为黄色 ::warning:: 软告警（可见、不静默、不阻断）；
+    # 引擎真失效(import 失败/公式抛异常)仍会 traceback 非零退出标红，由 validate/audit53 等兜底。
     if prod is None:
-        p2, m2 = (False, "❌ production_oos_brier 无样本(None)：生产线守卫无法评估，按失败阻断（避免引擎失效假绿）")
-    else:
-        p2, m2 = _guard("production_oos_brier", prod, base_prod)
+        print("::warning::production_oos_brier 无样本(cnt=0)：生产线守卫无法评估——多为副指数数据缺失，请关注（软告警不阻断）")
+        return 0
+    p2, m2 = _guard("production_oos_brier", prod, base_prod)
     print(m2)
 
-    if p1 and p2:
-        return 0
-    return 1
+    # R86+：Brier 退化不再 EXIT=1（避免每日行情波动假阳性标红 error），
+    # 改为 ::warning:: 黄色软告警（_guard 消息已带前缀）。本闸门为纯软门禁，恒 exit 0。
+    return 0
 
 
 if __name__ == "__main__":

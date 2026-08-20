@@ -136,6 +136,21 @@ def _main():
         for s in bt_summary
     ]
 
+    # ---------- 情绪透明化标注（R87 ⑥，monitor_only，不参与建模）----------
+    # 情绪温度由 gen_sentiment.py 独立生成 data/sentiment.json；此处仅做「透明标注」——
+    # 让人一眼看到情绪是 monitor_only、未参与任何概率/方向计算（对齐 docs 第四节第4条）。
+    SENTI_PATH = os.path.join(REPO, "data", "sentiment.json")
+    senti = {"mode": "monitor_only", "source": "data/sentiment.json", "score": None, "label": None}
+    if os.path.exists(SENTI_PATH):
+        try:
+            with open(SENTI_PATH, encoding="utf-8") as f:
+                _s = json.load(f)
+            senti["score"] = _s.get("score")
+            senti["label"] = _s.get("label")
+            senti["asOf"] = _s.get("asOf")
+        except Exception:
+            pass
+
     _cert = {
         "schema": "a-share-fib-quality-cert/v1",
         "generated_at": _cert["generated_at"],
@@ -167,6 +182,7 @@ def _main():
             "targets": targets,
         },
         "accuracy_status": accuracy_status,
+        "sentiment": senti,
         "error": None,
     }
 

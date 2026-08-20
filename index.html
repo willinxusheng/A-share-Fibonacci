@@ -11,6 +11,8 @@
 <script>document.write('<script src="data/chanlun_view.js?v=' + Date.now() + '"><\/script>');</script>
 <!-- 预测质量自检证书（gen_quality_cert.py 生成；JS 全局，避免 fetch CORS 受限） -->
 <script>document.write('<script src="data/quality_cert.js?v=' + Date.now() + '"><\/script>');</script>
+<!-- 市场情绪温度（gen_sentiment.py 生成；monitor_only，不参与概率/方向计算） -->
+<script>document.write('<script src="data/sentiment.js?v=' + Date.now() + '"><\/script>');</script>
 <style>
   :root {
     --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
@@ -604,6 +606,15 @@
         <span style="float:right;font-size:12px;color:#8a94a6;" id="certDate"></span>
       </div>
       <div id="certBody" style="font-size:13px;line-height:1.75;color:#2a3340;">加载中…</div>
+    </div>
+
+    <!-- 市场情绪温度（R87 借鉴缠论 sentiment/，monitor_only 代理；gen_sentiment.py 生成） -->
+    <div class="cert-card" id="sentCard" style="margin:14px 0;padding:14px 16px;border:1px solid #e3e8f0;border-radius:12px;background:linear-gradient(180deg,#fffdfa,#fff7ec)">
+      <div class="sub-h" style="margin:0 0 8px;">🌡️ 市场情绪温度
+        <span class="tag" id="sentStatus" style="margin-left:8px;font-size:12px;">…</span>
+        <span style="float:right;font-size:12px;color:#8a94a6;" id="sentDate"></span>
+      </div>
+      <div id="sentBody" style="font-size:13px;line-height:1.75;color:#2a3340;">加载中…</div>
     </div>
 
     <table id="btTable"></table>
@@ -1787,6 +1798,56 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   else if (acc === 'WATCH') note = '<div style="margin-top:8px;color:#b8872a;">⚠️ 命中率偏离常态区间，建议关注。</div>';
   else note = '<div style="margin-top:8px;color:#2f9e44;">✅ 预测质量自检通过（软门禁，不阻断部署）。</div>';
   bodyEl.innerHTML = html + note;
+})();
+
+/* ---------- 市场情绪温度渲染（R87 · monitor_only，不参与概率/方向计算） ---------- */
+(function () {
+  var s = window.SENTIMENT;
+  var statusEl = document.getElementById('sentStatus');
+  var dateEl = document.getElementById('sentDate');
+  var bodyEl = document.getElementById('sentBody');
+  if (!bodyEl) return;
+  if (!s) { bodyEl.textContent = '情绪温度暂不可用（首次生成前）。'; return; }
+  var score = s.score;
+  var label = s.label || '—';
+  var BAND = { '冰点': '#1f6fb2', '偏冷': '#3b8fc2', '中性': '#8a94a6', '偏热': '#e0903a', '狂热': '#c23531' };
+  var col = BAND[label] || '#8a94a6';
+  function tag(txt, c) {
+    return '<span style="background:' + c + '1a;color:' + c + ';border:1px solid ' + c + '55;' +
+      'padding:1px 9px;border-radius:10px;font-weight:600;">' + txt + '</span>';
+  }
+  if (statusEl) statusEl.innerHTML = tag(label, col);
+  if (dateEl) dateEl.textContent = '数据截止 ' + (s.asOf || '—');
+  var dims = s.dims || [];
+  var html = '';
+  if (score != null) {
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">' +
+      '<div style="font-size:28px;font-weight:700;color:' + col + ';">' + score.toFixed(1) + '</div>' +
+      '<div style="flex:1;height:10px;border-radius:6px;background:linear-gradient(90deg,#1f6fb2,#8a94a6,#e0903a,#c23531);position:relative;">' +
+      '<div style="position:absolute;left:' + score + '%;top:-4px;width:4px;height:18px;border-radius:2px;background:#242a35;"></div>' +
+      '</div></div>';
+  }
+  var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+    '<tr style="color:#8a94a6;"><th style="text-align:left;padding:4px 8px;font-weight:600;">维度</th>' +
+    '<th style="text-align:right;padding:4px 8px;font-weight:600;">子分</th>' +
+    '<th style="text-align:right;padding:4px 8px;font-weight:600;">明细</th></tr>';
+  dims.forEach(function (d) {
+    var sub = d.sub != null ? (d.sub >= 0 ? '+' : '') + d.sub.toFixed(2) : '—';
+    var detail = '';
+    if (d.name === 'momentum') detail = '上证20日 ' + (d.ret20_pct != null ? d.ret20_pct + '%' : '—');
+    else if (d.name === 'position') detail = '偏离MA250 ' + (d.dev_pct != null ? d.dev_pct + '%' : '—');
+    else if (d.name === 'volume') detail = '量比 ' + (d.vol20_vol250_ratio != null ? d.vol20_vol250_ratio : '—');
+    else if (d.name === 'volatility') detail = 'HV20分位 ' + (d.hv20_pctile != null ? d.hv20_pctile : '—');
+    else if (d.name === 'breadth') detail = '宽基' + (d.domestic != null ? d.domestic : '—') + ' / 跨市' + (d.cross_market != null ? d.cross_market : '—');
+    html += '<tr><td style="padding:4px 8px;border-top:1px solid #f2eee6;">' + (NAME[d.name] || d.name) + '</td>' +
+      '<td style="padding:4px 8px;border-top:1px solid #f2eee6;text-align:right;font-weight:600;">' + sub + '</td>' +
+      '<td style="padding:4px 8px;border-top:1px solid #f2eee6;text-align:right;color:#8a94a6;">' + detail + '</td></tr>';
+  });
+  html += '</table>';
+  if (s.error) html += '<div style="margin-top:8px;color:#c23531;">⚠️ ' + s.error + '</div>';
+  html += '<div style="margin-top:8px;color:#8a94a6;font-size:12px;">' + (s.note || '') + '</div>';
+  bodyEl.innerHTML = html;
 })();
 
 

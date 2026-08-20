@@ -1,33 +1,40 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-08-20T10:00:27Z",
-  "data_last_date": "2026-08-18 17:34:26",
+  "generated_at": "2026-08-20T10:46:55Z",
+  "data_last_date": "2026-08-20 17:28:31",
   "engine": {
-    "driftConf": 0.85,
-    "bandScale": 1.0,
-    "resonance_breadth": 1.0,
+    "driftConf": 0.6,
+    "bandScale": 1.15,
+    "resonance_breadth": -0.2,
     "calib_points": 10,
-    "last_close": 3990.3,
-    "vol_bucket": "中"
+    "last_close": 3903.72,
+    "vol_bucket": "高"
   },
   "oos_brier": {
-    "production_brier5": 0.2276,
+    "production_brier5": null,
     "production_baseline": 0.2276,
-    "production_delta_pct": -0.0,
-    "bucket_brier": 0.14406,
+    "production_delta_pct": null,
+    "bucket_brier": 0.13596,
     "bucket_baseline": 0.1441,
-    "bucket_delta_pct": -0.03,
-    "sample_cnt": 2504,
-    "status": "ok",
+    "bucket_delta_pct": -5.65,
+    "sample_cnt": 0,
+    "status": "improved",
     "tolerance_pct": 5.0
   },
   "backtest": {
-    "total_logged": 99,
+    "total_logged": 108,
     "total_evaluated": 0,
     "cold_start": true,
     "overall_hit_rate": null,
     "targets": []
   },
   "accuracy_status": "COLD",
+  "sentiment": {
+    "mode": "monitor_only",
+    "source": "data/sentiment.json",
+    "score": 46.3,
+    "label": "中性",
+    "asOf": "2026-08-20 17:28:31"
+  },
   "error": null
 }
