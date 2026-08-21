@@ -27,6 +27,7 @@ import sys
 import json
 import re
 import datetime
+import math
 
 REPO = os.path.dirname(os.path.abspath(__file__))
 DATA_JS = os.path.join(REPO, "data", "data.js")
@@ -50,11 +51,14 @@ def _clamp(x, lo, hi):
 
 
 def _f(x, default=0.0):
-    """防御性 float 转换：None/非数值 → default（build_data 正常给数值，此处防降级时 None 崩溃）。"""
+    """防御性 float 转换：None/非数值/NaN/Inf → default（build_data 正常给数值，
+    此处防降级时 None 崩溃，且 float('nan')/float('inf') 不会抛异常会穿透，
+    必须用 math.isfinite 守门，否则 NaN 会污染 score 并令 round(score,1) 抛 ValueError）。"""
     try:
-        return float(x)
+        v = float(x)
     except (TypeError, ValueError):
         return default
+    return v if math.isfinite(v) else default
 
 
 def _label(score):
@@ -91,7 +95,8 @@ def _compute(D):
     # 3. 量能水平（20 日 / 250 日均量比值）
     vol20 = _ma(vols, 20)
     vol250 = _ma(vols, 250)
-    vr = (vol20 / vol250 - 1.0) if (vol20 and vol250) else 0.0
+    # 显式判 None（缺失）而非布尔真值：量能均线合法算出 0.0 时不应被误判为缺失
+    vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
     sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
 
     # 4. 波动恐慌（HV20 五年分位，高波动=恐慌=降温）
