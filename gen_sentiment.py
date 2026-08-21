@@ -172,7 +172,10 @@ def main():
                                                                  if kk not in ("name", "weight", "sub")},
                                                                 ensure_ascii=False)))
     if out.get("error"):
-        print("⚠️ %s" % out["error"])
+        # 防御：用 ASCII "WARN:" 而非 emoji。本仓 Windows 本地/cp936 等非 UTF-8 stdout 下，
+        # 4 字节 emoji 会触发 UnicodeEncodeError，使 main() 异常外泄、sys.exit(main()) 退出码变 1，
+        # 违反本脚本文档明确的「monitor_only 退出码恒 0」契约（R100 修复）。
+        print("[WARN] %s" % out["error"])
     return 0
 
 
