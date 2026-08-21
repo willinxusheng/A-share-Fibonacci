@@ -25,7 +25,7 @@ def walk(obj, path=""):
         for k, v in obj.items():
             walk(v, path + "." + str(k))
     elif isinstance(obj, list):
-        for i, v in obj.items() if isinstance(obj, dict) else enumerate(obj):
+        for i, v in enumerate(obj):
             walk(v, path + "[%s]" % i)
     else:
         if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
