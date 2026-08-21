@@ -28,7 +28,7 @@ for r in rows:
         if not (lo <= t <= hi): issues.append("target不在[lo,hi]")
         if lo >= hi: issues.append("lo>=hi")
     if ed is not None and ed <= 0: issues.append("expDays<=0")
-    tag = ("🌊" if not issues else "❌")
+    tag = ("[OK]" if not issues else "[X]")
     if issues: bad += 1
     print(f"  {tag} {r.get('wave'):>6} target={t} band=[{lo},{hi}] prob={p}%({src}) expDays={ed} {' '.join(issues)}")
 

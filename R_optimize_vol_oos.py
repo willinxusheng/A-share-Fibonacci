@@ -236,7 +236,7 @@ def main():
     for name, (rv, bb, bi) in results.items():
         best = min(rv, bb, bi)
         delta = (best / base_iso - 1) * 100
-        tag = "✅ 优于基线" if best < base_iso * 0.98 else "➖ 无显著改善"
+        tag = "[优] 优于基线" if best < base_iso * 0.98 else "[=] 无显著改善"
         print("  %-8s 最佳=%.4f (Δ=%.1f%%) %s" % (name, best, delta, tag))
     best_overall = min(min(rv, bb, bi) for rv, bb, bi in results.values())
     if best_overall < base_iso * 0.98:

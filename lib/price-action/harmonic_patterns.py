@@ -82,8 +82,10 @@ def _find_swings(
         (swing_highs, swing_lows) 两个 Series，NaN 位置表示非摆动点。
     """
     full_window = window * 2 + 1
-    rolling_max = high.rolling(full_window, center=True).max()
-    rolling_min = low.rolling(full_window, center=True).min()
+    # min_periods 放宽到 window+1，避免首尾各 window 根 K 线因默认
+    # min_periods=full_window 而永不成摆动点（与 elliott_wave R95 BUG-2 同类）。
+    rolling_max = high.rolling(full_window, center=True, min_periods=window + 1).max()
+    rolling_min = low.rolling(full_window, center=True, min_periods=window + 1).min()
 
     swing_high = high.where(high == rolling_max)
     swing_low = low.where(low == rolling_min)
@@ -155,9 +157,8 @@ def _classify_pattern(
         return None
 
     b_retrace = ab / xa
-    d_retrace = (ab - cd + bc) / xa  # 近似 AD/XA，需根据方向调整
 
-    # 更精确的 D 点回撤计算
+    # D 点回撤 = AD / XA（A 与 D 的绝对距离）
     ad = abs(d_price - a_price)
     d_retrace = ad / xa
 
@@ -165,10 +166,13 @@ def _classify_pattern(
     cd_ratio = cd / bc if bc != 0 else 0.0
 
     for name, rules in PATTERNS.items():
-        # Primary validation: B retrace and D retrace (most important)
+        # 完整校验：B 回撤 / D 回撤 / BC 段 / CD 段 四项 Fibonacci 比率
+        # （bc_ratio / cd_ratio 此前已计算却未参与判定，属定义未用缺陷，已接通）
         if (
             _in_range(b_retrace, *rules["b_retrace"], tol=tol)
             and _in_range(d_retrace, *rules["d_retrace"], tol=tol)
+            and _in_range(bc_ratio, *rules["bc_ratio"], tol=tol)
+            and _in_range(cd_ratio, *rules["cd_ratio"], tol=tol)
         ):
             return name
     return None
