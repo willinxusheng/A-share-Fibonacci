@@ -266,6 +266,16 @@ jobs:
         if: steps.fresh.outputs.skip != 'true'
         run: python gen_quality_cert.py
 
+      # R233 回归守门（R90 修复后）：quality_cert.overall_hit_rate 必须诚实——
+      # 含 cold 起步组、无「对已收缩 Laplace 估计再做 n 加权」的双重收缩。
+      # 读取刚生成的 quality_cert.json 断言；回退到旧失真值(91.0)或漏计 cold 组即 ::warning::
+      # （软门禁，不阻断部署，与 ⑤ 同款透明告警哲学）。
+      - name: Cert backtest-fairness regression (R233)
+        id: certreg
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        run: python R233_cert_backtest_test.py
+
       # ⑤ 预测准确性软门禁（R87 借鉴缠论 16 道准确率门禁：仅告警不阻断）。
       # 读取刚生成的 quality_cert.json，对 OOS Brier 退化 / 命中率异常做软告警，
       # 失败不阻断（continue-on-error，透明可见、可回溯，与缠论同款）。

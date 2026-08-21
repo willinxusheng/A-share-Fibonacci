@@ -116,10 +116,16 @@ def _main():
         cold = bt.get("coldStart", True)
         pending = bt.get("totalPending", 0)
         realized = bt.get("realizedHitRate")
-        ev = [s for s in bt_summary if s.get("hitRate") is not None and s.get("n")]
-        if ev:
-            n_sum = sum(s["n"] for s in ev)
-            h_sum = sum(s["hitRate"] / 100.0 * s["n"] for s in ev)
+        # 诚实口径（修复 R90）：整体实证命中率 = 已解决目标的【原始】pooled 命中率，
+        # 用「全部已评估分组」的原始 n/hits 求和——含 cold 起步组（其 hitRate=None，
+        # 但 n/hits 仍有效），不再因命中率字段为 None 被漏计；同时不做
+        # 「对已收缩 Laplace 估计再做 n 加权」的双重收缩（那会产出既非原始、亦非正确
+        # pooled-Laplace 的失真混合值，且把 8 条 cold 组已解决目标挡在分母外）。
+        # 与 realized_hit_rate(Laplace 收缩) 形成「原始点估计 vs 正则化估计」一对诚实口径。
+        allg = [s for s in bt_summary if s.get("n")]
+        if allg:
+            n_sum = sum(s["n"] for s in allg)
+            h_sum = sum(s["hits"] for s in allg)
             overall = round(h_sum / n_sum * 100.0, 1) if n_sum else None
 
     # ---------- 综合 accuracy_status（capped，避免极端值误导）----------
@@ -184,8 +190,9 @@ def _main():
             "cold_start": cold,
             "overall_hit_rate": overall,
             "targets": targets,
-            "note": ("已实现(已平仓/已命中)命中率偏乐观：仅统计已解决样本，观察窗未闭合的 %d 个目标"
-                     "暂不计入分母；随观察窗闭合逐步收敛到真实命中率。" % pending) if pending else None,
+            "note": ("整体/已实现命中率偏乐观：仅统计「观察窗已闭合」的已解决目标，观察窗未闭合的 %d 个目标"
+                     "暂不计入分母；随观察窗闭合（短窗约 1 个月、长窗 9~14 个月）逐步收敛到真实命中率。"
+                     % pending) if pending else None,
         },
         "accuracy_status": accuracy_status,
         "sentiment": senti,
@@ -227,7 +234,7 @@ def main():
     print("OOS 裸公式Bucket   = %s (基线 %s, Δ=%s%%)"
           % (obr.get("bucket_brier"), obr.get("bucket_baseline"), obr.get("bucket_delta_pct")))
     bt = c["backtest"]
-    print("回测实证命中率(整体, Laplace收缩) = %s%%, 已评估 %d / 存档 %d, 冷启动=%s"
+    print("回测实证命中率(整体, 原始pooled) = %s%%, 已评估 %d / 存档 %d, 冷启动=%s"
           % (bt.get("overall_hit_rate"), bt.get("total_evaluated"), bt.get("total_logged"),
              bt.get("cold_start")))
     print("calibration_status = %s ; accuracy_status = %s" % (obr.get("status"), c.get("accuracy_status")))
