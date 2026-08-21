@@ -45,7 +45,12 @@ def _interp(table, x):
 
 
 def build_samples(df, vol_conf):
-    """逐字复刻 calibrate.run_calibration 的样本生成，但额外返回每个样本的锚点索引 i。"""
+    """逐字复刻 calibrate.run_calibration 的样本生成（含 band 跨锚点守卫），额外返回每个样本的锚点索引 i。
+
+    守卫对齐：calibrate.run_calibration 与 build_data._drift_prior_prob / oos_breadth.enrich 都带
+    「band 边已跨过锚点 → 首达概率恒=1.0」守卫（否则 a_up<0 会被 first_passage_prob 误判成下行
+    首达、a_dn>0 误判成上行首达，致 ~45% 样本 p/y 语义错配、OOS Brier 虚高）。本函数此前漏此守卫，
+    已于 R103 修复（见 R217_band_guard_test.py 反假绿回归）。"""
     ret = np.log(df["close"] / df["close"].shift(1))
     close = df["close"].values
     high = df["high"].values
@@ -84,13 +89,24 @@ def build_samples(df, vol_conf):
             fut_lo = low[i + 1: i + 1 + H]
             for r in r_grid:
                 _frac = min(_sig * math.sqrt(_exp) * _vol_scale_at(i), 0.235)
-                a_up = math.log((1.0 + r) * (1.0 - _frac))
-                p_up = cal.first_passage_prob(a_up, _mu_eff, _sig, _exp)
-                hit_up = (fut_hi.max() >= base * (1.0 + r) * (1.0 - _frac))
+                # 上行目标：障碍=base*(1+r)*(1-_frac)（band 下缘）。band 跨锚点守卫对齐
+                # calibrate.run_calibration L141 / build_data._drift_prior_prob L1349 / oos_breadth L237：
+                # 若 base 已 >= 障碍(目标落在 band 内/锚点下方)，首达概率恒=1.0，绝不把 a_up<0
+                # 误投进 first_passage_prob 的下行分支（否则 p/y 语义错配，OOS Brier 虚高）。
+                _bar_up = base * (1.0 + r) * (1.0 - _frac)
+                if base >= _bar_up:
+                    p_up = 1.0
+                else:
+                    p_up = cal.first_passage_prob(math.log(_bar_up / base), _mu_eff, _sig, _exp)
+                hit_up = (fut_hi.max() >= _bar_up)
                 samples.append((i, p_up, 1.0 if hit_up else 0.0))
-                a_dn = math.log((1.0 - r) * (1.0 + _frac))
-                p_dn = cal.first_passage_prob(a_dn, _mu_eff, _sig, _exp)
-                hit_dn = (fut_lo.min() <= base * (1.0 - r) * (1.0 + _frac))
+                # 下行目标：障碍=base*(1-r)*(1+_frac)（band 上缘）。同理守卫。
+                _bar_dn = base * (1.0 - r) * (1.0 + _frac)
+                if base <= _bar_dn:
+                    p_dn = 1.0
+                else:
+                    p_dn = cal.first_passage_prob(math.log(_bar_dn / base), _mu_eff, _sig, _exp)
+                hit_dn = (fut_lo.min() <= _bar_dn)
                 samples.append((i, p_dn, 1.0 if hit_dn else 0.0))
     return samples
 
