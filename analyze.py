@@ -213,8 +213,17 @@ def load_data():
             pass
     if _gap_sources:
         try:
-            _bd = pd.bdate_range(df["date"].min(), df["date"].max())
-            _have = set(df["date"])
+            # R104 修复：原 _have=set(df["date"]) 为字符串集，而 _bd=pd.bdate_range 返回
+            # Timestamp 索引，Timestamp 永不在字符串集中 → _miss 恒为全部交易日；且历史 csv
+            # 经 to_datetime 后 date 为 Timestamp，与 df 的字符串 date 在 concat 后
+            # drop_duplicates 永不相等的类型混用 → 去重失效、整份 csv 被翻倍追加，并在下方
+            # sort_values("date") 因 str/Timestamp 混合抛 TypeError 崩溃（缺口补全本应在取数
+            # 缺失交易日时兜底，却恰好在此时崩溃→整条 daily 管线非零退出、静默漏更）。
+            # 修复：统一用 Timestamp 计算 _miss 成员关系（正确识别真正缺失日），并把 _fill
+            # 的 date 归一化为 YYYY-MM-DD 字符串再合并去重，保持 csv 输出格式与原始一致。
+            _df_ts = pd.to_datetime(df["date"], errors="coerce")
+            _bd = pd.bdate_range(_df_ts.min(), _df_ts.max())
+            _have = set(_df_ts)
             _miss = [d for d in _bd if d not in _have]
             if _miss:
                 _fills = []
@@ -227,9 +236,10 @@ def load_data():
                 if _fills:
                     _fill = pd.concat(_fills, ignore_index=True).drop_duplicates("date")
                     if len(_fill):
-                        df = pd.concat([df, _fill], ignore_index=True).drop_duplicates("date")
+                        _fill["date"] = _fill["date"].dt.strftime("%Y-%m-%d")
                         print("  [gap-fill] 补全 %d 个缺失交易日: %s"
-                              % (len(_fill), [str(d.date()) for d in _fill["date"]]))
+                              % (len(_fill), list(_fill["date"])))
+                        df = pd.concat([df, _fill], ignore_index=True).drop_duplicates("date")
         except Exception as e:
             print("  [warn] 缺口补全失败(跳过): %s" % e)
     df = df.sort_values("date").set_index("date")
