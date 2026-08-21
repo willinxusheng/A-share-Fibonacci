@@ -1466,7 +1466,11 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
     # 经验分位距离(_sp_dn/_sp_up) 折算为等效正态 std(÷1.645)，使结果严格对齐带标签——
     # ZD=带P05↔95%、=P50↔50%、=P95↔5%（已基准校验）。消除"存续概率"与"置信锥"两张皮的口径矛盾。
     _r_star = math.log(zd / last) if (last > 0 and zd > 0) else 0.0
-    if _r_star >= _mean:
+    if _sp_up == 0 or _sp_dn == 0:
+        # 退化历史(q95==q50==q05，离散度为零)防御：结构存续概率不可定义，取中性 0.5，
+        # 避免 ZeroDivisionError 崩溃 forecast_svg（当前 ~5年日线喂数永不触发，属潜伏边角保护）。
+        _p_hold = 0.5
+    elif _r_star >= _mean:
         _p_hold = 0.5 * (1 + math.erf(1.645 * (_mean - _r_star) / (_sp_up * math.sqrt(2))))
     else:
         _p_hold = 0.5 * (1 + math.erf(1.645 * (_mean - _r_star) / (_sp_dn * math.sqrt(2))))

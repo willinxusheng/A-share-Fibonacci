@@ -26,7 +26,7 @@ EXIT 码约定（与 validate.py 守门纪律一致）：0=通过(警告除外),
 """
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -137,6 +137,7 @@ def check_file(fname, critical):
     n_bad = 0
     n_ok = 0
     prev_date = None
+    max_dt = None
     direction = 0   # 0=未知, 1=升序, -1=降序（westock 输出为最新在前=降序，两种均合法）
     for ln in lines[1:]:
         parts = parts_of(ln)
@@ -162,6 +163,8 @@ def check_file(fname, critical):
             elif dt < prev_date:
                 direction = -1
         prev_date = dt
+        if max_dt is None or dt > max_dt:
+            max_dt = dt
         # 必含/可选列数值可解析性：close 已查；open/high 为必含列，非数字会静默回退为
         # close 造成高低点/开盘失真（docstring 设计意图），须拦；low 可选但非数字亦计坏行。
         bad_val = False
@@ -183,6 +186,17 @@ def check_file(fname, critical):
     if ratio > MAX_BAD_ROW_RATIO:
         fail(target, "坏行比例过高(%.1f%% > %.0f%%): %s（大量非数字/乱序行，eastmoney 格式可能已变）"
              % (ratio * 100, MAX_BAD_ROW_RATIO * 100, fname))
+    # 新鲜度守护（R46 防"回退旧值当新数据"）：主指数末根日期必须 == 今日(北京)。
+    # 背景：build_data 的 fetchedAt 取 CSV 文件 mtime(=构建时刻) 而非 K线末根日期；
+    # 若取数全失败但旧 raw.md 保留，build_data 读旧 raw 重写 CSV(mtime=今日)，
+    # fetchedAt=今日 -> daily.yml 新鲜度门卫(只比日期)误判通过 -> 旧数据被当新部署、
+    # 22:30 健康检查也因 fetchedAt=今日 不告警——正是 R46 想防却没真正堵上的静默假更新路径。
+    # 此处显式校验主指数末根日期，过期即阻断，把"假更新"变为可见红标(失败->健康检查发现后告警)。
+    if critical and max_dt is not None:
+        _today_bj = datetime.now(timezone(timedelta(hours=8))).date()
+        if max_dt.date() != _today_bj:
+            fail(target, "主指数末根日期 %s != 今日(北京) %s：取数可能回退旧值/未更新，阻断以免假更新"
+                 % (max_dt.date(), _today_bj))
     added = len(target) > before
     if not added:
         print("    OK: %d 行有效, 坏行 %d (%.1f%%)" % (n_ok, n_bad, ratio * 100))

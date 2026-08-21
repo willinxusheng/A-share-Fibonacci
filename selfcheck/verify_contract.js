@@ -99,6 +99,20 @@ const SS = D.scenarioSwitch || {};
   if (SS[br] && SS[br].note !== undefined) chk(typeof SS[br].note === 'string', 'scenarioSwitch.' + br + '.note 非字符串');
 });
 
+// 补足契约覆盖盲区（R245 续）：原只校验 state/tradePlan/scenarioSwitch/scenarios/subForecast/
+// signals/kline/wavePoints 子集，漏查的字段一旦缺失会让前端对应渲染 TypeError 白屏而本门禁
+// 假绿通过。这些字段均由 build_data 产出，在此补齐存在性硬检查，使重构回归也能被门禁拦截。
+chk(Array.isArray(D.zigzag), 'zigzag 缺失/非数组（前端 L850 遍历）');
+chk(Array.isArray(D.fib5y) && D.fib5y.length > 0, 'fib5y 缺失/空（前端 L888）');
+chk(Array.isArray(D.targets) && D.targets.length > 0, 'targets 缺失/空（前端 L1068 目标线）');
+chk(Array.isArray(D.supports) && D.supports.length > 0, 'supports 缺失/空（前端 L1072 支撑线）');
+chk(Array.isArray(D.findings), 'findings 缺失/非数组（前端 L806）');
+chk(Array.isArray(D.rules), 'rules 缺失/非数组（前端 L811）');
+chk(D.channel && Array.isArray(D.channel.upper) && Array.isArray(D.channel.lower),
+    'channel.upper/lower 缺失（前端 L1060-1062 艾略特通道）');
+chk(Array.isArray(D.tzWaveStart), 'tzWaveStart 缺失/非数组（前端 L903 时间窗）');
+chk(Array.isArray(D.tzWave3Top), 'tzWave3Top 缺失/非数组（前端 L909 时间窗）');
+
 console.log('state.cls =', D.state && D.state.cls);
 console.log('sellTargets =', ((D.tradePlan && D.tradePlan.sellTargets) || []).length,
   ' buyZones =', ((D.tradePlan && D.tradePlan.buyZones) || []).length,
