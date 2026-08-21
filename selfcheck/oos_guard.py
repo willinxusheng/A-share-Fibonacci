@@ -4,14 +4,18 @@
 为什么需要：
   概率引擎(build_data._fit_prior_recal / calibrate)的任何改动，若不慎恶化首达概率校准，
   会悄悄拉低预测准确性。R85 要求"引擎层准确度改动须先 OOS 复验确降 Brier 才部署"，
-  本脚本把该纪律固化进 daily.yml——每次云端重建都会自动跑，回归超容差即 EXIT=1 阻断推送。
+  本脚本把该纪律固化进 daily.yml——每次云端重建都会自动跑；但 R86 起改为软门禁：
+  回归超容差仅发 ::warning:: 黄色软告警，不阻断推送（避免每日行情波动假阳性误杀当日更新，
+  对标缠论 deploy.yml 稳健无人值守模式）。硬阻断由 audit53(首达公式三副本同步) + validate
+  等门禁承担；本闸门负责可见地告警引擎退化。
 
 双守卫（2026-08-18 补漏，修复原假绿）：
   ① 裸公式守卫 bucket_oos_brier：来自 R217_segcal_check.run_oos()（裸首达公式 + 训练集分桶校准）。
      稳健但仅守护裸首达公式，对生产 empirical 融合/_FUSE_K/_hist_calib/共振 无感。
   ② 生产线守卫 production_oos_brier：来自 selfcheck/production_oos（逐字复刻 build_data._enrich，
      含 empirical 融合/_FUSE_K/_hist_calib/_breadth 共振）。真正捕捉生产概率引擎的校准退化——
-     已定量证实改 _FUSE_K 会让它变化 >5%，而 bucket_oos_brier 不变。两个守卫任一退化超容差即阻断。
+     已定量证实改 _FUSE_K 会让它变化 >5%，而 bucket_oos_brier 不变。两个守卫任一退化超容差
+     即 ::warning:: 软告警（不阻断推送，R86），使引擎退化在 CI 日志可见、可回溯。
 
 注：两守卫只读 git 跟踪的 data/sh000001.csv + data/data.js（每日仅追加），故跨日稳定，
   闸门是确定性的"引擎改动守门员"，不受每日行情噪声影响。
