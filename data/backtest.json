@@ -3,7 +3,91 @@
   "horizon": 30,
   "minSample": 3,
   "totalLogged": 108,
-  "totalEvaluated": 0,
-  "coldStart": true,
-  "summary": []
+  "totalEvaluated": 52,
+  "totalPending": 56,
+  "realizedHitRate": 98.1,
+  "coldStart": false,
+  "summary": [
+    {
+      "cat": "sellTarget",
+      "key": "卖① 保守兑现",
+      "n": 2,
+      "hits": 2,
+      "hitRate": null,
+      "avgDays": 1.0,
+      "cold": true
+    },
+    {
+      "cat": "sellTarget",
+      "key": "卖② 标准兑现",
+      "n": 2,
+      "hits": 2,
+      "hitRate": null,
+      "avgDays": 1.0,
+      "cold": true
+    },
+    {
+      "cat": "sellTarget",
+      "key": "卖③ 激进兑现",
+      "n": 2,
+      "hits": 2,
+      "hitRate": null,
+      "avgDays": 1.5,
+      "cold": true
+    },
+    {
+      "cat": "subwave",
+      "key": "子浪ⅰ",
+      "n": 11,
+      "hits": 11,
+      "hitRate": 92.3,
+      "avgDays": 1.0,
+      "cold": false
+    },
+    {
+      "cat": "subwave",
+      "key": "子浪ⅱ",
+      "n": 11,
+      "hits": 11,
+      "hitRate": 92.3,
+      "avgDays": 1.0,
+      "cold": false
+    },
+    {
+      "cat": "subwave",
+      "key": "子浪ⅲ",
+      "n": 3,
+      "hits": 3,
+      "hitRate": 80.0,
+      "avgDays": 3.3,
+      "cold": false
+    },
+    {
+      "cat": "subwave",
+      "key": "子浪ⅳ",
+      "n": 11,
+      "hits": 11,
+      "hitRate": 92.3,
+      "avgDays": 1.0,
+      "cold": false
+    },
+    {
+      "cat": "subwave",
+      "key": "子浪ⅴ",
+      "n": 2,
+      "hits": 2,
+      "hitRate": null,
+      "avgDays": 1.0,
+      "cold": true
+    },
+    {
+      "cat": "subwave",
+      "key": "浪⑤起",
+      "n": 8,
+      "hits": 8,
+      "hitRate": 90.0,
+      "avgDays": 2.6,
+      "cold": false
+    }
+  ]
 }

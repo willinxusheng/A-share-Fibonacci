@@ -1,6 +1,6 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-08-20T10:46:55Z",
+  "generated_at": "2026-08-21T03:47:33Z",
   "data_last_date": "2026-08-20 17:28:31",
   "engine": {
     "driftConf": 0.6,
@@ -23,12 +23,79 @@
   },
   "backtest": {
     "total_logged": 108,
-    "total_evaluated": 0,
-    "cold_start": true,
-    "overall_hit_rate": null,
-    "targets": []
+    "total_evaluated": 52,
+    "total_pending": 56,
+    "realized_hit_rate": 98.1,
+    "cold_start": false,
+    "overall_hit_rate": 91.0,
+    "targets": [
+      {
+        "cat": "sellTarget",
+        "key": "卖① 保守兑现",
+        "n": 2,
+        "hitRate": null,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "sellTarget",
+        "key": "卖② 标准兑现",
+        "n": 2,
+        "hitRate": null,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "sellTarget",
+        "key": "卖③ 激进兑现",
+        "n": 2,
+        "hitRate": null,
+        "avgDays": 1.5
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅰ",
+        "n": 11,
+        "hitRate": 92.3,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅱ",
+        "n": 11,
+        "hitRate": 92.3,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅲ",
+        "n": 3,
+        "hitRate": 80.0,
+        "avgDays": 3.3
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅳ",
+        "n": 11,
+        "hitRate": 92.3,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅴ",
+        "n": 2,
+        "hitRate": null,
+        "avgDays": 1.0
+      },
+      {
+        "cat": "subwave",
+        "key": "浪⑤起",
+        "n": 8,
+        "hitRate": 90.0,
+        "avgDays": 2.6
+      }
+    ],
+    "note": "已实现(已平仓/已命中)命中率偏乐观：仅统计已解决样本，观察窗未闭合的 56 个目标暂不计入分母；随观察窗闭合逐步收敛到真实命中率。"
   },
-  "accuracy_status": "COLD",
+  "accuracy_status": "WATCH",
   "sentiment": {
     "mode": "monitor_only",
     "source": "data/sentiment.json",

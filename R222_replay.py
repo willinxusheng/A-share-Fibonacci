@@ -80,12 +80,15 @@ def backtest_status():
     first_eval_max = _trading_days_after(oldest, int(max_exp), alld) if oldest else None
     print("=== 回测闭环状态 ===")
     print("  已存档记录: %d 条，覆盖日期 %s ~ %s" % (len(recs), dates[0] if dates else "-", dates[-1] if dates else "-"))
-    print("  backtest.json: totalEvaluated=%s, coldStart=%s" % (bt.get("totalEvaluated"), bt.get("coldStart")))
+    print("  backtest.json: totalEvaluated=%s, totalPending=%s, coldStart=%s"
+          % (bt.get("totalEvaluated"), bt.get("totalPending"), bt.get("coldStart")))
+    print("  realizedHitRate=%s（已实现/已平仓命中率，偏乐观：未平仓目标不计入分母）"
+          % (bt.get("realizedHitRate")))
     print("  expDays 范围: %s ~ %s 交易日（地板 HORIZON=30）" % (min(exps) if exps else HORIZON, max_exp))
     print("  最老记录 %s：按 30 日地板首条可评估≈ %s；最长观察窗(expDays=%s)需其后 %s 交易日≈ %s"
           % (oldest, first_eval_floor, max_exp, int(max_exp), first_eval_max))
-    print("  结论: totalEvaluated=0 是【评估延迟】冷启动特性，非代码 bug；约 %s 起由实时闭环前瞻产出真实命中率（长周期目标更晚）。"
-          % first_eval_floor)
+    print("  结论: R91 提前命中修复后，窗口未闭合但【已触及】的目标当天即计入命中（不再恒 totalEvaluated=0）；")
+    print("        未触及且窗口未闭合的目标保持 unevaluated（不误判 miss），随窗口闭合逐步收敛到真实命中率。")
     return recs, bt
 
 

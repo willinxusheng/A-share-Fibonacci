@@ -109,7 +109,47 @@ def test_B_semantics():
     print("  PASS: 命中定义、days_to_hit 计算、未命中 best 记录均正确")
 
 
+def test_C_earlyhit():
+    """回归（R91 设计漏洞修复）：观察窗未闭合(i0+_hz>末日)但目标已被触及 → 须判命中，
+    不得整条标 unevaluated 而白等 ~1 年；反之未触及且窗口未闭合 → 保持 unevaluated(不误判 miss)。
+    """
+    tmp = tempfile.mkdtemp()
+    bt.LOG_PATH = os.path.join(tmp, "predictions_log.jsonl")
+    bt.OUT_PATH = os.path.join(tmp, "backtest.json")
+    df = _load_real_df()
+    dates = [d.strftime("%Y-%m-%d") for d in df.index]
+    dt = "2026-08-04"          # 近期真实日期
+    i0 = dates.index(dt)
+    fwd = df.iloc[i0 + 1: len(df.index)]
+    hi_max = float(fwd["high"].max())
+
+    # 命中侧：目标价远低于前视最高 → 必被触及；expDays=280 使窗口远未闭合。
+    rec = {"date": dt, "key": "earlyHitT", "cat": "sellTarget",
+           "side": "sell", "price": hi_max * 0.5, "expDays": 280.0}
+    with open(bt.LOG_PATH, "w", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    r = {x["key"]: x for x in bt.evaluate(df)}["earlyHitT"]
+    print("\n[C] 提前命中回归")
+    print("  dt=%s expDays=280 → i0+_hz=%d > 末日 %d（窗口未闭合）；目标价=%.0f 前视最高=%.0f"
+          % (dt, i0 + 280, len(dates) - 1, hi_max * 0.5, hi_max))
+    print("  earlyHitT: evaluated=%s hit=%s" % (r["evaluated"], r["hit"]))
+    assert r["evaluated"] and r["hit"], "FAIL: 窗口未闭合但已触及却未判命中（回归 R91 漏洞）"
+
+    # 反向：目标价远高于前视最高 → 未命中且窗口未闭合 → 保持 unevaluated（不误判 miss）。
+    rec2 = {"date": dt, "key": "pendingT", "cat": "sellTarget",
+            "side": "sell", "price": hi_max * 5.0, "expDays": 280.0}
+    with open(bt.LOG_PATH, "w", encoding="utf-8") as f:
+        f.write(json.dumps(rec2, ensure_ascii=False) + "\n")
+    r2 = {x["key"]: x for x in bt.evaluate(df)}["pendingT"]
+    print("  pendingT : evaluated=%s hit=%s" % (r2["evaluated"], r2["hit"]))
+    assert (not r2["evaluated"]) and (not r2["hit"]), \
+        "FAIL: 窗口未闭合未命中应 unevaluated，不应误判 miss"
+    print("  PASS: 提前命中生效；未触及且窗口未闭合正确保持 unevaluated（不误判 miss）")
+
+
 if __name__ == "__main__":
     test_A_mechanism()
     test_B_semantics()
-    print("\n=== R223 结论：回测闭环逻辑健全，totalEvaluated=0 确为冷启动，9 月中旬起将自动产出真实命中率；无新 bug ===")
+    test_C_earlyhit()
+    print("\n=== R223 结论：回测闭环逻辑健全；R91 提前命中修复后，窗口未闭合但已触及的目标当天即计入命中"
+          "（不再恒 totalEvaluated=0）；未触及且窗口未闭合保持 unevaluated；无新 bug ===")

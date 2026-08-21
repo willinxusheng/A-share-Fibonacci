@@ -157,44 +157,62 @@ def evaluate(df):
             # 边界精确：观察期覆盖下标 i0+1 .. i0+_hz（slice df.iloc[i0+1:i0+1+_hz] 取 i0+1..i0+_hz），
             # 最后一个需要的下标是 i0+_hz；当其 > 数据末日下标(len(idx)-1) 时观察期超出数据范围→unevaluated。
             # 注意：不是 i0+1+_hz > len-1（那样会在观察期末端恰好=末日时多标一天 unevaluated，偏保守且逻辑不精确）。
-            if i0 + _hz > len(idx) - 1:
+            px = rec["price"]
+            _exp = rec.get("expDays") or HORIZON
+            # R91：触达定义对齐模型 band-edge（与 build_data._enrich / calibrate 同源）。
+            # 用记录自身_date 的 vol regime 取 _frac，忠实复现"部署在日 i 用日 i 的 vol"。
+            # 远期目标 _frac 触 0.235 上限（与 _enrich 同）。
+            _v = _vol_for(_exp, i0)
+            _frac = 0.0
+            if _v is not None and not math.isnan(_v) and _v > 0:
+                _frac = min(_v * math.sqrt(_exp) * _vol_scale_at(i0), 0.235)
+            # 提前命中(early-hit)：观察窗未闭合 ≠ 不能判定命中。
+            # 若目标已在【全部已有前视数据】里触及 band 边缘，即为命中——
+            # 命中可立即判定，仅"未命中"需等观察窗完整闭合才下结论。
+            # 旧逻辑(见下)在 i0+_hz>末日 时整条标 unevaluated 并 continue，
+            # 跳过触达检查→30~280 日长窗目标即便第 3 天就被触及也要白等 ~1 年，
+            # 回测长期 totalEvaluated=0（R91 设计漏洞）。现用 df.iloc[i0+1:len(idx)]
+            # （不被 _hz 截断）检测触达，命中当天即计入。
+            fut = df.iloc[i0 + 1: len(idx)]
+            if fut.empty:
                 rec.update({"evaluated": False, "hit": False, "hit_date": None,
                             "days_to_hit": None, "approach": None})
-                recs.append(rec)
-                continue
-            fut = df.iloc[i0 + 1: i0 + 1 + _hz]
-            if fut.empty:
-                rec.update({"evaluated": False, "hit": False,
-                            "hit_date": None, "days_to_hit": None, "approach": None})
-            else:
-                px = rec["price"]
-                _exp = rec.get("expDays") or HORIZON
-                # R91：触达定义对齐模型 band-edge（与 build_data._enrich / calibrate 同源）。
-                # 旧式精确价容差(lo<=px / hi>=px)与模型展示的宽预测带语义脱节→前段 archive 命中率
-                # 系统性偏低、与模型 band-edge 概率口径不一；对齐后用记录自身_date 的 vol regime 取
-                # _frac，忠实复现"部署在日 i 用日 i 的 vol"。远期目标 _frac 触 0.235 上限（与 _enrich 同）。
-                _v = _vol_for(_exp, i0)
-                _frac = 0.0
-                if _v is not None and not math.isnan(_v) and _v > 0:
-                    _frac = min(_v * math.sqrt(_exp) * _vol_scale_at(i0), 0.235)
-                if rec["side"] == "buy":          # 下行目标：未来最低是否触及 band 上缘 px*(1+_frac)
-                    lo = float(fut["low"].min())
-                    hit = lo <= px * (1.0 + _frac)
-                    approach = px / lo if lo else None
-                    best = lo
-                    first_hit = fut["low"].le(px * (1.0 + _frac)).idxmax()
-                else:                              # 上行目标：未来最高是否触及 band 下缘 px*(1-_frac)
-                    hi = float(fut["high"].max())
-                    hit = hi >= px * (1.0 - _frac)
-                    approach = hi / px if px else None
-                    best = hi
-                    first_hit = fut["high"].ge(px * (1.0 - _frac)).idxmax()
+            elif rec["side"] == "buy":          # 下行目标：未来最低是否触及 band 上缘 px*(1+_frac)
+                lo = float(fut["low"].min())
+                hit = lo <= px * (1.0 + _frac)
+                approach = px / lo if lo else None
+                best = lo
                 if hit:
+                    first_hit = fut["low"].le(px * (1.0 + _frac)).idxmax()
                     hd = first_hit.strftime("%Y-%m-%d")
                     rec.update({"evaluated": True, "hit": True, "hit_date": hd,
                                 "days_to_hit": int(dates.index(hd) - i0),
                                 "approach": round(approach, 4)})
-                else:
+                elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
+                    rec.update({"evaluated": False, "hit": False, "hit_date": None,
+                                "days_to_hit": None,
+                                "approach": round(approach, 4) if approach else None})
+                else:                            # 观察窗已闭合且未命中→判 miss
+                    rec.update({"evaluated": True, "hit": False, "hit_date": None,
+                                "days_to_hit": None,
+                                "approach": round(approach, 4) if approach else None,
+                                "best": round(best, 2)})
+            else:                              # 上行目标：未来最高是否触及 band 下缘 px*(1-_frac)
+                hi = float(fut["high"].max())
+                hit = hi >= px * (1.0 - _frac)
+                approach = hi / px if px else None
+                best = hi
+                if hit:
+                    first_hit = fut["high"].ge(px * (1.0 - _frac)).idxmax()
+                    hd = first_hit.strftime("%Y-%m-%d")
+                    rec.update({"evaluated": True, "hit": True, "hit_date": hd,
+                                "days_to_hit": int(dates.index(hd) - i0),
+                                "approach": round(approach, 4)})
+                elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
+                    rec.update({"evaluated": False, "hit": False, "hit_date": None,
+                                "days_to_hit": None,
+                                "approach": round(approach, 4) if approach else None})
+                else:                            # 观察窗已闭合且未命中→判 miss
                     rec.update({"evaluated": True, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
@@ -244,12 +262,20 @@ def run_backtest(data, df):
     recs = evaluate(df)
     summary = aggregate(recs)
     total_eval = sum(1 for r in recs if r.get("evaluated"))
+    total_pending = sum(1 for r in recs if not r.get("evaluated"))
+    total_hits = sum(1 for r in recs if r.get("evaluated") and r.get("hit"))
+    # 已实现(已平仓/已命中)命中率：用 Laplace (hits+1)/(eval+2) 收缩，口径与 aggregate 一致。
+    # 注意：仅统计【已解决】样本(命中 或 观察窗已闭合的 miss)；观察窗未闭合目标(totalPending)
+    # 不计入分母——故早期该值偏乐观(未平仓的 miss 尚未计入)，随窗口闭合逐步收敛到真实命中率。
+    realized_hit = round((total_hits + 1.0) / (total_eval + 2.0) * 100, 1) if total_eval else None
     stats = {
         "asOf": data.get("updated"),
         "horizon": HORIZON,
         "minSample": MIN_SAMPLE,
         "totalLogged": len(recs),
         "totalEvaluated": total_eval,
+        "totalPending": total_pending,
+        "realizedHitRate": realized_hit,
         "coldStart": total_eval < MIN_SAMPLE,
         "summary": summary,
     }

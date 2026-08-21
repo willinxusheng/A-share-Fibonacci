@@ -114,6 +114,8 @@ def _main():
         total_eval = bt.get("totalEvaluated", 0)
         logged = bt.get("totalLogged", 0)
         cold = bt.get("coldStart", True)
+        pending = bt.get("totalPending", 0)
+        realized = bt.get("realizedHitRate")
         ev = [s for s in bt_summary if s.get("hitRate") is not None and s.get("n")]
         if ev:
             n_sum = sum(s["n"] for s in ev)
@@ -177,9 +179,13 @@ def _main():
         "backtest": {
             "total_logged": logged,
             "total_evaluated": total_eval,
+            "total_pending": pending,
+            "realized_hit_rate": realized,
             "cold_start": cold,
             "overall_hit_rate": overall,
             "targets": targets,
+            "note": ("已实现(已平仓/已命中)命中率偏乐观：仅统计已解决样本，观察窗未闭合的 %d 个目标"
+                     "暂不计入分母；随观察窗闭合逐步收敛到真实命中率。" % pending) if pending else None,
         },
         "accuracy_status": accuracy_status,
         "sentiment": senti,
