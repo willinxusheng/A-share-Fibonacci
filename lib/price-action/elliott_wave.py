@@ -70,24 +70,29 @@ class SignalEngine:
             return []
 
         # 检测局部极值
-        roll_max = high.rolling(full_w, center=True).max()
-        roll_min = low.rolling(full_w, center=True).min()
+        # BUG-2 修复：center=True 默认 min_periods=full_w，导致首尾各 swing_window 根窗口
+        # 不足 full_w 观测而恒为 NaN，这些位置永不成 swing → 实时信号系统性滞后 ≥ swing_window 根。
+        # 放宽为 min_periods=w+1（只需单侧 w+1 个观测即可判定局部极值），让首尾边缘也能成 swing。
+        roll_max = high.rolling(full_w, center=True, min_periods=w + 1).max()
+        roll_min = low.rolling(full_w, center=True, min_periods=w + 1).min()
         swing_high_mask = high == roll_max
         swing_low_mask = low == roll_min
 
         # 收集所有候选 Swing 点
         raw_points = []
         for _pos, idx in enumerate(high.index):
-            is_h = bool(swing_high_mask.get(idx, False))
-            is_l = bool(swing_low_mask.get(idx, False))
+            # BUG-3 修复：mask 也按整数位置取（与 price 取数一致），避免重复 index 时
+            # .get(idx) 返回 Series 导致 bool() 抛 "truth value ambiguous" 崩溃。
+            is_h = bool(swing_high_mask.iloc[_pos])
+            is_l = bool(swing_low_mask.iloc[_pos])
             if is_h and is_l:
                 # 同一根 K 线同时是窗口内最高与最低（极端长影线包罗整个窗口）：
                 # 它不构成有效 swing 转折点（需相邻反向 K 线确认），跳过以保持 H/L 严格交替
                 pass
             elif is_h:
-                raw_points.append({"index": idx, "price": float(high[idx]), "type": "H", "pos": _pos})
+                raw_points.append({"index": idx, "price": float(high.iloc[_pos]), "type": "H", "pos": _pos})
             elif is_l:
-                raw_points.append({"index": idx, "price": float(low[idx]), "type": "L", "pos": _pos})
+                raw_points.append({"index": idx, "price": float(low.iloc[_pos]), "type": "L", "pos": _pos})
 
         if len(raw_points) < 2:
             return raw_points
@@ -192,6 +197,7 @@ class SignalEngine:
             5 浪上升完成返回 -1（卖），5 浪下跌完成返回 1（买）。
         """
         results = []
+        impulse_covers = []  # 记录每个已识别 impulse 覆盖的 swing 位置区间 [i, i+5]
 
         for i in range(len(swings) - 5):
             types = [s["type"] for s in swings[i : i + 6]]
@@ -231,6 +237,7 @@ class SignalEngine:
 
                 # 5浪上升完成 → 卖出信号
                 results.append((p5["index"], -1))
+                impulse_covers.append((i, i + 5))
 
             # --- 看跌推动浪: H, L, H, L, H, L ---
             elif types == ["H", "L", "H", "L", "H", "L"]:
@@ -267,10 +274,11 @@ class SignalEngine:
 
                 # 5浪下跌完成 → 买入信号
                 results.append((p5["index"], 1))
+                impulse_covers.append((i, i + 5))
 
-        return results
+        return results, impulse_covers
 
-    def _find_abc(self, swings: List[Dict]) -> List[Tuple]:
+    def _find_abc(self, swings: List[Dict], impulse_covers: Optional[List[Tuple]] = None) -> List[Tuple]:
         """在 Swing 序列中寻找 ABC 调整结构。
 
         看跌调整（上升趋势后）：H-L-H-L（A 下 B 反弹 C 下）
@@ -287,6 +295,10 @@ class SignalEngine:
         results = []
 
         for i in range(len(swings) - 3):
+            # BUG-1 修复：若本 ABC 窗口完全落在某个已识别 impulse 的 6 点区间 [i, i+5] 内，
+            # 它只是推动浪内部子段而非独立调整浪，抑制以免在推进途中打出反向假信号。
+            if impulse_covers and any(ci <= i and i + 3 <= cj for (ci, cj) in impulse_covers):
+                continue
             types = [s["type"] for s in swings[i : i + 4]]
 
             # --- 看跌 ABC: H, L, H, L（下-上-下）→ 调整结束后买入 ---
@@ -377,14 +389,16 @@ class SignalEngine:
                 result[code] = signal
                 continue
 
-            # 5 浪推动结构
+            # 5 浪推动结构（先识别，记录其覆盖区间供 ABC 互斥抑制）
+            imp_covers = []
             if len(swings) >= 6:
-                for idx, direction in self._find_impulse(swings):
+                imp_results, imp_covers = self._find_impulse(swings)
+                for idx, direction in imp_results:
                     if idx in signal.index:
                         signal[idx] = direction
 
-            # ABC 调整结构
-            for idx, direction in self._find_abc(swings):
+            # ABC 调整结构（抑制落在 impulse 区间内部、属推进途中的伪 ABC）
+            for idx, direction in self._find_abc(swings, imp_covers):
                 if idx in signal.index:
                     signal[idx] = direction
 
