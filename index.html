@@ -1488,9 +1488,13 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         + (_horizCorr ? '<br><span style="color:#b8872a">' + _horizCorr + '</span>' : '');
     } else if (mode === 'base') {
       title.textContent = '浪⑤子浪目标位（基准情景 · 待激活）';
+      // 下界取浪3 50% 回撤支撑（D.supports[2]，单一真值），消除"3650"硬编码字面值——
+      // 浪型重校订时自动跟随，与 build_data.py:767 基准情景标签下界 r2(w3_hi - w3*0.5) 同源，
+      // 避免"文案写3650但支撑表已变"脱节（单源真值铁律）。
+      var _sup2 = (D.supports && D.supports[2] && D.supports[2].price != null) ? Math.round(D.supports[2].price) : null;
       var wk = (SS.w4Low != null ? SS.w4Low.toFixed(0) : '');
       tbl.innerHTML = '<tr><th>项目</th><th>状态</th><th class="c-l">说明</th></tr>' +
-        '<tr><td><b>当前情景</b></td><td><b>基准</b></td><td class="c-l">浪④于 3650–' + wk + ' 区间磨底（9/30≈3700），浪⑤未启动</td></tr>' +
+        '<tr><td><b>当前情景</b></td><td><b>基准</b></td><td class="c-l">浪④于 ' + (_sup2 != null ? _sup2 : '3650') + '–' + wk + ' 区间磨底（9/30≈3700），浪⑤未启动</td></tr>' +
         '<tr><td><b>子浪ⅰ~ⅴ</b></td><td>待激活</td><td class="c-l">需待浪④完成、浪⑤启动后由系统自动激活（每日更新随行情切换）</td></tr>' +
         '<tr><td><b>基准走势</b></td><td>见上方图</td><td class="c-l">当前价 → 9/30≈3700 磨底 → 未来浪⑤目标（非子浪细分）</td></tr>';
       cal.innerHTML = (SS.base && SS.base.note ? SS.base.note : '') + '<br><span style="color:#b8872a">注：下方子浪校准为「强势」情景完整校准，仅作参照；基准下子浪未启动，无独立校准。</span>';
