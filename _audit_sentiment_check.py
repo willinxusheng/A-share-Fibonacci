@@ -82,9 +82,16 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
+    # R129 方向修正守门：权重须∈[0,1]、分regime中枢(若有)须∈[0,100]，防过拟合/过度修正
+    if _fb.get("regimeBiasW") is not None:
+        chk(0.0 <= _fb["regimeBiasW"] <= 1.0, "R129 regimeBiasW 越界[0,1]: %r" % _fb.get("regimeBiasW"))
+    if _fb.get("extremeBiasW") is not None:
+        chk(0.0 <= _fb["extremeBiasW"] <= 1.0, "R129 extremeBiasW 越界[0,1]: %r" % _fb.get("extremeBiasW"))
+    if _fb.get("regimeBiasCenter") is not None:
+        chk(0.0 <= _fb["regimeBiasCenter"] <= 100.0, "R129 regimeBiasCenter 越界[0,100]: %r" % _fb.get("regimeBiasCenter"))
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None

@@ -687,7 +687,8 @@ def _extreme_reversal(D, hist, bounds=None, today_score=None):
             "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
-def _compute_forecast(D, hist_std=None, regime=None, center=None):
+def _compute_forecast(D, hist_std=None, regime=None, center=None,
+                     regime_center=None, extreme_bounds=None, extreme_reversal=None):
     """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）+ 预测水平均值回归（R128）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
@@ -700,7 +701,14 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None):
     把「假精确单点」变「诚实区间」；区间半宽 clamp[1,14]，非严格统计置信区间。
     R128 预测 score 水平均值回归：情绪长期围绕历史中枢波动，远端不应被路径派生极值过度外推；
     预测分数随 horizon 指数回归「历史中枢 center」（revert 上限 50% 防过度拉平），使远端更诚实。
-    hist_std / regime / center 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
+    R129 经验方向修正：把已验证的 regimeWin(分regime均衡情绪中枢) 与 extremeReversal(极值反弹概率)
+    反馈进 forecast 方向修正，而非仅作展示字段——
+      ① 极端区逆势修正：路径落入恐慌区(<b1)上修、狂热区(>b4)下修，幅度∝极值反弹概率 rev20
+         （仅当 rev20>0.5 才有意义修正；非极端区保持 R128 路径忠实）；
+      ② 分regime条件中枢偏置：远端随 horizon 渐入（与 R128 正交），熊/牛市态的均衡情绪中枢不同，
+         远端不应一律回到全局 center，而应向「分regime均衡中枢 regime_center」偏移。
+    hist_std / regime / center / regime_center / extreme_bounds / extreme_reversal 由 main() 计算后传入；
+    缺失时回退默认值，保证函数可独立调用。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -725,6 +733,9 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None):
     # 避免路径派生极值被过度外推到 3 个月外；revert 上限 _REVERT_CAP 防曲线被拉平失真。
     _REV_TAU = 40.0  # 预测水平均值回归时间常数（交易日）
     _REVERT_CAP = 0.5  # 远端最多向中枢回归 50%
+    # R129 经验方向修正超参：把已验证诊断反馈进 forecast，权重经 clamp 防过拟合/过度修正
+    _REGIME_BIAS_W = 0.5   # 远端由全局中枢向「分regime均衡中枢」偏移的最大混合比例
+    _EXTREME_BIAS_W = 0.6  # 极端区内向中枢回归的最大混合比例（实际再×2*(rev20-0.5)）
     _center = center if (center is not None) else 60.0  # 历史中枢锚点（缺省 60）
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
@@ -799,7 +810,26 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None):
         # 避免 3 个月外的预测被今日路径极值过度外推；近端(idx=0) revert=0 完全忠实路径。
         _path_score = _score_from_subs([sub_mom, sub_pos, _sub_vol, _sub_volat, sub_breadth])
         _revert = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
-        score = round(_path_score * (1.0 - _revert) + _center * _revert, 1)
+        score = _path_score * (1.0 - _revert) + _center * _revert  # R128 全局中枢回归
+        # R129 经验方向修正（把已验证诊断反馈进 forecast，而非仅展示）：
+        # ① 极端区逆势修正：路径落入恐慌区(<b1)上修、狂热区(>b4)下修，幅度∝极值反弹概率 rev20
+        #    （rev20>0.5 才有意义修正；仅极端区生效，非极端区保持 R128 路径忠实）。
+        # ② 分regime条件中枢偏置：远端随 horizon 渐入（与 R128 正交），熊/牛市态的均衡情绪
+        #    中枢不同，远端不应一律回到全局 center，而应向 regime_center 偏移（上限 _REGIME_BIAS_W）。
+        if extreme_bounds is not None and extreme_reversal is not None:
+            _b1, _b4 = extreme_bounds[0], extreme_bounds[-1]
+            if score < _b1 and (extreme_reversal.get("panic") or {}).get("rev20") is not None:
+                _p = extreme_reversal["panic"]["rev20"]
+                _w = _EXTREME_BIAS_W * max(0.0, _p - 0.5) * 2.0
+                score = score * (1.0 - _w) + _center * _w
+            elif score > _b4 and (extreme_reversal.get("euphoria") or {}).get("rev20") is not None:
+                _p = extreme_reversal["euphoria"]["rev20"]
+                _w = _EXTREME_BIAS_W * max(0.0, _p - 0.5) * 2.0
+                score = score * (1.0 - _w) + _center * _w
+        if regime_center is not None:
+            _rbias = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
+            score = score * (1.0 - _rbias * _REGIME_BIAS_W) + regime_center * _rbias * _REGIME_BIAS_W
+        score = round(_clamp(score, 0.0, 100.0), 1)
         # #666 经验置信带：随 horizon √扩张、熊市态额外放大；半宽 clamp[1,14]
         kk = idx + 1
         half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult, 1.0, 14.0)
@@ -877,7 +907,30 @@ def main():
         _base_std = (_clamp(0.6 * _recent_std + 0.4 * _hist_std, 4.0, 18.0)
                      if _recent_std is not None else _hist_std)
 
-        fcst = _compute_forecast(D, _base_std, _regime, _hist_mean)
+        # R129：前置极值反转诊断（原在 forecast 之后才算、仅作展示；现提前供 forecast 方向修正使用）
+        _ext = _extreme_reversal(D, hist, bounds, out["today"].get("score"))
+        # R129：分regime均衡情绪中枢（历史中『当前regime』样本的情绪均值，纯经验、非拟合）
+        _regime_center = None
+        if _regime in ("bear", "bull"):
+            _kc = [float(x) for x in (_kline.get("close") or [])]
+            _km = [x for x in (_kline.get("ma250") or [])]
+            if len(_kc) >= len(hist):
+                _b = len(_kc) - len(hist)
+                _vals = []
+                for _off, _h in enumerate(hist):
+                    _i = _b + _off
+                    if _i >= len(_kc) or _i >= len(_km) or _km[_i] is None:
+                        continue
+                    _isbear = _kc[_i] < _km[_i]
+                    if (_regime == "bear") == _isbear:
+                        _vals.append(_h["score"])
+                if _vals:
+                    _regime_center = sum(_vals) / len(_vals)
+
+        fcst = _compute_forecast(D, _base_std, _regime, _hist_mean,
+                                 regime_center=_regime_center,
+                                 extreme_bounds=(_ext.get("bounds") if _ext else None),
+                                 extreme_reversal=_ext)
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
@@ -893,11 +946,19 @@ def main():
             "revertCenter": round(_hist_mean, 2),
             "revertTau": 40.0,
             "revertCap": 0.5,
+            "regimeBiasCenter": (round(_regime_center, 2) if _regime_center is not None else None),
+            "regimeBiasW": 0.5,
+            "extremeBiasW": 0.6,
+            "extremeBiasMethod": "极端区(恐慌<b1/狂热>b4)内按极值反弹概率rev20向中枢回归(仅rev20>0.5生效)；非极端区保持路径忠实",
             "note": ("预测为路径派生单点；本带按「滚动感知波动率」打底（近60日std=%.1f 与全局std=%.1f 混合=%.1f）、"
                      "随预测 horizon √扩张、熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
                      "近端带宽跟随当前湍流度（近期更平静→更窄）；(R128) 预测 score 水平随 horizon 向历史中枢(%.1f) "
-                     "指数均值回归(远端最多回归50%%)避免路径极值过度外推，仅供研判参考，不构成置信区间严格含义。"
-                     ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean),
+                     "指数均值回归(远端最多回归50%%)避免路径极值过度外推；(R129) 已把分regime均衡中枢(%.1f, %s态)与极值反弹概率"
+                     "反馈进方向修正——极端区按 rev20 逆势回归、远端由全局中枢向分regime中枢偏移(权重%.2f)，"
+                     "仅供研判参考，不构成置信区间严格含义。"
+                     ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean,
+                          (_regime_center if _regime_center is not None else _hist_mean),
+                          _regime, 0.5),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
@@ -938,8 +999,7 @@ def main():
             _recency = _recency_band(D, out["history"], out["today"].get("label"), bounds)
             if _recency is not None:
                 contra["recency"] = _recency
-            # R125a：极值反转诊断（逆向投资核心信号）
-            _ext = _extreme_reversal(D, out["history"], bounds, out["today"].get("score"))
+            # R125a/R129：极值反转诊断（逆向投资核心信号）；_ext 已在 forecast 前计算并供方向修正使用，此处复用
             if _ext is not None:
                 contra["extremeReversal"] = _ext
             out["today"]["contra"] = contra
@@ -970,6 +1030,7 @@ def main():
                        "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
                        "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。R125：在 R124 基础上再增强——①极值反转诊断(恐慌区后反弹/狂热区后回落的逆向反转概率，逆向投资核心)；②多窗口信号共振/背离(各H窗口方向一致性，共振=高置信)；③分regime条件胜率(当前regime下该组合状态的经验上涨概率，比不分regime更细)。均为contra下独立诊断字段，不改dims、不改今日展示口径。"
+                       "R129：在 R125 基础上把已验证诊断『反馈进 forecast 方向修正』而非仅展示——极值反转概率驱动极端区逆势回归、分regime均衡中枢驱动远端条件偏置，使预测方向带经验修正；透明参数见 forecastBand.regimeBiasCenter/regimeBiasW/extremeBiasW/extremeBiasMethod。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
