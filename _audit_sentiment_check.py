@@ -111,6 +111,30 @@ if contra:
     chk(rc.get("equalWtd") is not None and rc.get("decayWtd") is not None and isinstance(rc.get("drift"), bool),
         "R124 recency 缺 equalWtd/decayWtd/drift")
 
+# 7c. R125 预测力再增强字段结构审计（contra 下独立诊断字段，不改 dims/今日展示）
+er = contra.get("extremeReversal") or {}
+if er:
+    chk(er.get("current") in (None, "panic", "euphoria"), "R125 extremeReversal.current 异常: %r" % er.get("current"))
+    for _kk in ("panic", "euphoria"):
+        _row = er.get(_kk) or {}
+        for _nn in ("rev5", "rev20", "rev60"):
+            _v = _row.get(_nn)
+            chk(_v is None or (0 <= _v <= 1), "R125 extremeReversal.%s.%s 越界: %r" % (_kk, _nn, _v))
+    chk(isinstance(er.get("bounds"), list) and len(er.get("bounds") or []) == 2, "R125 extremeReversal.bounds 异常")
+hs2 = contra.get("horizonScan") or {}
+_cs = hs2.get("consensus") or {}
+if _cs:
+    chk(_cs.get("verdict") in ("共振(逆势有效)", "共振(顺势有效)", "背离(信号分裂)"),
+        "R125 consensus.verdict 异常: %r" % _cs.get("verdict"))
+    chk((_cs.get("agree") or 0) + (_cs.get("split") or 0) == (_cs.get("total") or 0),
+        "R125 consensus agree+split != total")
+st2 = contra.get("stateSignal") or {}
+_rw = st2.get("regimeWin")
+if _rw is not None:
+    chk(_rw.get("regime") in ("bear", "bull"), "R125 regimeWin.regime 异常: %r" % _rw.get("regime"))
+    if _rw.get("posPct") is not None:
+        chk(0 <= _rw["posPct"] <= 1, "R125 regimeWin.posPct 越界: %r" % _rw.get("posPct"))
+
 print("===== 情绪 v3 实证审计 =====")
 print("schema        = %s" % S.get("schema"))
 print("today         = %s (%s)" % (today.get("score"), today.get("label")))

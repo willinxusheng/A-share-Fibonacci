@@ -501,10 +501,26 @@ def _horizon_scan(D, hist, bounds=None):
         note += "逆势信号最强窗口为 H=%d 日(spread=%.2f%%)。" % (opt["horizon"], opt["spread"])
     else:
         note += "样本不足，未定最优窗口。"
-    return {"horizons": rows, "optimalHorizon": (opt["horizon"] if opt else None), "note": note}
+    # R125b：多窗口方向一致性（共振/背离）——不仅选最优窗口，还看各窗口信号是否同方向
+    _dirs = [((r["spread"] or 0) >= 0) for r in rows if r.get("spread") is not None]
+    _pos = sum(1 for d in _dirs if d)
+    _neg = len(_dirs) - _pos
+    if _dirs:
+        if _pos == len(_dirs):
+            _verdict = "共振(逆势有效)"
+        elif _neg == len(_dirs):
+            _verdict = "共振(顺势有效)"
+        else:
+            _verdict = "背离(信号分裂)"
+        consensus = {"agree": max(_pos, _neg), "split": min(_pos, _neg),
+                     "total": len(_dirs), "posDir": _pos, "negDir": _neg, "verdict": _verdict}
+    else:
+        consensus = None
+    return {"horizons": rows, "optimalHorizon": (opt["horizon"] if opt else None),
+            "consensus": consensus, "note": note}
 
 
-def _state_signal(D, hist, delta, today_score, today_d20):
+def _state_signal(D, hist, delta, today_score, today_d20, regime=None):
     """R124b 组合状态信号 + 经验胜率：由『当前情绪水平档(level) × 当前Δ方向(dir)』
 
     定位其在四象限(高/中/低 × 升/降)中的位置，给出该组合状态的经验未来20日收益与
@@ -526,7 +542,45 @@ def _state_signal(D, hist, delta, today_score, today_d20):
                  % (n, fwd if fwd is not None else 0.0, (pos or 0.0) * 100))
     else:
         note += "该格历史样本不足，暂无统计支撑。"
-    return {"level": lb, "dir": dr, "n": n, "fwd20": fwd, "posPct": pos, "note": note}
+    # R125c：分 regime 条件胜率——在当前 regime 下，该 level×dir 组合的历史经验上涨概率
+    # （揭示『逆势信号在熊市态显著、牛市态失效』，比不分 regime 的 posPct 更细的条件统计）
+    _regime_win = None
+    if regime is not None:
+        k = D.get("kline") or {}
+        _closes = [float(x) for x in (k.get("close") or [])]
+        _ma250 = [x for x in (k.get("ma250") or [])]
+        if len(_closes) >= len(hist) + 20:
+            _base = len(_closes) - len(hist)
+            _rn = _rs = _rup = 0
+            for _off, _h in enumerate(hist):
+                _d = _h.get("d20")
+                if _d is None:
+                    continue
+                _i = _base + _off
+                if _i >= len(_closes) or (_ma250[_i] is None):
+                    continue
+                _isbear = _closes[_i] < _ma250[_i]
+                if (regime == "bear") != _isbear:
+                    continue
+                _lvl = "高" if _h["score"] >= 60 else ("低" if _h["score"] < 40 else "中")
+                if _lvl != lb:
+                    continue
+                _dd = "升" if (_d or 0) >= 0 else "降"
+                if _dd != dr:
+                    continue
+                _j = _i + 20
+                if _j >= len(_closes):
+                    continue
+                _f = (_closes[_j] / _closes[_i] - 1.0) * 100.0
+                _rn += 1
+                _rs += _f
+                _rup += 1 if _f >= 0 else 0
+            if _rn:
+                _regime_win = {"regime": regime, "n": _rn,
+                               "fwd20": round(_rs / _rn, 2),
+                               "posPct": round(_rup / _rn, 2)}
+    return {"level": lb, "dir": dr, "n": n, "fwd20": fwd, "posPct": pos,
+            "regimeWin": _regime_win, "note": note}
 
 
 def _recency_band(D, hist, today_label, bounds=None):
@@ -571,6 +625,65 @@ def _recency_band(D, hist, today_label, bounds=None):
              if drift else "两者接近，该档信号在近期与稍早口径一致，稳健性较好。")
     return {"band": today_label, "n": n, "equalWtd": eq_r, "decayWtd": dw_r,
             "drift": drift, "note": note}
+
+
+def _extreme_reversal(D, hist, bounds=None, today_score=None):
+    """R125a 极值反转诊断（逆向投资核心信号）：情绪进入极端区后，市场随后向相反方向回归的概率。
+
+    极端定义：score 落入动态标尺极端档——恐慌(冰点, <b1) / 狂热(>b4)；回退固定 <20/>80。
+    对历史上每个极端日，统计其后 N∈{5,20,60} 交易日市场收益方向：
+      · 恐慌日『反转』=未来收益为正（市场随后反弹）；
+      · 狂热日『反转』=未来收益为负（市场随后回落）。
+    输出历史反转概率（验证逆向逻辑是否成立）+ 当前是否处于极端区。
+    全为描述性统计、非拟合；纯诊断字段，不改预测口径、不改 dims。
+    """
+    k = D.get("kline") or {}
+    closes = [float(x) for x in (k.get("close") or [])]
+    if not hist or len(closes) < len(hist) + 60:
+        return None
+    base = len(closes) - len(hist)
+    if bounds is None:
+        bounds = [20.0, 40.0, 60.0, 80.0]
+    b1, b4 = bounds[0], bounds[3]
+
+    def _rev(kind, f):
+        return 1.0 if ((kind == "panic" and f >= 0) or (kind == "euphoria" and f < 0)) else 0.0
+
+    _st = {"panic": {5: [0, 0.0], 20: [0, 0.0], 60: [0, 0.0]},
+           "euphoria": {5: [0, 0.0], 20: [0, 0.0], 60: [0, 0.0]}}
+    for off, h in enumerate(hist):
+        sc = h["score"]
+        kind = "panic" if sc < b1 else ("euphoria" if sc > b4 else None)
+        if kind is None:
+            continue
+        i = base + off
+        for N in (5, 20, 60):
+            j = i + N
+            if j >= len(closes):
+                continue
+            f = (closes[j] / closes[i] - 1.0) * 100.0
+            s = _st[kind][N]
+            s[0] += 1
+            s[1] += _rev(kind, f)
+
+    def _row(kind):
+        s5, s20, s60 = _st[kind][5], _st[kind][20], _st[kind][60]
+        return {"n5": s5[0], "rev5": round(s5[1] / s5[0], 2) if s5[0] else None,
+                "n20": s20[0], "rev20": round(s20[1] / s20[0], 2) if s20[0] else None,
+                "n60": s60[0], "rev60": round(s60[1] / s60[0], 2) if s60[0] else None}
+
+    # 当前是否极端
+    cur = None
+    if today_score is not None:
+        if today_score < b1:
+            cur = "panic"
+        elif today_score > b4:
+            cur = "euphoria"
+    note = ("极值反转诊断：恐慌区(score<%s)后市场反弹、狂热区(score>%s)后回落的『逆向反转』概率；当前%s。"
+            % (round(b1, 1), round(b4, 1),
+               ("处于恐慌区" if cur == "panic" else "处于狂热区" if cur == "euphoria" else "未达极端")))
+    return {"bounds": [round(b1, 1), round(b4, 1)], "current": cur,
+            "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
 def _compute_forecast(D):
@@ -740,12 +853,17 @@ def main():
                 contra["horizonScan"] = _horizon
             if delta is not None:
                 _state = _state_signal(D, out["history"], delta,
-                                       out["today"].get("score"), _hs0)
+                                       out["today"].get("score"), _hs0,
+                                       contra.get("regime"))
                 if _state is not None:
                     contra["stateSignal"] = _state
             _recency = _recency_band(D, out["history"], out["today"].get("label"), bounds)
             if _recency is not None:
                 contra["recency"] = _recency
+            # R125a：极值反转诊断（逆向投资核心信号）
+            _ext = _extreme_reversal(D, out["history"], bounds, out["today"].get("score"))
+            if _ext is not None:
+                contra["extremeReversal"] = _ext
             out["today"]["contra"] = contra
         # R123a/b：今日情绪变化(Δ)与 z 分位（取自 history 末点，单一真值派生，不新增维度）
         if out.get("today", {}).get("score") is not None:
@@ -772,7 +890,7 @@ def main():
                        "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
                        "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
-                       "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。三者均为contra下独立诊断字段，不改dims、不改今日展示口径。"
+                       "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。R125：在 R124 基础上再增强——①极值反转诊断(恐慌区后反弹/狂热区后回落的逆向反转概率，逆向投资核心)；②多窗口信号共振/背离(各H窗口方向一致性，共振=高置信)；③分regime条件胜率(当前regime下该组合状态的经验上涨概率，比不分regime更细)。均为contra下独立诊断字段，不改dims、不改今日展示口径。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e

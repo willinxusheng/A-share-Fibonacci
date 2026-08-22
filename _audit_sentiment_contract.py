@@ -229,6 +229,84 @@ def main():
         chk(_hs.get("optimalHorizon") == _optH,
             "R124 horizonScan.optimalHorizon 独立重算不一致: 存储%s vs 重算%s" % (_hs.get("optimalHorizon"), _optH))
 
+        # ---------- G4. R125 extremeReversal 单一真值（current 由 today.score 与 bounds 派生） ----------
+        _er = contra.get("extremeReversal") or {}
+        _erb = _er.get("bounds") or [20.0, 80.0]
+        _er_sc = sc_now if sc_now is not None else None
+        _exp_cur = "panic" if (_er_sc is not None and _er_sc < _erb[0]) else (
+            "euphoria" if (_er_sc is not None and _er_sc > _erb[1]) else None)
+        chk(_er.get("current") == _exp_cur,
+            "R125 extremeReversal.current 派生不一致: 存储%s vs 派生%s (score=%s,bounds=%s)"
+            % (_er.get("current"), _exp_cur, sc_now, _erb))
+        chk(abs(_erb[0] - b1) < 0.011 and abs(_erb[1] - b4) < 0.011,
+            "R125 extremeReversal.bounds 与 scale.bounds 不一致: %r vs %r" % (_erb, sbounds))
+
+        # ---------- G5. R125 consensus 独立重算（各窗口 spread 方向与 verdict） ----------
+        _cs = _hs.get("consensus") or {}
+        _scores = [h["score"] for h in hist]
+        _med = sorted(_scores)[len(_scores) // 2]
+        _dirs = []
+        for H in (5, 10, 20, 40, 60):
+            _cc = _cs2 = _hh = _hm = 0.0
+            for off, h in enumerate(hist):
+                i = base + off
+                j = i + H
+                if j < len(kc):
+                    f = (kc[j] / kc[i] - 1.0) * 100.0
+                    if h["score"] < _med:
+                        _cc += 1; _cs2 += f
+                    else:
+                        _hh += 1; _hm += f
+            if _cc and _hh:
+                _dirs.append((_cs2 / _cc - _hm / _hh) >= 0)
+        _pos = sum(1 for d in _dirs if d); _neg = len(_dirs) - _pos
+        if _dirs:
+            _exp_v = "共振(逆势有效)" if _pos == len(_dirs) else (
+                "共振(顺势有效)" if _neg == len(_dirs) else "背离(信号分裂)")
+            chk(_cs.get("total") == len(_dirs), "R125 consensus.total 不一致: 存储%s vs 重算%s" % (_cs.get("total"), len(_dirs)))
+            chk(_cs.get("verdict") == _exp_v,
+                "R125 consensus.verdict 独立重算不一致: 存储%s vs 重算%s" % (_cs.get("verdict"), _exp_v))
+            chk(_cs.get("agree") == max(_pos, _neg), "R125 consensus.agree 不一致")
+
+        # ---------- G6. R125 regimeWin 独立重算（当前 regime 下 level×dir 组合经验涨概率） ----------
+        _st = contra.get("stateSignal") or {}
+        _rw = _st.get("regimeWin")
+        if _rw is not None:
+            _regime = _rw.get("regime")
+            _lv = "高" if (sc_now or 0) >= 60 else ("低" if (sc_now or 0) < 40 else "中")
+            _d20n = (sent.get("today") or {}).get("sentimentChange", {}).get("d20")
+            _dr = "升" if (_d20n or 0) >= 0 else "降"
+            _rn = _rs = _rup = 0
+            for off, h in enumerate(hist):
+                _d = h.get("d20")
+                if _d is None:
+                    continue
+                i = base + off
+                if i >= len(ma250_arr) or ma250_arr[i] is None:
+                    continue
+                _isbear = kc[i] < ma250_arr[i]
+                if (_regime == "bear") != _isbear:
+                    continue
+                _lvl = "高" if h["score"] >= 60 else ("低" if h["score"] < 40 else "中")
+                if _lvl != _lv:
+                    continue
+                _dd = "升" if (_d or 0) >= 0 else "降"
+                if _dd != _dr:
+                    continue
+                j = i + 20
+                if j >= len(kc):
+                    continue
+                _f = (kc[j] / kc[i] - 1.0) * 100.0
+                _rn += 1; _rs += _f; _rup += 1 if _f >= 0 else 0
+            if _rn:
+                _exp_pct = round(_rup / _rn, 2)
+                _exp_fwd = round(_rs / _rn, 2)
+                chk(_rw.get("n") == _rn, "R125 regimeWin.n 不一致: 存储%s vs 重算%s" % (_rw.get("n"), _rn))
+                chk(abs((_rw.get("posPct") or 0) - _exp_pct) < 0.011,
+                    "R125 regimeWin.posPct 不一致: 存储%s vs 重算%s" % (_rw.get("posPct"), _exp_pct))
+                chk(abs((_rw.get("fwd20") or 0) - _exp_fwd) < 0.011,
+                    "R125 regimeWin.fwd20 不一致: 存储%s vs 重算%s" % (_rw.get("fwd20"), _exp_fwd))
+
     print("检查项 %d 条，问题 %d 条" % (len(checks), len(problems)))
     for cond, msg in checks:
         print(("[PASS] " if cond else "[FAIL] ") + msg)

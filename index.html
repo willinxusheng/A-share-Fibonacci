@@ -1975,6 +1975,42 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.7;">' +
           _r124.join('<br/>') + '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
       }
+      // R125：预测力再增强三件套（生成器独立诊断字段，前端只读展示，不改图表系列、不改 dims）
+      var _r125 = [];
+      // R125a 极值反转诊断（逆向投资核心信号）
+      if (contra.extremeReversal) {
+        var _er = contra.extremeReversal;
+        var _erp20 = (_er.panic && _er.panic.rev20 != null) ? (_er.panic.rev20 * 100).toFixed(0) + '%' : '—';
+        var _erp60 = (_er.panic && _er.panic.rev60 != null) ? (_er.panic.rev60 * 100).toFixed(0) + '%' : '—';
+        var _erc = _er.current;
+        var _ercTxt = _erc === 'panic' ? '<span style="color:#c23531;font-weight:600;">⚠ 当前恐慌区</span>'
+                    : _erc === 'euphoria' ? '<span style="color:#e0903a;font-weight:600;">⚠ 当前狂热区</span>'
+                    : '当前未达极端';
+        _r125.push('<span style="color:' + col + ';font-weight:600;">极值反转：</span>' + _ercTxt +
+          ' · 恐慌区后20日反弹概率 ' + _erp20 + '（60日 ' + _erp60 + '）');
+      }
+      // R125b 多窗口信号共振/背离
+      if (contra.horizonScan && contra.horizonScan.consensus) {
+        var _cs = contra.horizonScan.consensus;
+        var _vc = (_cs.verdict.indexOf('背离') >= 0)
+          ? '<span style="color:#c23531;font-weight:600;">' + _cs.verdict + '</span>'
+          : '<span style="color:#3a9d5d;font-weight:600;">' + _cs.verdict + '</span>';
+        _r125.push('<span style="color:' + col + ';font-weight:600;">信号共振：</span>' + _vc +
+          '（' + _cs.agree + '/' + _cs.total + ' 窗口同向）');
+      }
+      // R125c 分 regime 条件胜率（当前 regime 下该组合状态的经验涨概率，比全样本更细）
+      if (contra.stateSignal && contra.stateSignal.regimeWin) {
+        var _sw = contra.stateSignal, _rw = _sw.regimeWin;
+        var _rwp = (_rw.posPct != null) ? (_rw.posPct * 100).toFixed(0) + '%' : '—';
+        var _rwb = (_sw.posPct != null) ? (_sw.posPct * 100).toFixed(0) + '%' : '—';
+        _r125.push('<span style="color:' + col + ';font-weight:600;">分regime胜率：</span>' +
+          (_rw.regime === 'bear' ? '熊市态' : '牛市态') + '下该组合经验涨概率 ' + _rwp +
+          '（全样本 ' + _rwb + '）');
+      }
+      if (_r125.length) {
+        html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.7;">' +
+          _r125.join('<br/>') + '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+      }
     }
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };

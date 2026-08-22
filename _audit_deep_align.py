@@ -182,6 +182,49 @@ def main():
             chk(_rc.get("equalWtd") is not None and _rc.get("decayWtd") is not None and isinstance(_rc.get("drift"), bool),
                 "R124 recency 缺 equalWtd/decayWtd/drift")
 
+            # R125：extremeReversal.current 派生 + regimeWin 独立重算（单一真值，防回归）
+            _er = contra.get("extremeReversal") or {}
+            _erb = _er.get("bounds") or [20.0, 80.0]
+            _er_sc = _scn if _scn is not None else None
+            _exp_cur = "panic" if (_er_sc is not None and _er_sc < _erb[0]) else (
+                "euphoria" if (_er_sc is not None and _er_sc > _erb[1]) else None)
+            chk(_er.get("current") == _exp_cur,
+                "R125 extremeReversal.current 派生不一致: 存储%s vs 派生%s" % (_er.get("current"), _exp_cur))
+            _rw = _st.get("regimeWin")
+            if _rw is not None:
+                _regime = _rw.get("regime")
+                _ma250 = data["kline"].get("ma250") or []
+                _rn = _rs = _rup = 0
+                for _off, _h in enumerate(hist):
+                    _d = _h.get("d20")
+                    if _d is None:
+                        continue
+                    _i = _base + _off
+                    if _i >= len(_ma250) or _ma250[_i] is None:
+                        continue
+                    _isbear = kc[_i] < _ma250[_i]
+                    if (_regime == "bear") != _isbear:
+                        continue
+                    _lvl2 = "高" if _h["score"] >= 60 else ("低" if _h["score"] < 40 else "中")
+                    if _lvl2 != _lvl:
+                        continue
+                    _dd = "升" if (_d or 0) >= 0 else "降"
+                    if _dd != _dir:
+                        continue
+                    _j = _i + 20
+                    if _j >= len(kc):
+                        continue
+                    _f = (kc[_j] / kc[_i] - 1.0) * 100.0
+                    _rn += 1; _rs += _f; _rup += 1 if _f >= 0 else 0
+                if _rn:
+                    _exp_pct = round(_rup / _rn, 2)
+                    _exp_fwd = round(_rs / _rn, 2)
+                    chk(_rw.get("n") == _rn, "R125 regimeWin.n 不一致(deep): 存储%s vs 重算%s" % (_rw.get("n"), _rn))
+                    chk(abs((_rw.get("posPct") or 0) - _exp_pct) < 0.011,
+                        "R125 regimeWin.posPct 不一致(deep): 存储%s vs 重算%s" % (_rw.get("posPct"), _exp_pct))
+                    chk(abs((_rw.get("fwd20") or 0) - _exp_fwd) < 0.011,
+                        "R125 regimeWin.fwd20 不一致(deep): 存储%s vs 重算%s" % (_rw.get("fwd20"), _exp_fwd))
+
     # ---------- B. forecast 每日期均为 A股交易日 ----------
     fcst = sent.get("forecast") or []
     chk(len(fcst) > 0, "forecast 为空")
