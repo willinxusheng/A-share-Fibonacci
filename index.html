@@ -494,8 +494,8 @@
     background: var(--gold-grad); border-radius: 14px 14px 0 0; }
   .cert-head { display: flex; align-items: baseline; justify-content: space-between;
     gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
-  .cert-head .sub-h { margin: 0; }
-  .cert-date { flex: none; font-size: 12px; color: #8a94a6; white-space: nowrap; }
+  .cert-head .sub-h { margin: 0; min-width: 0; line-height: 1.35; }
+  .cert-date { flex: none; font-size: 12px; color: #8a94a6; white-space: nowrap; line-height: 1.35; }
 
   /* 维度表：复用全局 table 设计语言（去内联暖色边框/collapse），仅微调外边距 */
   .dim-tbl { margin: 6px 0 2px; }
@@ -2068,7 +2068,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   // R118：情绪 vs 上证指数 叠图（近 120 交易日，双 Y 轴逆向对照）
   html += '<div class="sub-h" style="margin-top:14px;">📊 情绪 vs 上证指数' +
     '<span style="font-weight:400;font-size:11px;color:#8a94a6;">（近120日 · 情绪高位多对应大盘回调）</span></div>' +
-    '<div id="sentVsChart" style="width:100%;height:200px;margin-top:4px;"></div>';
+    '<div id="sentVsChart" style="width:100%;height:200px;margin-top:4px;"></div>' +
+    '<div style="margin-top:6px;font-size:11px;color:#8a94a6;line-height:1.6;">' +
+    '紫线=情绪温度；蓝线=上证指数；浅红背景=熊市态(价&lt;MA250)，浅蓝背景=牛市态。' +
+    '</div>';
   if (s.error) html += '<div style="margin-top:8px;color:#c23531;">⚠️ ' + s.error + '</div>';
   html += '<div style="margin-top:8px;color:#8a94a6;font-size:12px;">' + (s.note || '') + '</div>';
   bodyEl.innerHTML = html;
@@ -2219,10 +2222,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               var _bullArea = vsBullRuns.map(function (r) { return [{ xAxis: r[0] }, { xAxis: r[1] }]; });
               vsChart.setOption({
                 backgroundColor: '#ffffff',
-                title: { text: '情绪温度 vs 上证指数', subtext: '紫线=情绪温度(与主图同色)；浅红背景=熊市态(价<MA250)，浅蓝背景=牛市态；蓝线=上证指数',
-                  left: 8, top: 2, textStyle: { color: '#2a3340', fontSize: 13 },
-                  subtextStyle: { color: '#8a94a6', fontSize: 10 } },
-                grid: { left: 44, right: 56, top: 48, bottom: 26 },
+                // 标题由外部 HTML .sub-h 统一承载，避免 ECharts title 与 legend 在小屏/窄容器下重叠
+                grid: { left: 44, right: 56, top: 34, bottom: 26 },
                 tooltip: {
                   trigger: 'axis',
                   backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
