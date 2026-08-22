@@ -1939,6 +1939,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
 
   // 走势图容器（历史实线 + 未来虚线预测 + dataZoom 缩略轴）
   html += '<div id="sentChart" style="width:100%;height:300px;margin-top:12px;"></div>';
+  // R118：情绪 vs 上证指数 叠图（近 120 交易日，双 Y 轴逆向对照）
+  html += '<div style="margin-top:14px;font-size:13px;font-weight:600;color:#2a3340;">📊 情绪 vs 上证指数' +
+    '<span style="font-weight:400;font-size:11px;color:#8a94a6;">（近120日 · 情绪高位多对应大盘回调）</span></div>' +
+    '<div id="sentVsChart" style="width:100%;height:200px;margin-top:4px;"></div>';
   if (s.error) html += '<div style="margin-top:8px;color:#c23531;">⚠️ ' + s.error + '</div>';
   html += '<div style="margin-top:8px;color:#8a94a6;font-size:12px;">' + (s.note || '') + '</div>';
   bodyEl.innerHTML = html;
@@ -2049,6 +2053,74 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         requestAnimationFrame(function () { chart.resize(); });
       }
       setTimeout(function () { chart.resize(); }, 150);
+
+      // R118：情绪 vs 上证指数 叠图（双 Y 轴：温度 0-100 + 指数点位；近 120 交易日）
+      var vsChartEl = document.getElementById('sentVsChart');
+      if (vsChartEl && typeof window.FIB_DATA !== 'undefined' && window.FIB_DATA.kline) {
+        var _kd = window.FIB_DATA.kline.dates || [];
+        var _kc = window.FIB_DATA.kline.close || [];
+        if (_kd.length && _kc.length) {
+          // history 起点 = kline 第 250 根（R115：start=249），逐点对齐
+          var _hOff = _kd.length - hist.length;
+          if (_hOff >= 0) {
+            var _N = Math.min(120, hist.length);
+            var _st = hist.length - _N;
+            var vsDates = [], vsSent = [], vsIdx = [];
+            for (var _vi = _st; _vi < hist.length; _vi++) {
+              var _ki = _hOff + _vi;
+              if (_ki < 0 || _ki >= _kd.length) continue;
+              vsDates.push(hist[_vi].date);
+              vsSent.push(hist[_vi].score);
+              vsIdx.push(_ki);
+            }
+            if (vsDates.length >= 2) {
+              var vsChart = echarts.init(vsChartEl);
+              vsChart.setOption({
+                backgroundColor: '#ffffff',
+                grid: { left: 44, right: 56, top: 34, bottom: 26 },
+                tooltip: {
+                  trigger: 'axis',
+                  backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
+                  formatter: function (ps) {
+                    if (!ps || !ps.length) return '';
+                    var _s = ps[0].axisValue;
+                    var _t = ps[0].data == null ? '—' : ps[0].data.toFixed(1);
+                    var _p = ps[1] && ps[1].data != null ? ps[1].data : '—';
+                    return _s + '<br/>情绪温度 <b>' + _t + '</b> · 上证 <b>' + _p + '</b>';
+                  }
+                },
+                legend: { data: ['情绪温度', '上证指数'], top: 2, textStyle: { color: '#2a3340' }, itemWidth: 18, itemHeight: 8 },
+                xAxis: {
+                  type: 'category', data: vsDates, boundaryGap: false,
+                  axisLine: { lineStyle: { color: '#c8cfda' } },
+                  axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
+                  axisTick: { show: false }
+                },
+                yAxis: [
+                  { type: 'value', min: 0, max: 100, name: '温度', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
+                    axisLine: { show: false }, axisLabel: { color: '#5a6675' },
+                    splitLine: { lineStyle: { color: '#eef1f6' } } },
+                  { type: 'value', scale: true, name: '上证', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
+                    axisLine: { show: false }, axisLabel: { color: '#8a94a6' }, splitLine: { show: false } }
+                ],
+                series: [
+                  { name: '情绪温度', type: 'line', data: vsSent, showSymbol: false, smooth: true,
+                    lineStyle: { width: 2, color: '#2b6cb0' }, itemStyle: { color: '#2b6cb0' },
+                    areaStyle: { color: 'rgba(43,108,176,0.06)' },
+                    markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c8cfda', type: 'dashed', width: 1 },
+                      label: { show: false }, data: [{ yAxis: 60 }, { yAxis: 40 }] } },
+                  { name: '上证指数', type: 'line', yAxisIndex: 1,
+                    data: vsIdx.map(function (ki) { return _kc[ki]; }),
+                    showSymbol: false, smooth: true,
+                    lineStyle: { width: 1.6, color: '#c23531' }, itemStyle: { color: '#c23531' } }
+                ]
+              });
+              charts.push(vsChart);
+              setTimeout(function () { vsChart.resize(); }, 150);
+            }
+          }
+        }
+      }
     }
   }
 })();
