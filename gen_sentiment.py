@@ -82,9 +82,45 @@ def _label(score):
     return "狂热"
 
 
-def _is_weekend(d):
-    """A股周末无交易：周六(5)/周日(6)判定。forecast 插值按日历日展开后用于剔除非交易日。"""
-    return datetime.datetime.strptime(d, "%Y-%m-%d").weekday() >= 5
+def _is_a_share_trading_day(d):
+    """A股交易日：工作日或调休补班日，且非法定休市。
+
+    与 build_data.py R207 的 _next_trading_day 口径同源（上交所 上证公告〔2025〕45号）：
+    仅列连续休市区间（周末本就休市，不重复）；补班日虽在周末仍交易。
+    2027 安排待公布后补充。用于 forecast 插值后剔除长假/周末、保留补班日，避免非交易日假数据点。
+    """
+    dt = datetime.datetime.strptime(d, "%Y-%m-%d")
+    ds = dt.strftime("%Y-%m-%d")
+    if ds in _A_SHARE_MAKEUP:
+        return True
+    if dt.weekday() >= 5:
+        return False
+    if ds in _A_SHARE_HOLIDAYS:
+        return False
+    return True
+
+
+def _expand_holidays(start, end):
+    out = set()
+    a = datetime.datetime.strptime(start, "%Y-%m-%d")
+    b = datetime.datetime.strptime(end, "%Y-%m-%d")
+    while a <= b:
+        out.add(a.strftime("%Y-%m-%d"))
+        a += datetime.timedelta(days=1)
+    return out
+
+
+# R207 口径（与 build_data.py / report.py / index.html _MAKEUP_2026 同源）
+_A_SHARE_HOLIDAYS = (
+    _expand_holidays("2026-01-01", "2026-01-03")
+    | _expand_holidays("2026-02-15", "2026-02-23")
+    | _expand_holidays("2026-04-04", "2026-04-06")
+    | _expand_holidays("2026-05-01", "2026-05-05")
+    | _expand_holidays("2026-06-19", "2026-06-21")
+    | _expand_holidays("2026-09-25", "2026-09-27")
+    | _expand_holidays("2026-10-01", "2026-10-07")
+)
+_A_SHARE_MAKEUP = {"2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10"}
 
 
 def _score_from_subs(subs):
@@ -278,14 +314,14 @@ def _compute_forecast(D):
     if not path:
         path = [(future_dates[-1], future_prices[-1])]
 
-    # A股周末无交易：剔除周六/周日，使 forecast 仅含交易日近似日期，避免周末假数据点
-    path = [(d, p) for (d, p) in path if not _is_weekend(d)]
+    # A股非交易日剔除：剔除周末/法定长假，保留调休补班日，使 forecast 仅含交易日近似日期
+    path = [(d, p) for (d, p) in path if _is_a_share_trading_day(d)]
     if not path:
         path = [(future_dates[-1], future_prices[-1])]
 
     out = []
     for idx, (d, price) in enumerate(path):
-        # 动量：沿「交易日近似序列」回看 20 个交易日（周末已剔除，path 基本即交易日序列）；
+        # 动量：沿「交易日近似序列」回看 20 个交易日（非交易日已剔除，path 即交易日序列）；
         # 早期点数不足 20 时以「今日收盘」兜底，避免衔接处动量硬归零造成的跳变。
         if idx >= 20:
             past_price = path[idx - 20][1]
