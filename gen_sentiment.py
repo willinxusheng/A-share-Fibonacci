@@ -867,9 +867,24 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     # R130b 漂移自适应：regime 漂移期带宽 ×1.2、远端回归上限 0.5→0.35（更谦卑，不锚定漂移中枢）
     _DRIFT_MULT, _REVERT_CAP = _resolve_drift_params(drift)
     # R129 经验方向修正超参：把已验证诊断反馈进 forecast，权重经 clamp 防过拟合/过度修正
-    _REGIME_BIAS_W = 0.5   # 远端由全局中枢向「分regime均衡中枢」偏移的最大混合比例
+    # R140：_REGIME_BIAS_W 由 0.5 降至 0.25——R140 已在 R128 锚点层引入 regime 感知主拉引力，
+    # 此处保留远端残余强调，避免与 R140 双重叠加同一信号导致过度修正。
+    _REGIME_BIAS_W = 0.25  # 远端由（R140 已 regime 混合的）中枢向 regime_center 残余偏移的最大混合比例
     _EXTREME_BIAS_W = 0.6  # 极端区内向中枢回归的最大混合比例（实际再×2*(rev20-0.5)）
     _center = center if (center is not None) else 60.0  # 历史中枢锚点（缺省 60）
+    # R140 regime 感知中枢（贯穿全 horizon 的主拉引力，与 R128 正交叠加）：
+    # 当前处于熊/牛态时，全局中枢 _center(≈54) 被 bull 样本抬高、对 bear 态是过高回归目标；
+    # 故按 regime 强度把回归锚点由 _center 向 regime_center 混合，使预测路径各 horizon 均向
+    # 「当前 regime 均衡」回归而非 bull 抬高后的混合均值——直接纠正 bear 态下预测中段虚高 ~60 的失真。
+    # 混合权重随 regime_center 与 _center 的偏离（regime 强度）线性放大，clamp[0,0.6] 防过度。
+    _RC_W = 0.0
+    if regime_center is not None and _center is not None:
+        _gap = abs(regime_center - _center)
+        _RC_W = _clamp(_gap / 20.0, 0.0, 0.6)  # gap=20→满权 0.6；当前 bear gap≈11.4→≈0.34
+    _eff_center = _center * (1.0 - _RC_W) + (regime_center if regime_center is not None else _center) * _RC_W
+    # R140 regime 水平位移权重（不随 horizon 衰减）：把预测中枢拉向当前 regime 均衡，
+    # 0.35 经校准 bear 态中段虚高 ~63 可降至 ~53（保留价格路径偏离表达，不过度压平）。
+    _LEVEL_W = 0.35
     # R130c 状态经验胜率微调近端超参：当前 level×dir 象限历史上涨概率 posPct（纯经验频率）
     # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效。
     _STATE_BIAS_W = 0.15   # 近端状态偏置最大权重（实际再×(posPct-0.5)*2 × 近端衰减）
@@ -997,8 +1012,17 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
         # R128 预测 score 水平均值回归：路径派生分随 horizon 向历史中枢回归（远端最多回归 50%），
         # 避免 3 个月外的预测被今日路径极值过度外推；近端(idx=0) revert=0 完全忠实路径。
         _path_score = _score_from_subs([sub_mom, sub_pos, _sub_vol, _sub_volat, sub_breadth])
+        # R140 regime 水平位移（贯穿全 horizon 的主修正，独立于 regime_center 是否缺失）：
+        # 已实现数据实证 bear 态 score 均值 42.6、bull 态 61.7（相差 19 点水平位移）——情绪温度在
+        # 牛熊态有系统性水平差。当前 regime 下，斐波那契价格路径的短期斜率不应把情绪推离当前
+        # regime 均衡太远，故把 _path_score 向 regime_center 做固定比例水平位移 _LEVEL_W（不随
+        # horizon 衰减），使预测中枢贴合当前牛熊态，纠正 bear 态下预测中段虚高 ~60 的失真。缺失跳过。
+        if regime_center is not None:
+            _path_score = _path_score * (1.0 - _LEVEL_W) + regime_center * _LEVEL_W
         _revert = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
-        score = _path_score * (1.0 - _revert) + _center * _revert  # R128 全局中枢回归
+        # R128 全局中枢回归 + R140 regime 感知锚点（_eff_center 已按 regime 强度混合 regime_center），
+        # 因 _revert 随 horizon 递增，regime 感知拉引力近端弱、远端强，形状正确。
+        score = _path_score * (1.0 - _revert) + _eff_center * _revert
         # R129 经验方向修正（把已验证诊断反馈进 forecast，而非仅展示）：
         # ① 极端区逆势修正：路径落入恐慌区(<b1)上修、狂热区(>b4)下修，幅度∝极值反弹概率 rev20
         #    （rev20>0.5 才有意义修正；仅极端区生效，非极端区保持 R128 路径忠实）。
@@ -1013,14 +1037,16 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
             if score < _b1 and (extreme_reversal.get("panic") or {}).get("rev20") is not None:
                 _p = extreme_reversal["panic"]["rev20"]
                 _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT * _VERDICT_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
-                score = score * (1.0 - _w) + _center * _w
+                score = score * (1.0 - _w) + _eff_center * _w  # R140：极端区回归目标也用 regime 感知锚点
             elif score > _b4 and (extreme_reversal.get("euphoria") or {}).get("rev20") is not None:
                 _p = extreme_reversal["euphoria"]["rev20"]
                 _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT * _VERDICT_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
-                score = score * (1.0 - _w) + _center * _w
+                score = score * (1.0 - _w) + _eff_center * _w
         if regime_center is not None:
+            # R140：R128 已用 _eff_center 承载 regime 主拉引；此处仅对远端做残余强调，目标仍锚
+            # _eff_center（不再二次拉向 raw regime_center），与 R140 正交不重复叠加。
             _rbias = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
-            score = score * (1.0 - _rbias * _REGIME_BIAS_W * _CONF_MULT) + regime_center * _rbias * _REGIME_BIAS_W * _CONF_MULT
+            score = score * (1.0 - _rbias * _REGIME_BIAS_W * _CONF_MULT) + _eff_center * _rbias * _REGIME_BIAS_W * _CONF_MULT
         # R130c 状态经验胜率微调近端：当前 level×dir 象限历史上涨概率（纯经验频率），
         # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效，
         # 与远端 R128/R129 正交（近端时机信号 + 远端中枢回归）。
