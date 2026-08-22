@@ -276,7 +276,11 @@ def _contra_stats(D, hist):
         })
     return {
         "bands": out_bands,
-        "note": "近%d个交易日全量样本：score 与未来20日收益负相关（逆势信号）；N 为该档样本数" % len(hist),
+        "note": ("近%d个交易日逐日回算：score 与未来20日收益负相关（逆势信号）；"
+                 "N 为该档有未来20日收益的样本数（尾部20日不计），各档合计%d；"
+                 "当前分数区间 %.1f~%.1f") % (
+            len(hist), sum(b["n"] for b in out_bands),
+            min(h["score"] for h in hist), max(h["score"] for h in hist)),
     }
 
 
