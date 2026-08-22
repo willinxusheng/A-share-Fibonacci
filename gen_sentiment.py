@@ -1270,18 +1270,18 @@ def main():
         for _i, _h in enumerate(hist):
             _h["regimePct"] = _regime_pct_hist[_i] if _regime_pct_hist else None
 
-        # R142：今日分 regime 滚动分位（与历史同源），直接回答『当前情绪在当下牛熊态内有多极端』。
+        # R142：今日分 regime 滚动分位（与历史同源，复用 _regime_rolling_pct 单一真值，
+        # 避免历史/今日两套口径漂移）。把今日视作滚动窗口末端的同 regime 新点(idx=last_i+1)，
+        # 直接复用同一函数——今日 score 在『同regime近250日样本』中的分位，
+        # 直接回答『当前情绪在当下牛熊态内有多极端』。
         _regime_pct_today = None
         if _regimes and out.get("today", {}).get("score") is not None:
             _ts = out["today"]["score"]
-            # 把今日视作滚动窗口末端的同 regime 新点（避免越界，用窗口末点多样本近似）
             _last_i = len(hist) - 1
-            _win_lo = max(0, _last_i - 249)
-            _same = [_hist_scores_full[j] for j in range(_win_lo, _last_i + 1)
-                     if _regimes[j] is not None and _regimes[j] == (_regime == "bear")]
-            if _same:
-                _cnt = sum(1 for x in _same if x <= _ts)
-                _regime_pct_today = round(100.0 * _cnt / len(_same), 1)
+            _scores_today = _hist_scores_full + [_ts]
+            _regimes_today = _regimes + [(_regime == "bear")]
+            _regime_pct_today = round(
+                _regime_rolling_pct(_scores_today, _regimes_today, _last_i + 1, window=250), 1)
             out["today"]["regimePct"] = _regime_pct_today
 
         # R130：前置三个诊断信号（原仅在 forecast 之后 contra 段计算、仅作展示；现提前供
