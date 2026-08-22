@@ -1947,6 +1947,35 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         '<span style="color:' + col + ';font-weight:600;">信号强度：</span>' + contra.regimeSummary +
         '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
     }
+    // R124：预测力增强三件套（生成器独立诊断字段，前端只读展示，不改图表系列、不改 dims）
+    if (contra) {
+      var _r124 = [];
+      // R124a 最优预测窗口
+      if (contra.horizonScan && contra.horizonScan.optimalHorizon != null) {
+        _r124.push('<span style="color:' + col + ';font-weight:600;">最优窗口：</span>H=' +
+          contra.horizonScan.optimalHorizon + '日（逆势信号最强）');
+      }
+      // R124b 组合状态信号（当前水平档 × Δ方向 四象限经验胜率）
+      if (contra.stateSignal) {
+        var _st = contra.stateSignal;
+        var _fwd = (_st.fwd20 != null) ? (_st.fwd20 >= 0 ? '+' + _st.fwd20.toFixed(2) + '%' : _st.fwd20.toFixed(2) + '%') : '—';
+        var _pos = (_st.posPct != null) ? (_st.posPct * 100).toFixed(0) + '%' : '—';
+        _r124.push('<span style="color:' + col + ';font-weight:600;">组合状态：</span>' + _st.level + _st.dir +
+          '（N=' + _st.n + '）未来20日 ' + _fwd + ' · 经验上涨概率 ' + _pos);
+      }
+      // R124c 近期权重稳健性对照（等权 vs 衰减加权，regime 漂移诊断）
+      if (contra.recency) {
+        var _rc = contra.recency;
+        var _eq = (_rc.equalWtd != null) ? (_rc.equalWtd >= 0 ? '+' + _rc.equalWtd.toFixed(2) + '%' : _rc.equalWtd.toFixed(2) + '%') : '—';
+        var _dec = (_rc.decayWtd != null) ? (_rc.decayWtd >= 0 ? '+' + _rc.decayWtd.toFixed(2) + '%' : _rc.decayWtd.toFixed(2) + '%') : '—';
+        var _drift = _rc.drift ? '<span style="color:#c23531;font-weight:600;">⚠ regime漂移</span>' : '<span style="color:#3a9d5d;">稳健</span>';
+        _r124.push('<span style="color:' + col + ';font-weight:600;">稳健对照：</span>等权 ' + _eq + ' vs 衰减 ' + _dec + ' · ' + _drift);
+      }
+      if (_r124.length) {
+        html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.7;">' +
+          _r124.join('<br/>') + '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+      }
+    }
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +

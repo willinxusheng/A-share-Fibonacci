@@ -145,6 +145,42 @@ def main():
                 "contra.delta.falling.fwd20 不一致(R123): 存储 %s vs 独立 %s" % (_falling.get("fwd20"), _ff))
             _rs_str = contra.get("regimeSummary")
             chk(isinstance(_rs_str, str) and len(_rs_str) > 0, "contra.regimeSummary 缺失或空(R123)")
+            # R124：delta.pos 经验胜率（新增字段）+ 三诊断字段结构/派生一致性
+            _up_r = _up_f = 0.0
+            for _off, _h in enumerate(hist):
+                _d = _h.get("d20")
+                if _d is None:
+                    continue
+                _i = _base + _off
+                _j = _i + 20
+                if _j >= len(kc):
+                    continue
+                _f = (kc[_j] / kc[_i] - 1.0) * 100.0
+                if _d >= 0 and _rn:
+                    if _f >= 0:
+                        _up_r += 1
+                elif _fn:
+                    if _f >= 0:
+                        _up_f += 1
+            _rp = round(_up_r / _rn, 2) if _rn else None
+            _fp = round(_up_f / _fn, 2) if _fn else None
+            chk((_rising.get("pos") is None and _rp is None) or abs((_rising.get("pos") or 0) - (_rp or 0)) < 0.011,
+                "contra.delta.rising.pos 不一致(R124): 存储 %s vs 独立 %s" % (_rising.get("pos"), _rp))
+            chk((_falling.get("pos") is None and _fp is None) or abs((_falling.get("pos") or 0) - (_fp or 0)) < 0.011,
+                "contra.delta.falling.pos 不一致(R124): 存储 %s vs 独立 %s" % (_falling.get("pos"), _fp))
+            _hs = contra.get("horizonScan") or {}
+            chk(_hs.get("optimalHorizon") in (5, 10, 20, 40, 60), "R124 horizonScan.optimalHorizon 异常: %r" % _hs.get("optimalHorizon"))
+            chk(isinstance(_hs.get("horizons"), list) and len(_hs.get("horizons") or []) == 5, "R124 horizonScan.horizons 应为5项")
+            _st = contra.get("stateSignal") or {}
+            _scn = (sent.get("today") or {}).get("score")
+            _d20n = (sent.get("today") or {}).get("sentimentChange", {}).get("d20")
+            _lvl = "高" if (_scn or 0) >= 60 else ("低" if (_scn or 0) < 40 else "中")
+            _dir = "升" if (_d20n or 0) >= 0 else "降"
+            chk(_st.get("level") == _lvl and _st.get("dir") == _dir,
+                "R124 stateSignal 派生 level/dir 不一致: 存储(%s,%s) vs (%s,%s)" % (_st.get("level"), _st.get("dir"), _lvl, _dir))
+            _rc = contra.get("recency") or {}
+            chk(_rc.get("equalWtd") is not None and _rc.get("decayWtd") is not None and isinstance(_rc.get("drift"), bool),
+                "R124 recency 缺 equalWtd/decayWtd/drift")
 
     # ---------- B. forecast 每日期均为 A股交易日 ----------
     fcst = sent.get("forecast") or []

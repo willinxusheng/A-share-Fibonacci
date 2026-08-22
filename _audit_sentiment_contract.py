@@ -15,6 +15,7 @@ import json
 import re
 import sys
 import os
+import math
 
 REPO = os.path.dirname(os.path.abspath(__file__))
 
@@ -156,6 +157,77 @@ def main():
         sc_min = min(h["score"] for h in hist)
         sc_max = max(h["score"] for h in hist)
         chk(("%.1f~%.1f" % (sc_min, sc_max)) in note, "contra.note 未含分数区间 %.1f~%.1f" % (sc_min, sc_max))
+
+    # ---------- G. R124 预测力增强：独立重算一致性（单一真值，防回归） ----------
+    if hist:
+        # G1. stateSignal：由 today.score / today.sentimentChange.d20 派生的 level/dir 与值须与 delta.quadrants 一致
+        _st = contra.get("stateSignal") or {}
+        sc_now = (sent.get("today") or {}).get("score")
+        d20_now = (sent.get("today") or {}).get("sentimentChange", {}).get("d20")
+        _lv = "高" if (sc_now or 0) >= 60 else ("低" if (sc_now or 0) < 40 else "中")
+        _dr = "升" if (d20_now or 0) >= 0 else "降"
+        chk(_st.get("level") == _lv and _st.get("dir") == _dr,
+            "R124 stateSignal level/dir 派生不一致: 存储(%s,%s) vs 派生(%s,%s)"
+            % (_st.get("level"), _st.get("dir"), _lv, _dr))
+        _qd = {(q.get("level"), q.get("dir")): q for q in (_delta.get("quadrants") or [])}
+        _q = _qd.get((_lv, _dr))
+        if _q:
+            chk(_st.get("n") == _q.get("n")
+                and abs((_st.get("fwd20") or 0) - (_q.get("fwd20") or 0)) < 0.011
+                and abs((_st.get("posPct") or 0) - (_q.get("pos") or 0)) < 0.011,
+                "R124 stateSignal 与 delta.quadrants 不一致")
+        # G2. recency：独立重算 等权/衰减加权（与生成器同口径）
+        _rc = contra.get("recency") or {}
+        _band = (sent.get("today") or {}).get("label")
+        _win = hist[-250:] if len(hist) >= 250 else hist
+        _lo = len(hist) - len(_win)
+        _pairs = []
+        for off, h in enumerate(hist):
+            if off < _lo or h.get("label") != _band:
+                continue
+            i = base + off
+            j = i + 20
+            if j < len(kc):
+                _pairs.append((len(hist) - 1 - off, (kc[j] / kc[i] - 1.0) * 100.0))
+        if _pairs:
+            _n = len(_pairs)
+            _eq = sum(f for _, f in _pairs) / _n
+            _tau = 108.0
+            _w = [math.exp(-a / _tau) for a, _ in _pairs]
+            _dw = sum(wk * f for (a, f), wk in zip(_pairs, _w)) / sum(_w)
+            chk(abs((_rc.get("equalWtd") or 0) - round(_eq, 2)) < 0.011,
+                "R124 recency.equalWtd 独立重算不一致: 存储%s vs 重算%.2f" % (_rc.get("equalWtd"), _eq))
+            chk(abs((_rc.get("decayWtd") or 0) - round(_dw, 2)) < 0.011,
+                "R124 recency.decayWtd 独立重算不一致: 存储%s vs 重算%.2f" % (_rc.get("decayWtd"), _dw))
+            chk(_rc.get("drift") == (abs(round(_dw, 2) - round(_eq, 2)) >= 1.0),
+                "R124 recency.drift 标志与背离判定不一致")
+        # G3. horizonScan：独立重算最优窗口（与生成器同口径）
+        _hs = contra.get("horizonScan") or {}
+        _scores = [h["score"] for h in hist]
+        _med = sorted(_scores)[len(_scores) // 2]
+        _opt = None
+        for H in (5, 10, 20, 40, 60):
+            _cn = _cs = _hn = _hs2 = 0.0
+            for off, h in enumerate(hist):
+                i = base + off
+                j = i + H
+                if j < len(kc):
+                    f = (kc[j] / kc[i] - 1.0) * 100.0
+                    if h["score"] < _med:
+                        _cn += 1
+                        _cs += f
+                    else:
+                        _hn += 1
+                        _hs2 += f
+            if _cn >= 20 and _hn >= 20:
+                _cmean = round(_cs / _cn, 2) if _cn else None
+                _hmean = round(_hs2 / _hn, 2) if _hn else None
+                _sp = round(_cmean - _hmean, 2) if (_cmean is not None and _hmean is not None) else None
+                if _sp is not None and (_opt is None or abs(_sp) > abs(_opt[1])):
+                    _opt = (H, _sp)
+        _optH = _opt[0] if _opt else None
+        chk(_hs.get("optimalHorizon") == _optH,
+            "R124 horizonScan.optimalHorizon 独立重算不一致: 存储%s vs 重算%s" % (_hs.get("optimalHorizon"), _optH))
 
     print("检查项 %d 条，问题 %d 条" % (len(checks), len(problems)))
     for cond, msg in checks:

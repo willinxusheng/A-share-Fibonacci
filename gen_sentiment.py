@@ -33,6 +33,14 @@ R123 预测力增强（不改水平口径，仅加派生信号）：
   - 滚动 z 分位：近120日均值/标准差归一化，标出『当前情绪相对自身近期有多极端』，跨 regime 可比。
   - 分 regime 信号强度直读：复用熊/牛分态统计，当前 regime 下一句话给信号强弱结论。
 
+R124 预测力再增强（纯诊断字段，不改水平/今日展示口径，不增维度）：
+  - 最优预测窗口扫描：按 score 中位数切冷/热组，扫描 H∈{5,10,20,40,60} 未来H日收益 spread，
+    选 |spread| 最大且样本充足者为最优逆势解读窗口。
+  - 组合状态信号：由『当前情绪水平档 × 当前Δ方向』定位四象限，给出该格经验未来20日收益与
+    经验上涨概率（样本频率，非拟合），刻画『高位升温/低位降温』等组合时机。
+  - 近期权重稳健性对照：对当前档比较等权 vs 近1年指数衰减加权未来20日均值，
+    显著背离即提示 regime 漂移、信号稳健性下降。
+
 诚实标注：这是「量能/动量/波动/广度」合成的代理情绪温度，非全市场涨跌家数；
   且量能维度受跨源 volume 单位差异影响，仅作相对参考。退出码恒 0（软，透明化不阻断）。
 """
@@ -395,8 +403,9 @@ def _contra_delta_stats(D, hist):
     if not hist or len(closes) < len(hist) + 20:
         return None
     base = len(closes) - len(hist)
-    rising_n = rising_s = falling_n = falling_s = 0.0
-    quad = {}
+    rising_n = rising_s = rising_up = 0.0
+    falling_n = falling_s = falling_up = 0.0
+    quad = {}  # (level, dir) -> [n, s, up]
     for off, h in enumerate(hist):
         d = h.get("d20")
         if d is None:
@@ -406,34 +415,162 @@ def _contra_delta_stats(D, hist):
         if j >= len(closes):
             continue
         f = (closes[j] / closes[i] - 1.0) * 100.0
+        up = 1.0 if f >= 0 else 0.0
         if d >= 0:
             rising_n += 1
             rising_s += f
+            rising_up += up
         else:
             falling_n += 1
             falling_s += f
+            falling_up += up
         lb = "高" if h["score"] >= 60 else ("低" if h["score"] < 40 else "中")
         key = (lb, "升" if d >= 0 else "降")
-        q = quad.setdefault(key, [0, 0.0])
+        q = quad.setdefault(key, [0, 0.0, 0.0])
         q[0] += 1
         q[1] += f
+        q[2] += up
 
     def _mean(n, s):
         return round(s / n, 2) if n else None
 
+    def _pos(n, up):
+        return round(up / n, 2) if n else None
+
     r_rise = _mean(int(rising_n), rising_s)
     r_fall = _mean(int(falling_n), falling_s)
-    quads = [{"level": lv, "dir": dr, "n": v[0], "fwd20": _mean(v[0], v[1])}
+    p_rise = _pos(int(rising_n), rising_up)
+    p_fall = _pos(int(falling_n), falling_up)
+    quads = [{"level": lv, "dir": dr, "n": v[0], "fwd20": _mean(v[0], v[1]),
+              "pos": _pos(v[0], v[2])}
              for (lv, dr), v in sorted(quad.items())]
-    note = ("情绪变化(Δ20)预测力：升温组 N=%d 未来20日平均 %.2f%%，降温组 N=%d 平均 %.2f%%。"
+    note = ("情绪变化(Δ20)预测力：升温组 N=%d 未来20日平均 %.2f%%（经验上涨概率 %.0f%%），"
+            "降温组 N=%d 平均 %.2f%%（经验上涨概率 %.0f%%）。"
             % (int(rising_n), r_rise if r_rise is not None else 0.0,
-               int(falling_n), r_fall if r_fall is not None else 0.0))
+               (p_rise or 0.0) * 100,
+               int(falling_n), r_fall if r_fall is not None else 0.0,
+               (p_fall or 0.0) * 100))
     if r_rise is not None and r_fall is not None:
         note += ("升温后收益%s降温后，印证『情绪越涨越慎、越跌越贪』的逆向时机信号。"
                  % ("低于" if r_rise < r_fall else "高于"))
-    return {"rising": {"n": int(rising_n), "fwd20": r_rise},
-            "falling": {"n": int(falling_n), "fwd20": r_fall},
+    return {"rising": {"n": int(rising_n), "fwd20": r_rise, "pos": p_rise},
+            "falling": {"n": int(falling_n), "fwd20": r_fall, "pos": p_fall},
             "quadrants": quads, "note": note}
+
+
+def _horizon_scan(D, hist, bounds=None):
+    """R124a 最优预测窗口扫描：逆向(contrarian)信号在不同预测窗口 H 下强度不同。
+
+    对每个 H∈{5,10,20,40,60}，按 score 中位数切『冷(低)/热(高)』两组，
+    统计各组未来 H 日平均收益，spread = 冷组 - 热组（正=逆势有效：低情绪后涨、高情绪后跌）。
+    选 |spread| 最大且两组 N 均充足(>=20) 的 H 为『最优预测窗口』。
+    全为描述性统计、非拟合；提示『当前最优解读窗口』，但不改变 R123 的 20 日今日展示。
+    """
+    k = D.get("kline") or {}
+    closes = [float(x) for x in (k.get("close") or [])]
+    if not hist or len(closes) < len(hist) + 60:
+        return None
+    base = len(closes) - len(hist)
+    scores = [h["score"] for h in hist]
+    med = sorted(scores)[len(scores) // 2]
+    rows, opt = [], None
+    for H in (5, 10, 20, 40, 60):
+        cn = cs = hn = hs = 0.0
+        for off, h in enumerate(hist):
+            i = base + off
+            j = i + H
+            if j >= len(closes):
+                continue
+            f = (closes[j] / closes[i] - 1.0) * 100.0
+            if h["score"] < med:
+                cn += 1
+                cs += f
+            else:
+                hn += 1
+                hs += f
+        cmean = round(cs / cn, 2) if cn else None
+        hmean = round(hs / hn, 2) if hn else None
+        spread = round(cmean - hmean, 2) if (cmean is not None and hmean is not None) else None
+        rows.append({"horizon": H, "coldN": int(cn), "coldMean": cmean,
+                     "hotN": int(hn), "hotMean": hmean, "spread": spread})
+        if cn >= 20 and hn >= 20 and spread is not None:
+            if opt is None or abs(spread) > abs(opt["spread"]):
+                opt = {"horizon": H, "spread": spread}
+    note = "最优预测窗口扫描(H∈{5,10,20,40,60})：按 score 中位数切冷/热组，spread=冷组未来H日收益-热组。"
+    if opt is not None:
+        note += "逆势信号最强窗口为 H=%d 日(spread=%.2f%%)。" % (opt["horizon"], opt["spread"])
+    else:
+        note += "样本不足，未定最优窗口。"
+    return {"horizons": rows, "optimalHorizon": (opt["horizon"] if opt else None), "note": note}
+
+
+def _state_signal(D, hist, delta, today_score, today_d20):
+    """R124b 组合状态信号 + 经验胜率：由『当前情绪水平档(level) × 当前Δ方向(dir)』
+
+    定位其在四象限(高/中/低 × 升/降)中的位置，给出该组合状态的经验未来20日收益与
+    经验上涨概率(=该格上涨样本数/N，纯样本频率、非拟合)。
+    意义：单看水平或单看 Δ 都片面，『高位升温/低位降温』等组合状态更具时机含义。
+    """
+    if delta is None or today_score is None:
+        return None
+    lb = "高" if today_score >= 60 else ("低" if today_score < 40 else "中")
+    dr = "升" if (today_d20 or 0) >= 0 else "降"
+    qd = {(q["level"], q["dir"]): q for q in (delta.get("quadrants") or [])}
+    q = qd.get((lb, dr))
+    n = (q.get("n") if q else 0)
+    fwd = (q.get("fwd20") if q else None)
+    pos = (q.get("pos") if q else None)
+    note = "组合状态信号：当前情绪水平=%s、Δ20方向=%s，落在四象限『%s%s』格。" % (lb, dr, lb, dr)
+    if q and n:
+        note += ("该格历史 N=%d，未来20日平均收益 %.2f%%，经验上涨概率 %.0f%%。"
+                 % (n, fwd if fwd is not None else 0.0, (pos or 0.0) * 100))
+    else:
+        note += "该格历史样本不足，暂无统计支撑。"
+    return {"level": lb, "dir": dr, "n": n, "fwd20": fwd, "posPct": pos, "note": note}
+
+
+def _recency_band(D, hist, today_label, bounds=None):
+    """R124c 近期权重稳健性对照：对当前档(today_label)，取最近250交易日落在该档的样本，
+
+    比较『等权』与『近1年指数衰减加权』下未来20日平均收益；
+    两者显著背离(|差|>=1%%) 即提示 regime 漂移（近期与稍早统计口径不一致、信号稳健性下降）。
+    纯描述性诊断，不改变任何预测口径。
+    """
+    if not hist or not today_label:
+        return None
+    k = D.get("kline") or {}
+    closes = [float(x) for x in (k.get("close") or [])]
+    if len(closes) < len(hist) + 20:
+        return None
+    base = len(closes) - len(hist)
+    window = hist[-250:] if len(hist) >= 250 else hist
+    lo_off = len(hist) - len(window)  # 仅取最近250个点的落档样本
+    pairs = []
+    for off, h in enumerate(hist):
+        if off < lo_off or h.get("label") != today_label:
+            continue
+        i = base + off
+        j = i + 20
+        if j >= len(closes):
+            continue
+        f = (closes[j] / closes[i] - 1.0) * 100.0
+        age = (len(hist) - 1 - off)  # 距今天数（0=今天）
+        pairs.append((age, f))
+    if not pairs:
+        return None
+    n = len(pairs)
+    eq = sum(f for _, f in pairs) / n
+    tau = 108.0  # 250 日前权重≈exp(-250/108)≈0.1
+    w = [math.exp(-age / tau) for age, _ in pairs]
+    dw = sum(wk * f for (age, f), wk in zip(pairs, w)) / sum(w)
+    eq_r, dw_r = round(eq, 2), round(dw, 2)
+    drift = abs(dw_r - eq_r) >= 1.0
+    note = ("近期权重稳健性对照（当前档=%s，近%d样本）：等权未来20日均值 %.2f%%，近1年衰减加权 %.2f%%。"
+            % (today_label, n, eq_r, dw_r))
+    note += ("两者背离≥1%，提示该档近期 regime 相对稍早发生漂移，信号稳健性下降。"
+             if drift else "两者接近，该档信号在近期与稍早口径一致，稳健性较好。")
+    return {"band": today_label, "n": n, "equalWtd": eq_r, "decayWtd": dw_r,
+            "drift": drift, "note": note}
 
 
 def _compute_forecast(D):
@@ -596,6 +733,19 @@ def main():
                         "当前为%s态：情绪%s档样本不足(N=%d)，逆势信号暂无统计支撑，仅作参考。"
                         % (("熊市" if contra.get("regime") == "bear" else "牛市"),
                            out["today"].get("label"), _cur["n"]))
+            # R124a/b/c：下一层预测力增强（均为 contra 下独立字段，不改 today.dims、不改今日展示口径）
+            _hs0 = out["history"][-1].get("d20") if out.get("history") else None
+            _horizon = _horizon_scan(D, out["history"], bounds)
+            if _horizon is not None:
+                contra["horizonScan"] = _horizon
+            if delta is not None:
+                _state = _state_signal(D, out["history"], delta,
+                                       out["today"].get("score"), _hs0)
+                if _state is not None:
+                    contra["stateSignal"] = _state
+            _recency = _recency_band(D, out["history"], out["today"].get("label"), bounds)
+            if _recency is not None:
+                contra["recency"] = _recency
             out["today"]["contra"] = contra
         # R123a/b：今日情绪变化(Δ)与 z 分位（取自 history 末点，单一真值派生，不新增维度）
         if out.get("today", {}).get("score") is not None:
@@ -622,6 +772,7 @@ def main():
                        "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
                        "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
+                       "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。三者均为contra下独立诊断字段，不改dims、不改今日展示口径。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e

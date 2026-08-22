@@ -96,6 +96,21 @@ if hist and fcst:
 chk(len(set(dates_f)) == len(dates_f), "forecast 存在重复日期")
 chk(len(set(dates_h)) == len(dates_h), "history 存在重复日期")
 
+# 7b. R124 预测力增强字段结构审计（contra 下独立诊断字段，不改 dims/今日展示）
+contra = today.get("contra") or {}
+if contra:
+    hs = contra.get("horizonScan") or {}
+    chk(hs.get("optimalHorizon") in (5, 10, 20, 40, 60), "R124 horizonScan.optimalHorizon 异常: %r" % hs.get("optimalHorizon"))
+    chk(isinstance(hs.get("horizons"), list) and len(hs.get("horizons") or []) == 5, "R124 horizonScan.horizons 应为5个窗口")
+    st = contra.get("stateSignal") or {}
+    chk(st.get("n") is not None and st.get("fwd20") is not None and st.get("posPct") is not None,
+        "R124 stateSignal 缺 n/fwd20/posPct")
+    if st.get("posPct") is not None:
+        chk(0 <= st["posPct"] <= 1, "R124 stateSignal.posPct 超出[0,1]: %r" % st.get("posPct"))
+    rc = contra.get("recency") or {}
+    chk(rc.get("equalWtd") is not None and rc.get("decayWtd") is not None and isinstance(rc.get("drift"), bool),
+        "R124 recency 缺 equalWtd/decayWtd/drift")
+
 print("===== 情绪 v3 实证审计 =====")
 print("schema        = %s" % S.get("schema"))
 print("today         = %s (%s)" % (today.get("score"), today.get("label")))
@@ -107,6 +122,14 @@ if bad_fcst_day:
 print("history缺口    = %r" % (gaps[:5] if gaps else "无"))
 print("data.js末根    = %s" % last_k)
 print("forecast首末跳变= %s" % (("%.1f" % jump) if jump is not None else "N/A"))
+if contra:
+    _hs = contra.get("horizonScan") or {}
+    _st = contra.get("stateSignal") or {}
+    _rc = contra.get("recency") or {}
+    print("R124最优窗口   = %s" % (_hs.get("optimalHorizon")))
+    print("R124组合状态   = %s%s (N=%s, fwd20=%s, pos=%s)" % (
+        _st.get("level"), _st.get("dir"), _st.get("n"), _st.get("fwd20"), _st.get("posPct")))
+    print("R124稳健对照   = 等权%s vs 衰减%s drift=%s" % (_rc.get("equalWtd"), _rc.get("decayWtd"), _rc.get("drift")))
 print("===== 问题清单 (%d) =====" % len(problems))
 for p in problems:
     print("  X %s" % p)
