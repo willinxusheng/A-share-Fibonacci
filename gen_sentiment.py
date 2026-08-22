@@ -15,7 +15,7 @@
   2. 牛熊位置   w=0.20  (lastClose - MA250)/MA250，clamp(dev/0.15)
   3. 量能水平   w=0.20  上证 vol20/vol250 - 1（放量=活跃，缩量=冷清），clamp(ratio/0.5)
   4. 波动恐慌   w=0.15  HV20 的五年分位（高波动=恐慌=降温），1 - pctile/50
-  5. 广度确认   w=0.15  (宽基 resonance.breadth + 跨市场 crossMarket.breadth)/2
+  5. 广度确认   w=0.15  仅用 breadthAvailable>0 的源均值（缺失源不参与平均、全缺失归零不偏置，R122c）
 
 输出（schema a-share-fib-sentiment/v3）：
   - today   : 当日单点快照（含 5 维 dims），保持 R87 既有契约。
@@ -24,7 +24,8 @@
               预测段无量能/波动/广度未来因子，故量能沿用当前比值、波动沿用当前分位、广度沿用当前均值，
               仅「动量+牛熊位置」随价格路径变化 —— 这是路径派生预测，非因子预测，已在 note 中诚实标注。
 
-五档定性：<20 冰点 / 20-40 偏冷 / 40-60 中性 / 60-80 偏热 / ≥80 狂热。
+五档定性（R122a 动态分位标尺）：基于 history 分布 p10/p30/p70/p90 切五档（冰点/偏冷/中性/偏热/狂热）；
+  分布退化时回退固定 <20 / 20-40 / 40-60 / 60-80 / ≥80。today/history/forecast 共用同一标尺。
 
 诚实标注：这是「量能/动量/波动/广度」合成的代理情绪温度，非全市场涨跌家数；
   且量能维度受跨源 volume 单位差异影响，仅作相对参考。退出码恒 0（软，透明化不阻断）。
@@ -70,16 +71,85 @@ def _f(x, default= 0.0):
     return v if math.isfinite(v) else default
 
 
-def _label(score):
-    if score < 20:
+def _label(score, bounds=None):
+    """五档定性（R122a 动态分位标尺）。
+
+    bounds=[b1,b2,b3,b4] 时按分位标尺切五档：
+      冰点 < b1 / 偏冷 b1~b2 / 中性 b2~b3 / 偏热 b3~b4 / 狂热 >= b4。
+    缺省 bounds 回退固定 [20,40,60,80]，保证未传动态标尺时仍可用（兼容旧调用）。
+    """
+    if bounds is None:
+        bounds = [20.0, 40.0, 60.0, 80.0]
+    b1, b2, b3, b4 = bounds
+    if score < b1:
         return "冰点"
-    if score < 40:
+    if score < b2:
         return "偏冷"
-    if score < 60:
+    if score < b3:
         return "中性"
-    if score < 80:
+    if score < b4:
         return "偏热"
     return "狂热"
+
+
+def _scale_bounds(scores):
+    """基于 history score 分布动态分位标尺（R122a）。
+
+    返回 (bounds, mode, pct)：
+      bounds = [b1,b2,b3,b4] 对应 p10/p30/p70/p90，将 [0,100] 切成五档。
+      固定阈值下历史 score 多落在 25~85，冰点(<20)/狂热(>=80) 几乎永不触发，
+      动态标尺令各档更具区分度，且 today/forecast/history 同标尺，避免错位。
+      mode='fixed' 表示样本不足(<30)或分布退化（分位塌缩/b1<=0/b4>=100），回退固定标尺，保证稳健。
+    """
+    if len(scores) < 30:
+        return [20.0, 40.0, 60.0, 80.0], "fixed", None
+    s = sorted(scores)
+
+    def _pct(p):
+        if not s:
+            return 50.0
+        k = (len(s) - 1) * p / 100.0
+        f = math.floor(k)
+        c = math.ceil(k)
+        if f == c:
+            return s[int(k)]
+        return s[int(f)] * (c - k) + s[int(c)] * (k - f)
+
+    b1, b2, b3, b4 = _pct(10), _pct(30), _pct(70), _pct(90)
+    if not (b1 < b2 < b3 < b4) or b1 <= 0 or b4 >= 100:
+        return [20.0, 40.0, 60.0, 80.0], "fixed", None
+    return [round(b1, 1), round(b2, 1), round(b3, 1), round(b4, 1)], "dynamic", (b1, b2, b3, b4)
+
+
+def _breadth_sub(D):
+    """广度维度子分（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均，
+    全缺失时归零不偏置（不会把「缺失占位 0.0」当真实值拉低）。
+
+    返回 (sub, avail, dom_val, cross_val)：
+      avail    = 实际参与平均的源数（0/1/2）
+      dom_val  = resonance.breadth 真实值，缺失源为 None（不污染 JSON 契约）
+      cross_val= crossMarket.breadth 真实值，缺失源为 None
+    诚实标注：当前广度仅当前单值代理（R271 约束：海外 CI 不可达 eastmoney 历史涨跌家数），
+    未真正历史化；缺失源减少可用度，须在 dims meta 与 note 中注明（见 _compute_today）。
+    """
+    res = D.get("resonance") or {}
+    cross = D.get("crossMarket") or {}
+    ra = _f(res.get("breadthAvailable"))
+    ca = _f(cross.get("breadthAvailable"))
+    parts = []
+    if ra > 0:
+        parts.append(_f(res.get("breadth")))
+    if ca > 0:
+        parts.append(_f(cross.get("breadth")))
+    if parts:
+        sub = sum(parts) / len(parts)
+        avail = len(parts)
+    else:
+        sub = 0.0
+        avail = 0
+    dom_val = _f(res.get("breadth")) if ra > 0 else None
+    cross_val = _f(cross.get("breadth")) if ca > 0 else None
+    return _clamp(sub, -1.0, 1.0), avail, dom_val, cross_val
 
 
 def _is_a_share_trading_day(d):
@@ -170,10 +240,8 @@ def _compute_today(D):
     pctile = _pctile_rank(hv[-1], win) if hv[-1] is not None else _f((D.get("volRegime") or {}).get("pctile"), 50.0)
     sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
-    # 5. 广度确认（宽基共振 + 跨市场共振 平均）
-    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
-    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
-    sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)
+    # 5. 广度确认（R122c：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均）
+    sub_breadth, bw_avail, res_b_real, cross_b_real = _breadth_sub(D)
 
     dims = [
         ("momentum", 0.30, sub_mom, {"ret20_pct": round(ret20, 2)}),
@@ -182,11 +250,14 @@ def _compute_today(D):
                                      "dev_pct": round(pos * 100.0, 2)}),
         ("volume", 0.20, sub_vol, {"vol20_vol250_ratio": round(vr, 3)}),
         ("volatility", 0.15, sub_volat, {"hv20_pctile": int(pctile)}),
-        ("breadth", 0.15, sub_breadth, {"domestic": round(res_b, 3),
-                                        "cross_market": round(cross_b, 3)}),
+        ("breadth", 0.15, sub_breadth, {"available": bw_avail,
+                                        "domestic": (round(res_b_real, 3) if res_b_real is not None else None),
+                                        "cross_market": (round(cross_b_real, 3) if cross_b_real is not None else None),
+                                        "note": ("仅可用源均值；缺失源未参与（广度尚未历史化）"
+                                                 if bw_avail < 2 else "两源均可用（广度尚未历史化）")}),
     ]
     score = round(_score_from_subs([s for (_n, _w, s, _m) in dims]), 1)
-    return score, _label(score), dims
+    return score, dims
 
 
 def _daily_hv_series(closes):
@@ -214,9 +285,7 @@ def _compute_history(D):
     if len(closes) < 250:
         return []
 
-    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
-    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
-    sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)  # 广度静态代理（无历史源）
+    sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
 
     hv = _daily_hv_series(closes)
 
@@ -244,18 +313,19 @@ def _compute_history(D):
         sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
         score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
-        out.append({"date": dates[i], "score": score, "label": _label(score)})
+        out.append({"date": dates[i], "score": score})
     return out  # 全部可用点（约 5 年），不再截断到 250
 
 
-def _contra_stats(D, hist):
+def _contra_stats(D, hist, bounds=None, scale_mode="fixed"):
     """逆向信号统计（单一真值，随窗口全量计算）。
 
     对每个 history 点按 label 分档，统计各档样本数 N 与「未来 20 交易日平均收益」。
     实证：score 与未来收益负相关（逆势信号），且高度 regime 依赖——
       价格 < MA250（熊市态）r≈-0.24 显著；价格 > MA250（牛市态）r≈-0.04 不显著。
     故同时输出 split 分态统计（bear/bull），供前端按当前 regime 选择解读口径。
-    返回 {bands, split:{bear:{bands}, bull:{bands}}, regime, note}。
+    bounds 为动态分位标尺（R122a），分档随标尺走，保证与 today/history/forecast 同口径。
+    返回 {bands, split:{bear:{bands}, bull:{bands}}, regime, scale_mode, note}。
     """
     k = D.get("kline") or {}
     closes = [float(x) for x in (k.get("close") or [])]
@@ -263,7 +333,10 @@ def _contra_stats(D, hist):
     if not hist or len(closes) < len(hist) + 20:
         return None
     base = len(closes) - len(hist)
-    bands = [("冰点", 0, 20), ("偏冷", 20, 40), ("中性", 40, 60), ("偏热", 60, 80), ("狂热", 80, 101)]
+    if bounds is None:
+        bounds = [20.0, 40.0, 60.0, 80.0]
+    b1, b2, b3, b4 = bounds
+    bands = [("冰点", 0, b1), ("偏冷", b1, b2), ("中性", b2, b3), ("偏热", b3, b4), ("狂热", b4, 101)]
 
     def _bands_for(pred):
         out = []
@@ -291,12 +364,15 @@ def _contra_stats(D, hist):
         "bands": out_bands,
         "split": {"bear": {"bands": bear_bands}, "bull": {"bands": bull_bands}},
         "regime": regime,
+        "scale_mode": scale_mode,
         "note": ("近%d个交易日逐日回算：score 与未来20日收益负相关（逆势信号）；"
                  "N 为该档有未来20日收益的样本数（尾部20日不计），各档合计%d；"
-                 "当前分数区间 %.1f~%.1f；regime 分态：熊市态(价<MA250)信号显著(r≈-0.24)、"
+                 "当前分数区间 %.1f~%.1f；分档标尺=%s（R122a）；"
+                 "regime 分态：熊市态(价<MA250)信号显著(r≈-0.24)、"
                  "牛市态(价>MA250)信号不显著(r≈-0.04)——当前为%s态，解读应以%s态统计为准") % (
             len(hist), sum(b["n"] for b in out_bands),
             min(h["score"] for h in hist), max(h["score"] for h in hist),
+            ("动态分位" if scale_mode == "dynamic" else "固定"),
             "熊市" if regime == "bear" else "牛市", "熊市" if regime == "bear" else "牛市"),
     }
 
@@ -318,9 +394,7 @@ def _compute_forecast(D):
     last_close = closes[-1]
     ma250_now = _ma(closes, 250) or last_close
 
-    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
-    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
-    sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)
+    sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
     sub_volat = _clamp(1.0 - _f((D.get("volRegime") or {}).get("pctile"), 50.0) / 50.0, -1.0, 1.0)
     vols = [float(x) for x in (k.get("volume") or [])]
     vol20 = _ma(vols, 20) or 1.0
@@ -388,7 +462,7 @@ def _compute_forecast(D):
         pos = (price / ma250_now - 1.0) if ma250_now else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
         score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
-        out.append({"date": d, "score": score, "label": _label(score)})
+        out.append({"date": d, "score": score})
     return out
 
 
@@ -403,29 +477,55 @@ def main():
         D = _load_data()
         out["asOf"] = D.get("fetchedAt") or D.get("updated")
 
+        # R122a：先算历史序列 → 由历史分布推导动态分位标尺 → 用同一标尺统一重标 today/history/forecast
+        hist = _compute_history(D)
+        bounds, scale_mode, scale_pct = _scale_bounds([h["score"] for h in hist])
+        for h in hist:
+            h["label"] = _label(h["score"], bounds)
+        out["history"] = hist
+
         r = _compute_today(D)
         if r is None:
             out["today"] = {"score": None, "label": "数据不足",
                             "note": "样本 < 250 日，暂不合成情绪温度（monitor_only）。"}
         else:
-            score, label, dims = r
+            score, dims = r
             out["today"] = {
                 "score": round(score, 1),
-                "label": label,
+                "label": _label(score, bounds),
                 "dims": [{"name": n, "weight": w, "sub": round(s, 4), **m}
                          for (n, w, s, m) in dims],
             }
 
-        out["history"] = _compute_history(D)
-        out["forecast"] = _compute_forecast(D)
-        contra = _contra_stats(D, out["history"])
-        if contra is not None:
+        fcst = _compute_forecast(D)
+        for c in fcst:
+            c["label"] = _label(c["score"], bounds)
+        out["forecast"] = fcst
+
+        contra = _contra_stats(D, out["history"], bounds, scale_mode)
+        if contra is not None and out.get("today", {}).get("score") is not None:
             out["today"]["contra"] = contra
+
+        out["scale"] = {
+            "mode": scale_mode,
+            "bounds": [round(b, 1) for b in bounds],
+            "pctiles": ([round(scale_pct[0], 1), round(scale_pct[1], 1),
+                         round(scale_pct[2], 1), round(scale_pct[3], 1)] if scale_pct else None),
+            "note": ("动态分位标尺：基于近 %d 个交易日情绪分布 p10/p30/p70/p90 切五档"
+                     "（bounds=%.1f/%.1f/%.1f/%.1f），提升区分度；today/history/forecast 同标尺。"
+                     % (len(hist), bounds[0], bounds[1], bounds[2], bounds[3]))
+                    if scale_mode == "dynamic" else
+                    "固定标尺（样本不足或分布退化，回退 20/40/60/80 五档）",
+        }
         out["note"] = ("代理情绪温度（monitor_only）：由上证量能/动量/波动/牛熊位置 + "
                        "宽基与跨市场广度合成，非全市场涨跌家数；量能维度受跨源 volume 单位差异影响，"
                        "仅供研判参考，不参与任何概率/方向计算。"
                        "history 为全部可用交易日逐日回算（约 5 年）；forecast 由 subForecast 价格路径派生"
-                       "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。")
+                       "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。"
+                       "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
+                       "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
+                       "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。"
+                       % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
         out["today"] = {"score": None, "label": "数据不足"}
@@ -446,6 +546,9 @@ def main():
     print("today     = %s  label=%s" % (t.get("score"), t.get("label")))
     print("history   = %d 点" % len(out.get("history") or []))
     print("forecast  = %d 点" % len(out.get("forecast") or []))
+    sc = out.get("scale") or {}
+    if sc:
+        print("scale     = mode=%s bounds=%s" % (sc.get("mode"), sc.get("bounds")))
     if t.get("dims"):
         for d in t["dims"]:
             print("  %-10s w=%.2f sub=%+.3f  %s" % (d["name"], d["weight"], d["sub"],

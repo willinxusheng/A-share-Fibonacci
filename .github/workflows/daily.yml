@@ -262,6 +262,23 @@ jobs:
         continue-on-error: true
         run: python gen_sentiment.py
 
+      # 情绪契约实证门禁（R122 接入）：校验 sentiment v3 契约——
+      # today/history/forecast 的 label 与动态分位标尺(scale.bounds)一致、forecast 全为交易日
+      # （含补班日，非朴素周末判定）、连续性/跳转等。软门禁（monitor_only 透明、不阻断部署，仅告警可见）。
+      # 注：审计脚本 REPO 已改为 os.path.dirname(__file__) 可移植，CI(Linux) 与本地(Windows) 同跑。
+      - name: Sentiment contract audit (R122 gate)
+        id: sentchk
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        run: python _audit_sentiment_check.py
+
+      # 情绪契约深核（R122 接入）：contra 单一真值 + forecast 插值一致性 + 动态标尺 label 一致。
+      - name: Sentiment deep-contract audit (R122 gate)
+        id: sentdeep
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        run: python _audit_sentiment_contract.py
+
       - name: Generate prediction quality cert (4th borrowing from chanlun)
         if: steps.fresh.outputs.skip != 'true'
         run: python gen_quality_cert.py

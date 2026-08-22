@@ -2070,34 +2070,52 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         if (_kd.length && _kc.length) {
           // history 起点 = kline 第 250 根（R115：start=249），逐点对齐
           var _hOff = _kd.length - hist.length;
+          var _kma = window.FIB_DATA.kline.ma250 || [];
           if (_hOff >= 0) {
             var _N = Math.min(120, hist.length);
             var _st = hist.length - _N;
-            var vsDates = [], vsSent = [], vsIdx = [];
+            var vsDates = [], vsSentBear = [], vsSentBull = [], vsIdx = [], vsBearRuns = [];
+            var _runStart = null;
             for (var _vi = _st; _vi < hist.length; _vi++) {
               var _ki = _hOff + _vi;
               if (_ki < 0 || _ki >= _kd.length) continue;
               vsDates.push(hist[_vi].date);
-              vsSent.push(hist[_vi].score);
+              var _sc = hist[_vi].score;
+              // 牛熊态：当日收盘 < 250 日均线 = 熊市态（逆势信号更显著，R121）
+              var _isBear = (_kma[_ki] != null && _kc[_ki] < _kma[_ki]);
+              if (_isBear) { vsSentBear.push(_sc); vsSentBull.push(null); }
+              else { vsSentBear.push(null); vsSentBull.push(_sc); }
               vsIdx.push(_ki);
+              if (_isBear) { if (_runStart === null) _runStart = hist[_vi].date; }
+              else if (_runStart !== null) { vsBearRuns.push([_runStart, hist[_vi - 1].date]); _runStart = null; }
             }
+            if (_runStart !== null) vsBearRuns.push([_runStart, vsDates[vsDates.length - 1]]);
             if (vsDates.length >= 2) {
               var vsChart = echarts.init(vsChartEl);
+              var _bearArea = vsBearRuns.map(function (r) { return [{ xAxis: r[0] }, { xAxis: r[1] }]; });
               vsChart.setOption({
                 backgroundColor: '#ffffff',
-                grid: { left: 44, right: 56, top: 34, bottom: 26 },
+                title: { text: '情绪温度 vs 上证指数', subtext: '按牛熊态着色：逆势规律在熊市态(价<MA250)更显著',
+                  left: 8, top: 2, textStyle: { color: '#2a3340', fontSize: 13 },
+                  subtextStyle: { color: '#8a94a6', fontSize: 10 } },
+                grid: { left: 44, right: 56, top: 48, bottom: 26 },
                 tooltip: {
                   trigger: 'axis',
                   backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
                   formatter: function (ps) {
                     if (!ps || !ps.length) return '';
-                    var _s = ps[0].axisValue;
-                    var _t = ps[0].data == null ? '—' : ps[0].data.toFixed(1);
-                    var _p = ps[1] && ps[1].data != null ? ps[1].data : '—';
-                    return _s + '<br/>情绪温度 <b>' + _t + '</b> · 上证 <b>' + _p + '</b>';
+                    var _s = ps[0].axisValue, lines = [_s];
+                    for (var _i = 0; _i < ps.length; _i++) {
+                      var _nm = ps[_i].seriesName, _v = ps[_i].data;
+                      if (_v == null) continue;
+                      if (_nm === '上证指数') lines.push('上证 <b>' + _v + '</b>');
+                      else lines.push(_nm.replace('情绪-', '情绪·') + ' <b>' + _v.toFixed(1) + '</b>');
+                    }
+                    return lines.join('<br/>');
                   }
                 },
-                legend: { data: ['情绪温度', '上证指数'], top: 2, textStyle: { color: '#2a3340' }, itemWidth: 18, itemHeight: 8 },
+                legend: { data: ['情绪-熊市态', '情绪-牛市态', '上证指数'], top: 2, right: 8,
+                  textStyle: { color: '#2a3340' }, itemWidth: 18, itemHeight: 8 },
                 xAxis: {
                   type: 'category', data: vsDates, boundaryGap: false,
                   axisLine: { lineStyle: { color: '#c8cfda' } },
@@ -2112,11 +2130,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                     axisLine: { show: false }, axisLabel: { color: '#8a94a6' }, splitLine: { show: false } }
                 ],
                 series: [
-                  { name: '情绪温度', type: 'line', data: vsSent, showSymbol: false, smooth: true,
-                    lineStyle: { width: 2, color: '#2b6cb0' }, itemStyle: { color: '#2b6cb0' },
-                    areaStyle: { color: 'rgba(43,108,176,0.06)' },
+                  { name: '情绪-熊市态', type: 'line', data: vsSentBear, showSymbol: false, smooth: true,
+                    lineStyle: { width: 2.2, color: '#c0392b' }, itemStyle: { color: '#c0392b' },
+                    areaStyle: { color: 'rgba(192,57,43,0.05)' },
+                    markArea: { silent: true, itemStyle: { color: 'rgba(192,57,43,0.06)' }, data: _bearArea },
                     markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c8cfda', type: 'dashed', width: 1 },
                       label: { show: false }, data: [{ yAxis: 60 }, { yAxis: 40 }] } },
+                  { name: '情绪-牛市态', type: 'line', data: vsSentBull, showSymbol: false, smooth: true,
+                    lineStyle: { width: 2, color: '#7f8fa4', type: 'dashed' }, itemStyle: { color: '#7f8fa4' } },
                   { name: '上证指数', type: 'line', yAxisIndex: 1,
                     data: vsIdx.map(function (ki) { return _kc[ki]; }),
                     showSymbol: false, smooth: true,

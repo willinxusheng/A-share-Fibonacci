@@ -13,10 +13,11 @@
 """
 import datetime
 import json
+import os
 import re
 import sys
 
-REPO = r"C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\A-share-Fibonacci"
+REPO = os.path.dirname(os.path.abspath(__file__))
 
 problems = []
 checks = []
@@ -39,11 +40,11 @@ def load_json(path):
 
 
 def main():
-    data = load_js(REPO + r"\data\data.js", "FIB_DATA")
-    sent = load_json(REPO + r"\data\sentiment.json")
-    struct = load_json(REPO + r"\data\structures.json")
-    chanlun = load_js(REPO + r"\data\chanlun_view.js", "CHANLUN_VIEW")
-    bt = load_json(REPO + r"\data\backtest.json")
+    data = load_js(os.path.join(REPO, "data", "data.js"), "FIB_DATA")
+    sent = load_json(os.path.join(REPO, "data", "sentiment.json"))
+    struct = load_json(os.path.join(REPO, "data", "structures.json"))
+    chanlun = load_js(os.path.join(REPO, "data", "chanlun_view.js"), "CHANLUN_VIEW")
+    bt = load_json(os.path.join(REPO, "data", "backtest.json"))
 
     kd = data["kline"]["dates"]
     kc = data["kline"]["close"]
@@ -96,10 +97,24 @@ def main():
             chk(f_cold >= f_mid - 0.5, "逆向单调性：偏冷 fwd20 %.2f < 中性 %.2f（逆势信号存疑）" % (f_cold, f_mid))
         if f_mid is not None and f_hot is not None:
             chk(f_mid >= f_hot - 0.5, "逆向单调性：中性 fwd20 %.2f < 偏热 %.2f（逆势信号存疑）" % (f_mid, f_hot))
-        if _n("狂热") >= 30:
-            f_mania = _fwd("狂热")
-            if f_hot is not None and f_mania is not None:
-                chk(f_hot >= f_mania - 1.0, "逆向单调性：偏热 fwd20 %.2f < 狂热 %.2f（逆势信号存疑）" % (f_hot, f_mania))
+        # 狂热档单调性改在「熊市态分态」校验（R121：逆势信号仅熊市态显著 r≈-0.24，
+        # 牛市态不显著；聚合狂热档会被牛市态冲高日拉正，故不在聚合口径强断言单调，
+        # 改用分态口径，避免动态标尺（R122a）下假红）。
+        bear_b = (contra.get("split") or {}).get("bear", {}).get("bands") or []
+        if bear_b:
+            def _fwd_b(lab):
+                for b in bear_b:
+                    if b.get("label") == lab and b.get("n", 0) > 0:
+                        return b.get("fwd20")
+                return None
+            def _n_b(lab):
+                for b in bear_b:
+                    if b.get("label") == lab:
+                        return b.get("n", 0)
+                return 0
+            fh_b, fm_b = _fwd_b("偏热"), _fwd_b("狂热")
+            if _n_b("狂热") >= 10 and fh_b is not None and fm_b is not None:
+                chk(fh_b >= fm_b - 1.0, "逆向单调性(熊市态)：偏热 fwd20 %.2f < 狂热 %.2f（逆势信号存疑）" % (fh_b, fm_b))
 
     # ---------- B. forecast 每日期均为 A股交易日 ----------
     fcst = sent.get("forecast") or []
@@ -107,7 +122,7 @@ def main():
     # 复用 gen_sentiment 同源口径：直接 import（避免双份硬编码）
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("gen_sentiment", REPO + r"\gen_sentiment.py")
+    spec = importlib.util.spec_from_file_location("gen_sentiment", os.path.join(REPO, "gen_sentiment.py"))
     gs = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gs)
     bad_fcst = [f["date"] for f in fcst if not gs._is_a_share_trading_day(f["date"])]

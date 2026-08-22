@@ -14,8 +14,9 @@
 import json
 import re
 import sys
+import os
 
-REPO = r"C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\A-share-Fibonacci"
+REPO = os.path.dirname(os.path.abspath(__file__))
 
 problems = []
 checks = []
@@ -34,8 +35,13 @@ def load_js(path, var):
 
 
 def main():
-    data = load_js(REPO + r"\data\data.js", "FIB_DATA")
-    sent = json.load(open(REPO + r"\data\sentiment.json", encoding="utf-8"))
+    data = load_js(os.path.join(REPO, "data", "data.js"), "FIB_DATA")
+    sent = json.load(open(os.path.join(REPO, "data", "sentiment.json"), encoding="utf-8"))
+
+    # 动态分位标尺（R122a）：contra.bands / forecast label 必须按 scale.bounds 一致分档
+    sbounds = (sent.get("scale") or {}).get("bounds") or [20.0, 40.0, 60.0, 80.0]
+    chk(len(sbounds) == 4, "sentiment.scale.bounds 格式异常: %r" % sbounds)
+    b1, b2, b3, b4 = [float(x) for x in sbounds]
 
     kd = data["kline"]["dates"]
     kc = data["kline"]["close"]
@@ -47,7 +53,7 @@ def main():
     # ---------- A. contra 单一真值 ----------
     chk(len(bands) == 5, "contra.bands 应为 5 档，实际 %d" % len(bands))
     base = len(kd) - len(hist)
-    exp_bands = [("冰点", 0, 20), ("偏冷", 20, 40), ("中性", 40, 60), ("偏热", 60, 80), ("狂热", 80, 101)]
+    exp_bands = [("冰点", 0, b1), ("偏冷", b1, b2), ("中性", b2, b3), ("偏热", b3, b4), ("狂热", b4, 101)]
     recomputed = {}
     for lab, lo, hi in exp_bands:
         n, s = 0, 0.0
@@ -115,9 +121,9 @@ def main():
                 [d for d in fcst_dates if not (sf_first <= d <= sf_last)][:5]))
         chk(all(b > a for a, b in zip(fcst_dates, fcst_dates[1:])), "forecast 日期非严格递增")
 
-    # ---------- D. forecast label 分档一致性 ----------
+    # ---------- D. forecast label 分档一致性（动态标尺，R122a） ----------
     def label_of(sc):
-        for hi, lab in [(20, "冰点"), (40, "偏冷"), (60, "中性"), (80, "偏热")]:
+        for hi, lab in [(b1, "冰点"), (b2, "偏冷"), (b3, "中性"), (b4, "偏热")]:
             if sc < hi:
                 return lab
         return "狂热"
