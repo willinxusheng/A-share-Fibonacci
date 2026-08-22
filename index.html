@@ -2146,7 +2146,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               var _bearArea = vsBearRuns.map(function (r) { return [{ xAxis: r[0] }, { xAxis: r[1] }]; });
               vsChart.setOption({
                 backgroundColor: '#ffffff',
-                title: { text: '情绪温度 vs 上证指数', subtext: '按牛熊态着色：逆势规律在熊市态(价<MA250)更显著',
+                title: { text: '情绪温度 vs 上证指数', subtext: '浅红背景=熊市态区间(价<MA250)；红实线=情绪·熊市态，灰虚线=情绪·牛市态，蓝线=上证指数',
                   left: 8, top: 2, textStyle: { color: '#2a3340', fontSize: 13 },
                   subtextStyle: { color: '#8a94a6', fontSize: 10 } },
                 grid: { left: 44, right: 56, top: 48, bottom: 26 },
@@ -2192,7 +2192,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                   { name: '上证指数', type: 'line', yAxisIndex: 1,
                     data: vsIdx.map(function (ki) { return _kc[ki]; }),
                     showSymbol: false, smooth: true,
-                    lineStyle: { width: 1.6, color: '#c23531' }, itemStyle: { color: '#c23531' } }
+                    lineStyle: { width: 1.8, color: '#1f6fb2' }, itemStyle: { color: '#1f6fb2' } }
                 ]
               });
               charts.push(vsChart);
