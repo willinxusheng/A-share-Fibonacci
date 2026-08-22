@@ -82,7 +82,7 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod", "momWinEff", "maRevertTau", "pathVolMultMax", "pathVolMethod"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod", "momWinEff", "maRevertTau", "pathVolMultMax", "pathVolMethod", "consensusConf", "confMult", "inertiaTau", "inertiaMaxPts", "inertiaMethod"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
     # R129 方向修正守门：权重须∈[0,1]、分regime中枢(若有)须∈[0,100]，防过拟合/过度修正
@@ -113,6 +113,18 @@ if _fb:
         chk(1.0 <= _fb["pathVolMultMax"] <= 2.0, "R131 pathVolMultMax 越界[1,2]: %r" % _fb.get("pathVolMultMax"))
     chk(isinstance(_fb.get("pathVolMethod"), str) and len(_fb.get("pathVolMethod") or "") > 0,
         "R131 pathVolMethod 缺失或非字符串")
+    # R132 经验信号调制守门：共识置信度∈[0,1]、调制倍率∈[0.5,1.5]、惯性时标∈[5,40]、
+    # 惯性最大偏置∈[1,15]、方法说明非空——防超参越界/过度调制
+    if _fb.get("consensusConf") is not None:
+        chk(0.0 <= _fb["consensusConf"] <= 1.0, "R132 consensusConf 越界[0,1]: %r" % _fb.get("consensusConf"))
+    if _fb.get("confMult") is not None:
+        chk(0.5 <= _fb["confMult"] <= 1.5, "R132 confMult 越界[0.5,1.5]: %r" % _fb.get("confMult"))
+    if _fb.get("inertiaTau") is not None:
+        chk(5.0 <= _fb["inertiaTau"] <= 40.0, "R132 inertiaTau 越界[5,40]: %r" % _fb.get("inertiaTau"))
+    if _fb.get("inertiaMaxPts") is not None:
+        chk(1.0 <= _fb["inertiaMaxPts"] <= 15.0, "R132 inertiaMaxPts 越界[1,15]: %r" % _fb.get("inertiaMaxPts"))
+    chk(isinstance(_fb.get("inertiaMethod"), str) and len(_fb.get("inertiaMethod") or "") > 0,
+        "R132 inertiaMethod 缺失或非字符串")
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None
