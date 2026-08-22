@@ -78,6 +78,19 @@ for c in fcst:
         chk(0 <= c["score"] <= 100, "forecast score 越界: %r" % c)
         chk(c.get("label") == _label(c["score"], _bounds), "forecast label 与 score 不一致(动态标尺): %r" % c)
 
+# 4b. #666 预测置信带：forecast 点须含 lo/hi 且 lo<=score<=hi；顶层须有 forecastBand 元信息
+chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
+_fb = S.get("forecastBand") or {}
+if _fb:
+    for _kk in ("method", "level", "baseStd", "regime", "regimeMult", "horizonScale"):
+        chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
+    chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
+_missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
+chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
+_bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None
+             and not (c["lo"] <= c["score"] <= c["hi"])]
+chk(len(_bad_band) == 0, "#666 forecast 有 %d 点 lo/score/hi 不满足 lo<=score<=hi" % len(_bad_band))
+
 # 5. 今日点衔接：history 末点日期 == data.js kline 末根
 data = _load_data()
 kdates = [str(x) for x in ((data.get("kline") or {}).get("dates") or [])]

@@ -686,12 +686,17 @@ def _extreme_reversal(D, hist, bounds=None, today_score=None):
             "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
-def _compute_forecast(D):
-    """由 subForecast 价格路径派生未来情绪预测序列。
+def _compute_forecast(D, hist_std=None, regime=None):
+    """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
     按日历日线性插值得到连续价位，剔除周末后仅保留交易日近似序列，再沿路径计算动量+牛熊位置
     （量能/波动/广度沿用当前值）。这是「斐波那契路径派生」而非因子预测，已在 note 诚实标注。
+
+    #666 经验置信带：每个预测点除 score 外，按历史情绪波动率(hist_std)打底、随预测 horizon √扩张、
+    熊市态(regime='bear')额外×1.15，给出诚信 lo/hi 区间（详见 out["forecastBand"]），
+    把「假精确单点」变「诚实区间」；区间半宽 clamp[1,14]，非严格统计置信区间。
+    hist_std / regime 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -709,6 +714,10 @@ def _compute_forecast(D):
     vol20 = _ma(vols, 20) or 1.0
     vol250 = _ma(vols, 250) or 1.0
     sub_vol = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
+
+    # #666 经验置信带参数：熊市态额外放大，缺失回退
+    regime_mult = 1.15 if regime == "bear" else 1.0
+    base_std = hist_std if (hist_std is not None and hist_std > 0) else 8.0
 
     sf = (D.get("subForecast") or {}).get("points") or []
     # 锚点：(date, price)，加入今日作为起点
@@ -771,7 +780,13 @@ def _compute_forecast(D):
         pos = (price / ma250_now - 1.0) if ma250_now else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
         score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
-        out.append({"date": d, "score": score})
+        # #666 经验置信带：随 horizon √扩张、熊市态额外放大；半宽 clamp[1,14]
+        kk = idx + 1
+        half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult, 1.0, 14.0)
+        lo = _clamp(score - half, 0.0, 100.0)
+        hi = _clamp(score + half, 0.0, 100.0)
+        out.append({"date": d, "score": score,
+                    "lo": round(lo, 1), "hi": round(hi, 1)})
     return out
 
 
@@ -817,10 +832,35 @@ def main():
                          for (n, w, s, m) in dims],
             }
 
-        fcst = _compute_forecast(D)
+        # #666 预测置信带：历史情绪波动率 + 当前 regime（末根价 vs MA250）
+        _kline = D.get("kline") or {}
+        _closes = [float(x) for x in (_kline.get("close") or [])]
+        _ma250 = [x for x in (_kline.get("ma250") or [])]
+        _last_close = _closes[-1] if _closes else None
+        _last_ma = _ma250[-1] if _ma250 else None
+        _regime = ("bear" if (_last_ma is not None and _last_close is not None
+                              and _last_close < _last_ma) else "bull")
+        _hist_scores = [h["score"] for h in hist]
+        _hist_std = 8.0
+        if _hist_scores:
+            _mu = sum(_hist_scores) / len(_hist_scores)
+            _hist_std = (sum((s - _mu) ** 2 for s in _hist_scores) / len(_hist_scores)) ** 0.5
+
+        fcst = _compute_forecast(D, _hist_std, _regime)
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
+        out["forecastBand"] = {
+            "method": "经验置信带（目标覆盖≈80%，基于历史波动率的启发式近似，非严格统计置信区间）",
+            "level": "≈80%",
+            "baseStd": round(_hist_std, 2),
+            "regime": _regime,
+            "regimeMult": (1.15 if _regime == "bear" else 1.0),
+            "horizonScale": "sqrt(k/20) 时间衰减（k=预测点序号/交易日）",
+            "note": ("预测为路径派生单点；本带按历史情绪波动率(hist_std=%.1f)打底、随预测 horizon √扩张、"
+                     "熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
+                     "仅供研判参考，不构成置信区间严格含义。") % _hist_std,
+        }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
         if contra is not None and out.get("today", {}).get("score") is not None:

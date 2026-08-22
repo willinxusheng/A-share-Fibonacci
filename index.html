@@ -2065,6 +2065,9 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
 
   // 走势图容器（历史实线 + 未来虚线预测 + dataZoom 缩略轴）
   html += '<div id="sentChart" style="width:100%;height:300px;margin-top:12px;"></div>';
+  html += '<div style="margin-top:4px;font-size:11px;color:#8a94a6;line-height:1.6;">' +
+    '紫实线=历史情绪；<span style="color:#38b2ac;">青虚线=预测情绪</span>；青色阴影=预测区间(诚信不确定带，熊市态更宽)；' +
+    '红色「预期回调」/绿色「预期反弹」=预测线穿越风险区(≥60)/机会区(≤40)的逆向信号标注。</div>';
   // R118：情绪 vs 上证指数 叠图（近 120 交易日，双 Y 轴逆向对照）
   html += '<div class="sub-h" style="margin-top:14px;">📊 情绪 vs 上证指数' +
     '<span style="font-weight:400;font-size:11px;color:#8a94a6;">（近120日 · 情绪高位多对应大盘回调）</span></div>' +
@@ -2099,6 +2102,28 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         .concat(fcst.map(function (d) { return d.score; }));
       var todayDate = hd.length ? hd[hd.length - 1] : null;
 
+      // #666 预测置信带数据（仅当 forecast 含 lo/hi 时；缺失则优雅跳过）
+      var hasBand = fcst.length > 0 && fcst.every(function (d) { return d.lo != null && d.hi != null; });
+      var bandBase = [], bandHeight = [];
+      if (hasBand) {
+        for (var _i = 0; _i < hd.length; _i++) {
+          bandBase.push(_i === hd.length - 1 ? lastHist : null);
+          bandHeight.push(_i === hd.length - 1 ? 0 : null);
+        }
+        fcst.forEach(function (d) { bandBase.push(d.lo); bandHeight.push(d.hi - d.lo); });
+      }
+      // #666 极值穿越逆向标注：预测线首次进入风险区(≥60)→预期回调 / 机会区(≤40)→预期反弹
+      var _cross = [];
+      if (fcst.length) {
+        var _fr = null, _fo = null;
+        fcst.forEach(function (d) { if (_fr === null && d.score >= 60) _fr = d.date; });
+        fcst.forEach(function (d) { if (_fo === null && d.score <= 40) _fo = d.date; });
+        if (_fr) _cross.push({ xAxis: _fr, lineStyle: { color: '#c23531', type: 'dotted', width: 1.2 },
+          label: { formatter: '预期回调', color: '#c23531', position: 'insideEndTop', fontSize: 10 } });
+        if (_fo) _cross.push({ xAxis: _fo, lineStyle: { color: '#2f9e44', type: 'dotted', width: 1.2 },
+          label: { formatter: '预期反弹', color: '#2f9e44', position: 'insideEndBottom', fontSize: 10 } });
+      }
+
       var chart = echarts.init(chartEl);
       chart.setOption({
         backgroundColor: '#ffffff',
@@ -2108,12 +2133,25 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
           formatter: function (ps) {
             if (!ps || !ps.length) return '';
-            var p = ps[0];
-            return p.axisValue + '<br/>情绪温度：<b>' + (p.data == null ? '—' : p.data.toFixed(1)) + '</b>';
+            var x = ps[0].axisValue;
+            var out = x;
+            ps.forEach(function (p) {
+              if (p.seriesName === '预测情绪' || p.seriesName === '历史情绪') {
+                if (p.data != null) out += '<br/>' + p.marker + p.seriesName + '：<b>' + (+p.data).toFixed(1) + '</b>';
+              }
+            });
+            if (hasBand) {
+              var f = null;
+              for (var _k = 0; _k < fcst.length; _k++) { if (fcst[_k].date === x) { f = fcst[_k]; break; } }
+              if (f && f.lo != null && f.hi != null) {
+                out += '<br/>预测区间：<b>' + f.lo.toFixed(1) + ' ~ ' + f.hi.toFixed(1) + '</b>';
+              }
+            }
+            return out;
           }
         },
         legend: {
-          data: ['历史情绪', '预测情绪'],
+          data: ['历史情绪', '预测情绪'].concat(hasBand ? ['预测区间'] : []),
           top: 4, textStyle: { color: '#2a3340' },
           itemWidth: 18, itemHeight: 8
         },
@@ -2162,6 +2200,20 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               data: [{ yAxis: 60 }, { yAxis: 40 }]
             }
           },
+          // #666 预测置信带（堆叠面积：下界透明基线 + 上界-下界阴影）
+          {
+            name: '_bandBase', type: 'line', data: bandBase, stack: 'band',
+            showSymbol: false, symbol: 'none',
+            lineStyle: { opacity: 0 }, itemStyle: { opacity: 0 },
+            areaStyle: { opacity: 0 }, silent: true, tooltip: { show: false }, z: 1
+          },
+          {
+            name: '预测区间', type: 'line', data: bandHeight, stack: 'band',
+            showSymbol: false, symbol: 'none',
+            lineStyle: { opacity: 0 }, itemStyle: { opacity: 0 },
+            areaStyle: { color: 'rgba(56,178,172,0.16)' }, silent: true,
+            tooltip: { show: false }, z: 1
+          },
           {
             name: '预测情绪', type: 'line', data: fcstData,
             showSymbol: false, smooth: true,
@@ -2172,8 +2224,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               silent: true, symbol: 'none',
               lineStyle: { color: '#8a94a6', type: 'dotted', width: 1 },
               label: { formatter: '今日', color: '#5a6675', position: 'insideEndTop' },
-              data: [{ xAxis: todayDate }]
-            } : undefined
+              data: [{ xAxis: todayDate }].concat(_cross)
+            } : (hasBand ? { silent: true, symbol: 'none', data: _cross } : undefined)
           }
         ]
       });
