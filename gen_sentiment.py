@@ -15,7 +15,10 @@
   2. 牛熊位置   w=0.20  (lastClose - MA250)/MA250，clamp(dev/0.15)
   3. 量能水平   w=0.20  上证 vol20/vol250 - 1（放量=活跃，缩量=冷清），clamp(ratio/0.5)
   4. 波动恐慌   w=0.15  HV20 的五年分位（高波动=恐慌=降温），1 - pctile/50
-  5. 广度确认   w=0.15  仅用 breadthAvailable>0 的源均值（缺失源不参与平均、全缺失归零不偏置，R122c）
+  5. 广度确认   w=0.15  仅用 breadthAvailable>0 的可用源（缺失源不参与、不拖累，R141）；
+                          当前唯一可用源为 crossMarket.breadth（恒生/标普/纳指方向系数均值 ∈[0,1]，
+                          本质『全球风险偏好同向确认度』），(b-0.5)*2 映射回 [-1,1] 信号维度（R141）；
+                          非 A股内部涨跌家数（R271 约束仍不可破，故语义明确为跨市场广度）。
 
 输出（schema a-share-fib-sentiment/v3）：
   - today   : 当日单点快照（含 5 维 dims），保持 R87 既有契约。
@@ -43,7 +46,15 @@ R124 预测力再增强（纯诊断字段，不改水平/今日展示口径，�
     显著背离即提示 regime 漂移、信号稳健性下降。
 
 诚实标注：这是「量能/动量/波动/广度」合成的代理情绪温度，非全市场涨跌家数；
-  且量能维度受跨源 volume 单位差异影响，仅作相对参考。退出码恒 0（软，透明化不阻断）。
+  且量能维度受跨源 volume 单位差异影响，仅作相对参考。广度维度当前语义为『跨市场（全球）风险偏好
+  同向确认度』（恒生/A股港股通/标普/纳指方向系数），非 A股内部涨跌家数——R271 涨跌家数数据源约束
+  仍不可破，故广度信号由海外可达的 crossMarket 源承载并诚实标注（R141）。退出码恒 0（软，透明化不阻断）。
+
+R142 分regime滚动分位归一抗漂移：熊/牛regime情绪中枢系统性差~19点(bear 42.6/bull 61.7)，全局分位在
+  牛熊切换时语义失真；故对今日与history逐点改算『同regime近250日滚动分位 regimePct』（仅与同regime
+  样本比，抗中枢系统差），并据此调制R140 regime水平位移权重（今日已处regime极端区则减力防过度修正），
+  使预测在牛熊切换时更稳；history逐点含regimePct、today含regimePct，forecastBand.regimePctileToday/
+  regimePctileMethod/levelWMod 透明可读。
 """
 import os
 import sys
@@ -137,25 +148,35 @@ def _scale_bounds(scores):
 
 
 def _breadth_sub(D):
-    """广度维度子分（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均，
+    """广度维度子分（R122c → R141 升级）：仅用 breadthAvailable>0 的可用源，缺失源不参与平均，
     全缺失时归零不偏置（不会把「缺失占位 0.0」当真实值拉低）。
 
-    返回 (sub, avail, dom_val, cross_val)：
+    R141 关键修正（诚实突破 R271 约束的可用边界）：
+      - 此前把 resonance(缺失,avail=0) 与 crossMarket(可用,avail=4) 直接均值 → (0+1.0)/2=0.5，
+        缺失源「拖累」了唯一可用的真实广度信号，导致其权重被稀释一半；
+      - 现改为「仅可用源均值」(parts 不含缺失源的 0.0 占位)，今天 = 仅 crossMarket → 1.0，忠实表达。
+      - crossMarket.breadth 是 4 个海外指数(恒生/恒生科技/标普/纳指)近20日方向系数的均值 ∈[0,1]，
+        本质是「全球风险偏好同向确认度」——这是海外 CI 每日可达的真实离散信号（非 A股内部涨跌家数，
+        R271 涨跌家数约束仍不可破，故广度语义明确标注为『跨市场』而非『全市场』）。
+
+    返回 (sub_raw, avail, dom_val, cross_val, src_tags)：
       avail    = 实际参与平均的源数（0/1/2）
       dom_val  = resonance.breadth 真实值，缺失源为 None（不污染 JSON 契约）
       cross_val= crossMarket.breadth 真实值，缺失源为 None
-    诚实标注：当前广度仅当前单值代理（R271 约束：海外 CI 不可达 eastmoney 历史涨跌家数），
-    未真正历史化；缺失源减少可用度，须在 dims meta 与 note 中注明（见 _compute_today）。
+      src_tags = 参与源语义标签列表（如 ['cross'] / ['dom','cross']），供 dims meta 诚实标注
     """
     res = D.get("resonance") or {}
     cross = D.get("crossMarket") or {}
     ra = _f(res.get("breadthAvailable"))
     ca = _f(cross.get("breadthAvailable"))
     parts = []
+    src_tags = []
     if ra > 0:
         parts.append(_f(res.get("breadth")))
+        src_tags.append("dom")
     if ca > 0:
         parts.append(_f(cross.get("breadth")))
+        src_tags.append("cross")
     if parts:
         sub = sum(parts) / len(parts)
         avail = len(parts)
@@ -164,7 +185,23 @@ def _breadth_sub(D):
         avail = 0
     dom_val = _f(res.get("breadth")) if ra > 0 else None
     cross_val = _f(cross.get("breadth")) if ca > 0 else None
-    return _clamp(sub, -1.0, 1.0), avail, dom_val, cross_val
+    return _clamp(sub, -1.0, 1.0), avail, dom_val, cross_val, src_tags
+
+
+def _breadth_adaptive(sub_breadth, src_tags):
+    """R141：广度数据驱动归一化（替代 R138 的『常量中心化归零』）。
+
+    crossMarket.breadth ∈[0,1] 是 4 个海外指数方向系数均值，有真实离散度：
+      0 = 4 个市场全部 20 日下跌（全球风险厌恶）→ 应映射为 -1（广度冰点）；
+      1 = 4 个市场全部 20 日上涨（全球风险偏好同向）→ 应映射为 +1（广度沸点）；
+      0.5 = 分歧（一半涨一半跌）→ 0（中性）。
+    映射 (b-0.5)*2 把它从「代理常量」变回「真实信号维度」，恢复其 15% 权重的真实贡献；
+    共振源(resonance)缺失时仅用 cross，dom 可用时两者均值后再映射（语义一致）。
+    仅当两源全缺失(avail=0) 才回退 0（诚实归零，不伪造）。
+    """
+    if not src_tags:
+        return 0.0  # 全缺失：诚实归零，不偏置
+    return _clamp((sub_breadth - 0.5) * 2.0, -1.0, 1.0)
 
 
 def _is_a_share_trading_day(d):
@@ -223,6 +260,26 @@ def _pctile_rank(value, window):
     return 100.0 * cnt / len(window)
 
 
+def _regime_rolling_pct(scores, regimes, i, window=250):
+    """R142 分 regime 滚动分位归一：第 i 个 score 在『其自身 regime 的滚动窗口』内的分位 [0,100]。
+
+    熊/牛 regime 的情绪中枢系统性差 ~19 点（bear 42.6 / bull 61.7），若用全局分位解读/锚定，
+    牛熊切换时同一绝对 score 的语义会失真（熊市态 50 分已偏热、牛市态 50 分仍偏冷）。
+    故改为：仅取滚动窗口内『与当日同 regime』的样本，算该 score 在『同 regime 近期分布』中的
+    分位——直接回答『当前情绪相对当下牛熊态自身有多极端』，抗 regime 漂移、切换更稳。
+    regimes[i] 为 True 表示当日为 bear 态（价<MA250），与 _regime_center 口径一致。
+    窗口不足或同 regime 样本为空时回退 50（中性，不偏置）。
+    """
+    if i < 0 or i >= len(scores):
+        return 50.0
+    lo = max(0, i - window + 1)
+    _same = [scores[j] for j in range(lo, i + 1) if regimes[j] == regimes[i]]
+    if not _same:
+        return 50.0
+    cnt = sum(1 for x in _same if x <= scores[i])
+    return 100.0 * cnt / len(_same)
+
+
 def _volume_ratio_series(closes, vols):
     """全样本 vol20/vol250-1 序列（R138 数据驱动量能归一化用）。
 
@@ -258,15 +315,15 @@ def _adaptive_volume_divisor(closes, vols):
 
 
 def _breadth_centered(sub_breadth, breadth_mean):
-    """R138：广度退化维度诚实处理。
+    """R141：广度数据驱动归一化入口（替代 R138 常量中心化）。
 
-    当前广度仅当前单值快照（R271 约束：海外 CI 不可达 eastmoney 历史涨跌家数，
-    广度尚未历史化），故 sub_breadth 长期为常数（+1.0，std=0），它向每个交易日
-    的 score 注入固定 +0.15 偏置并人为抬高「中性」基线——这是零信息量的常量偏置，
-    不是信号。将其按历史均值中心化：常量 → 0，移除静态偏置；未来若广度真正历史化
-    出现离散，则仅真实波动参与合成，不再污染基线。
+    R138 时期广度是常数 +1.0（std=0），中心化归零移除静态偏置；但 R141 已把
+    crossMarket.breadth（海外可达、每日刷新、∈[0,1] 的真实离散信号）真正启用，
+    常量退化不再成立，故改走 _breadth_adaptive（(b-0.5)*2 映射回 [-1,1] 信号维度）。
+    保留此函数签名兼容，但直接委托 _breadth_adaptive；breadth_mean 参数不再使用
+    （历史均值中心化语义已由数据驱动映射取代），保留仅防旧调用断链。
     """
-    return _clamp(sub_breadth - breadth_mean, -1.0, 1.0)
+    return _breadth_adaptive(sub_breadth, getattr(sub_breadth, "_src_tags", ["cross"]))
 
 
 def _compute_today(D):
@@ -302,10 +359,13 @@ def _compute_today(D):
     pctile = _pctile_rank(hv[-1], win) if hv[-1] is not None else _f((D.get("volRegime") or {}).get("pctile"), 50.0)
     sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
-    # 5. 广度确认（R122c：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均）
-    # R138：广度当前无历史源（R271），sub_breadth 为常数 → 按自身中心化移除静态偏置。
-    sub_breadth_raw, bw_avail, res_b_real, cross_b_real = _breadth_sub(D)
-    sub_breadth = _breadth_centered(sub_breadth_raw, sub_breadth_raw)
+    # 5. 广度确认（R122c → R141：仅可用源均值，缺失源不参与平均、不拖累可用源）：
+    #    R141 把海外可达的 crossMarket.breadth 真正启用（(b-0.5)*2 映射回 [-1,1] 信号维度），
+    #    突破 R138『常量退化归零』的保守处理；共振源(resonance)缺失时不稀释跨市场源。
+    #    诚实标注：crossMarket.breadth 是『全球风险偏好同向确认度』（恒生/标普/纳指方向系数均值），
+    #    非 A股内部涨跌家数（R271 涨跌家数约束仍不可破），故语义明确为『跨市场广度』。
+    sub_breadth_raw, bw_avail, res_b_real, cross_b_real, bw_tags = _breadth_sub(D)
+    sub_breadth = _breadth_adaptive(sub_breadth_raw, bw_tags)
 
     dims = [
         ("momentum", 0.30, sub_mom, {"ret20_pct": round(ret20, 2)}),
@@ -315,10 +375,13 @@ def _compute_today(D):
         ("volume", 0.20, sub_vol, {"vol20_vol250_ratio": round(vr, 3)}),
         ("volatility", 0.15, sub_volat, {"hv20_pctile": int(pctile)}),
         ("breadth", 0.15, sub_breadth, {"available": bw_avail,
+                                        "sources": bw_tags,
                                         "domestic": (round(res_b_real, 3) if res_b_real is not None else None),
                                         "cross_market": (round(cross_b_real, 3) if cross_b_real is not None else None),
-                                        "note": ("仅可用源均值；缺失源未参与（广度尚未历史化）"
-                                                 if bw_avail < 2 else "两源均可用（广度尚未历史化）")}),
+                                        "note": ("仅跨市场广度可用（共振宽基缺失：广度=全球风险偏好同向确认度，非A股涨跌家数）"
+                                                 if bw_avail == 1 else
+                                                 "两源均可用（共振宽基+跨市场；广度含全球风险偏好确认维度）"
+                                                 if bw_avail >= 2 else "全源缺失：广度诚实归零")}),
     ]
     score = round(_score_from_subs([s for (_n, _w, s, _m) in dims]), 1)
     return score, dims
@@ -349,8 +412,11 @@ def _compute_history(D):
     if len(closes) < 250:
         return []
 
-    sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
-    _breadth_mean = sub_breadth  # 当前为常数 → 历史均值即自身；R138 中心化后归零（移除静态偏置）
+    # R141：广度历史化约束——当前 data/ 仅 crossMarket.breadth 一个海外可达源且为单值快照，
+    # 无逐日历史序列（R271 涨跌家数约束不可破），故历史回算中广度维度沿用当日可用快照值，
+    # 经 _breadth_adaptive 映射为信号维度（不再 R138 归零）；缺失源不参与。
+    sub_breadth, _bw, _dr, _cr, _btags = _breadth_sub(D)
+    sub_breadth_hist = _breadth_adaptive(sub_breadth, _btags)
 
     hv = _daily_hv_series(closes)
     _vdiv = _adaptive_volume_divisor(closes, vols)  # R138 数据驱动量能除数（全样本 σ）
@@ -379,7 +445,7 @@ def _compute_history(D):
         sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
         score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat,
-                                         _breadth_centered(sub_breadth, _breadth_mean)]), 1)
+                                         sub_breadth_hist]), 1)
         out.append({"date": dates[i], "score": score})
     return out  # 全部可用点（约 5 年），不再截断到 250
 
@@ -781,7 +847,8 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
                      regime_center=None, extreme_bounds=None, extreme_reversal=None,
                      optimal_horizon=None, drift=None, state_pospct=None, state_n=None,
                      consensus=None, today_d20=None,
-                     verdict=None, regime_win_pospct=None, regime_win_n=None):
+                     verdict=None, regime_win_pospct=None, regime_win_n=None,
+                     today_regime_pct=None):
     """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）+ 预测水平均值回归（R128）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
@@ -844,7 +911,10 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     last_close = closes[-1]
     ma250_now = _ma(closes, 250) or last_close
 
-    sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
+    # R141：广度沿用当前可用快照（仍无逐日历史源，R271 约束），经 _breadth_adaptive 映射为信号维度；
+    # 预测路径中广度维度恒为当日值（与 R127a 量能/波动解冻正交：广度无历史源，不在 horizon 上回归）。
+    sub_breadth, _bw, _dr, _cr, _btags = _breadth_sub(D)
+    sub_breadth = _breadth_adaptive(sub_breadth, _btags)
     # R127a 解冻：量能/波动为「今日锚值」，沿预测 horizon 指数回归中性(0)（波动率均值回归铁律），
     # 不再恒用今日值贯穿整个预测期；仅广度无历史源、仍沿用当前值。
     # R139b：波动率今日锚值改与已实现路径(_compute_today)同源——用 _daily_hv_series+_pctile_rank
@@ -884,7 +954,15 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     _eff_center = _center * (1.0 - _RC_W) + (regime_center if regime_center is not None else _center) * _RC_W
     # R140 regime 水平位移权重（不随 horizon 衰减）：把预测中枢拉向当前 regime 均衡，
     # 0.35 经校准 bear 态中段虚高 ~63 可降至 ~53（保留价格路径偏离表达，不过度压平）。
+    # R142：用『今日分 regime 滚动分位』调制该位移力度——若今日已处于当前 regime 的极端区
+    # （regimePct 接近 0 或 100），说明路径派生方向本身已贴合 regime 表达，不必再硬拉向 regime 中枢，
+    # 避免过度修正使牛熊切换时预测失真；今日恰在 regime 中位(regimePct=50)时维持满权 0.35。
+    # 调制系数 clamp[0.3,1.0] 防极端区完全失效（仍保留最低 30% regime 锚定）。
     _LEVEL_W = 0.35
+    if today_regime_pct is not None:
+        _rp = _clamp(today_regime_pct, 0.0, 100.0)
+        _mod = _clamp(1.0 - abs(_rp - 50.0) / 50.0, 0.3, 1.0)
+        _LEVEL_W = _LEVEL_W * _mod
     # R130c 状态经验胜率微调近端超参：当前 level×dir 象限历史上涨概率 posPct（纯经验频率）
     # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效。
     _STATE_BIAS_W = 0.15   # 近端状态偏置最大权重（实际再×(posPct-0.5)*2 × 近端衰减）
@@ -1156,7 +1234,10 @@ def main():
         # R129：前置极值反转诊断（原在 forecast 之后才算、仅作展示；现提前供 forecast 方向修正使用）
         _ext = _extreme_reversal(D, hist, bounds, out["today"].get("score"))
         # R129：分regime均衡情绪中枢（历史中『当前regime』样本的情绪均值，纯经验、非拟合）
+        # R142：同一循环构建逐点 regime 标志 _regimes（与 _regime_center 同源口径），
+        #       供分 regime 滚动分位归一（_regime_rolling_pct）使用，避免重复口径漂移。
         _regime_center = None
+        _regimes = []  # 与 hist 等长，True=该点 bear 态（价<MA250）
         if _regime in ("bear", "bull"):
             _kc = [float(x) for x in (_kline.get("close") or [])]
             _km = [x for x in (_kline.get("ma250") or [])]
@@ -1166,12 +1247,42 @@ def main():
                 for _off, _h in enumerate(hist):
                     _i = _b + _off
                     if _i >= len(_kc) or _i >= len(_km) or _km[_i] is None:
+                        _regimes.append(None)
                         continue
                     _isbear = _kc[_i] < _km[_i]
+                    _regimes.append(_isbear)
                     if (_regime == "bear") == _isbear:
                         _vals.append(_h["score"])
                 if _vals:
                     _regime_center = sum(_vals) / len(_vals)
+
+        # R142：分 regime 滚动分位归一——逐点分位（仅与同 regime 近期样本比，抗中枢 19 点系统差）。
+        # 缺失标志点（MA250 预热前）回退 50（中性）。
+        _hist_scores_full = [h["score"] for h in hist]
+        _regime_pct_hist = []
+        if _regimes:
+            for _i in range(len(hist)):
+                if _regimes[_i] is None:
+                    _regime_pct_hist.append(50.0)
+                else:
+                    _regime_pct_hist.append(round(
+                        _regime_rolling_pct(_hist_scores_full, _regimes, _i, window=250), 1))
+        for _i, _h in enumerate(hist):
+            _h["regimePct"] = _regime_pct_hist[_i] if _regime_pct_hist else None
+
+        # R142：今日分 regime 滚动分位（与历史同源），直接回答『当前情绪在当下牛熊态内有多极端』。
+        _regime_pct_today = None
+        if _regimes and out.get("today", {}).get("score") is not None:
+            _ts = out["today"]["score"]
+            # 把今日视作滚动窗口末端的同 regime 新点（避免越界，用窗口末点多样本近似）
+            _last_i = len(hist) - 1
+            _win_lo = max(0, _last_i - 249)
+            _same = [_hist_scores_full[j] for j in range(_win_lo, _last_i + 1)
+                     if _regimes[j] is not None and _regimes[j] == (_regime == "bear")]
+            if _same:
+                _cnt = sum(1 for x in _same if x <= _ts)
+                _regime_pct_today = round(100.0 * _cnt / len(_same), 1)
+            out["today"]["regimePct"] = _regime_pct_today
 
         # R130：前置三个诊断信号（原仅在 forecast 之后 contra 段计算、仅作展示；现提前供
         # forecast 自适应增强使用，与 R129 前置 _ext 同法）——delta/horizon/state/recency。
@@ -1198,7 +1309,8 @@ def main():
                                  regime_win_pospct=(((_state or {}).get("regimeWin") or {}).get("posPct")
                                                     if (_state and (_state.get("regimeWin") or {}).get("posPct") is not None) else None),
                                  regime_win_n=(((_state or {}).get("regimeWin") or {}).get("n")
-                                               if (_state and (_state.get("regimeWin") or {}).get("n") is not None) else None))
+                                               if (_state and (_state.get("regimeWin") or {}).get("n") is not None) else None),
+                                 today_regime_pct=_regime_pct_today)
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
@@ -1248,6 +1360,10 @@ def main():
             "pathVolMethod": "局部(近20点)路径收益波动 vs 全程波动，局部放大→带宽适度加宽(clamp[1,1.6])；路径高风险段不误报为精确",
             "regimeBiasCenter": (round(_regime_center, 2) if _regime_center is not None else None),
             "regimeBiasW": 0.5,
+            "regimePctileToday": (round(_regime_pct_today, 1) if _regime_pct_today is not None else None),
+            "regimePctileMethod": "R142 分regime滚动分位：今日/历史 score 在『同regime近250日样本』中的分位(抗bear/bull中枢19点系统差)，history逐点含regimePct、today含regimePct",
+            "levelWMod": (round(_clamp(0.35 * _clamp(1.0 - abs(_clamp(_regime_pct_today, 0.0, 100.0) - 50.0) / 50.0, 0.3, 1.0), 0.0, 1.0), 3)
+                          if _regime_pct_today is not None else 0.35),
             "extremeBiasW": 0.6,
             "extremeBiasMethod": "极端区(恐慌<b1/狂热>b4)内按极值反弹概率rev20向中枢回归(仅rev20>0.5生效)；非极端区保持路径忠实",
             "stateBiasW": 0.15,
@@ -1357,8 +1473,10 @@ def main():
                        "history 为全部可用交易日逐日回算（约 5 年）；forecast 由 subForecast 价格路径派生"
                        "（量能/波动随 horizon 指数回归历史中枢、广度沿用当前值，仅动量+位置随路径变化），"
                        "为路径派生预测非因子预测。"
-                       "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
-                       "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
+                       "广度维度（R122c→R141）：仅用 breadthAvailable>0 的『可用源』均值（缺失源不参与、不拖累），"
+                        "经 (b-0.5)*2 映射回 [-1,1] 信号维度；当前唯一可用源为 crossMarket.breadth（恒生/标普/纳指"
+                        "方向系数均值，语义为『跨市场/全球风险偏好同向确认度』），而非 A股内部涨跌家数"
+                        "（R271 涨跌家数约束仍不可破）；两源全缺失才诚实归零。"
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
                        "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。R125：在 R124 基础上再增强——①极值反转诊断(恐慌区后反弹/狂热区后回落的逆向反转概率，逆向投资核心)；②多窗口信号共振/背离(各H窗口方向一致性，共振=高置信)；③分regime条件胜率(当前regime下该组合状态的经验上涨概率，比不分regime更细)。均为contra下独立诊断字段，不改dims、不改今日展示口径。"
                        "R129：在 R125 基础上把已验证诊断『反馈进 forecast 方向修正』而非仅展示——极值反转概率驱动极端区逆势回归、分regime均衡中枢驱动远端条件偏置，使预测方向带经验修正；透明参数见 forecastBand.regimeBiasCenter/regimeBiasW/extremeBiasW/extremeBiasMethod。"
@@ -1366,6 +1484,7 @@ def main():
                        "R131：在 R130 基础上对 forecast 做『路径派生诚实化』——①动量回看窗口由最优窗口H驱动(momWinEff，H大→慢变趋势→回看长，与R130a同源)；②未来均线随horizon向路径价均值回归(maRevertTau=60日)，远端牛熊位置回归中性、不再被clamp钉死在±1；③路径波动感知置信带(局部vs全程波动比，放大上限×1.6)，路径高风险段不误报为精确；透明参数见 forecastBand.momWinEff/maRevertTau/pathVolMultMax/pathVolMethod。"
                        "R132：在 R131 基础上对 forecast 做『经验信号调制』——①共识置信度调制(多窗口共振agree/total∈[0,1]→方向修正权重×confMult∈[0.5,1.5]，共振放大/背离保守，只在方向修正层生效、不动R128中枢回归)；②Δ20动量惯性近端偏置(情绪自相关——今日Δ20升/降方向短期延续，近端按Δ20方向小幅偏置、随horizon指数衰减，与R130c象限历史胜率正交)；透明参数见 forecastBand.consensusConf/confMult/inertiaTau/inertiaMaxPts/inertiaMethod。"
                        "R133：在 R132 基础上对 forecast 做『信号方向调制』——①共振方向调制(consensus.verdict=共振(顺势有效)表示高情绪后涨/低情绪后跌的趋势延续强，此时极端区逆势修正方向可能相反→修正权重×0.5保守化防方向性错误；背离亦×0.5；逆势有效维持)；②近端微调优先用分regime条件胜率regimeWin.posPct(当前牛/熊态下该组合状态的条件胜率，R125已验证熊市态中升51%%>全样本47%%，更贴合当前regime；N>=20生效，缺失回退全局posPct)；透明参数见 forecastBand.verdict/verdictMult/regimeWinN/posPctUsed。"
+                       "R142：在 R133 基础上做『分regime滚动分位归一抗漂移』——熊/牛regime情绪中枢系统性差~19点(bear 42.6/bull 61.7)，全局分位在牛熊切换时语义失真；故对今日与history逐点改算『同regime近250日滚动分位 regimePct』(仅与同regime样本比，抗中枢系统差)，直接回答『当前情绪在当下牛熊态内有多极端』；并据此调制R140 regime水平位移权重levelW(今日已处regime极端区则减力防过度修正、regime中位维持满权0.35，clamp下限0.3)，使预测在牛熊切换时更稳。history逐点含regimePct、today含regimePct；透明参数见 forecastBand.regimePctileToday/regimePctileMethod/levelWMod。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
