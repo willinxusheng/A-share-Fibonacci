@@ -82,6 +82,11 @@ def _label(score):
     return "狂热"
 
 
+def _is_weekend(d):
+    """A股周末无交易：周六(5)/周日(6)判定。forecast 插值按日历日展开后用于剔除非交易日。"""
+    return datetime.datetime.strptime(d, "%Y-%m-%d").weekday() >= 5
+
+
 def _score_from_subs(subs):
     """subs = (sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth)，权重固定。"""
     w = [0.30, 0.20, 0.20, 0.15, 0.15]
@@ -144,7 +149,7 @@ def _compute_today(D):
         ("breadth", 0.15, sub_breadth, {"domestic": round(res_b, 3),
                                         "cross_market": round(cross_b, 3)}),
     ]
-    score = _score_from_subs([s for (_n, _w, s, _m) in dims])
+    score = round(_score_from_subs([s for (_n, _w, s, _m) in dims]), 1)
     return score, _label(score), dims
 
 
@@ -199,8 +204,8 @@ def _compute_history(D):
         pctile = _pctile_rank(hv[i], win) if hv[i] is not None else 50.0
         sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
-        score = _score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth])
-        out.append({"date": dates[i], "score": round(score, 1), "label": _label(score)})
+        score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
+        out.append({"date": dates[i], "score": score, "label": _label(score)})
     # 只保留最后 N_HISTORY 个点，避免序列过长
     return out[-N_HISTORY:]
 
@@ -209,8 +214,8 @@ def _compute_forecast(D):
     """由 subForecast 价格路径派生未来情绪预测序列。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
-    按交易日逐日线性插值得到未来每日价位，再沿路径计算动量+牛熊位置（量能/波动/广度沿用当前值）。
-    这是「斐波那契路径派生」而非因子预测，已在 note 诚实标注。
+    按日历日线性插值得到连续价位，剔除周末后仅保留交易日近似序列，再沿路径计算动量+牛熊位置
+    （量能/波动/广度沿用当前值）。这是「斐波那契路径派生」而非因子预测，已在 note 诚实标注。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -273,23 +278,26 @@ def _compute_forecast(D):
     if not path:
         path = [(future_dates[-1], future_prices[-1])]
 
+    # A股周末无交易：剔除周六/周日，使 forecast 仅含交易日近似日期，避免周末假数据点
+    path = [(d, p) for (d, p) in path if not _is_weekend(d)]
+    if not path:
+        path = [(future_dates[-1], future_prices[-1])]
+
     out = []
-    for (d, price) in path:
-        # 动量：沿路径 20 个日历日内的价格变化（近似 20 交易日）
-        # 找路径中 ~20 天前的价位
-        tgt = _to_dt(d) - __import__("datetime").timedelta(days=20)
-        # 在 path 内找最接近 tgt 的价位
-        past_price = price
-        for (pd, pp) in path:
-            if _to_dt(pd) <= tgt:
-                past_price = pp
+    for idx, (d, price) in enumerate(path):
+        # 动量：沿「交易日近似序列」回看 20 个交易日（周末已剔除，path 基本即交易日序列）；
+        # 早期点数不足 20 时以「今日收盘」兜底，避免衔接处动量硬归零造成的跳变。
+        if idx >= 20:
+            past_price = path[idx - 20][1]
+        else:
+            past_price = last_close
         ret_path = (price / past_price - 1.0) * 100.0 if past_price else 0.0
         sub_mom = _clamp(ret_path / 8.0, -1.0, 1.0)
         # 牛熊位置：相对「当前已知 250 均线」锚定（未来无均线数据，诚实沿用末值）
         pos = (price / ma250_now - 1.0) if ma250_now else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
-        score = _score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth])
-        out.append({"date": d, "score": round(score, 1), "label": _label(score)})
+        score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
+        out.append({"date": d, "score": score, "label": _label(score)})
     return out
 
 
