@@ -687,8 +687,34 @@ def _extreme_reversal(D, hist, bounds=None, today_score=None):
             "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
+def _resolve_revert_tau(optimal_horizon):
+    """R130a 最优窗口驱动回归时标：把固定 _REV_TAU=40 改为数据驱动。
+
+    输入 _horizon_scan 的最优逆势窗口 H∈{5,10,20,40,60}（|spread| 最大且冷热组 N≥20 的 H）：
+    H 小 → 逆势周期短 → 「向中枢回归」应更快(tau 小)；H 大 → 逆势周期长 → 回归更慢(tau 大)。
+    线性映射 H∈[5,60] → tau∈[10,80]，再 clamp 防越界；H 缺失回退固定 40。
+    """
+    if optimal_horizon is None:
+        return 40.0
+    H = float(optimal_horizon)
+    return _clamp(10.0 + (H - 5.0) * (80.0 - 10.0) / (60.0 - 5.0), 10.0, 80.0)
+
+
+def _resolve_drift_params(drift):
+    """R130b 漂移自适应参数：regime 漂移标志 → (置信带半宽倍率, 远端回归上限)。
+
+    漂移期(drift=True) 近期与稍早统计口径背离、信号稳健性下降：
+      ① 置信带半宽 ×1.2（不确定性更高，区间更宽更诚实）；
+      ② 远端向中枢回归上限由 0.5 降至 0.35（不急于锚定可能已漂移的中枢，更谦卑）。
+    """
+    if drift:
+        return (1.2, 0.35)
+    return (1.0, 0.5)
+
+
 def _compute_forecast(D, hist_std=None, regime=None, center=None,
-                     regime_center=None, extreme_bounds=None, extreme_reversal=None):
+                     regime_center=None, extreme_bounds=None, extreme_reversal=None,
+                     optimal_horizon=None, drift=None, state_pospct=None, state_n=None):
     """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）+ 预测水平均值回归（R128）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
@@ -707,8 +733,15 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
          （仅当 rev20>0.5 才有意义修正；非极端区保持 R128 路径忠实）；
       ② 分regime条件中枢偏置：远端随 horizon 渐入（与 R128 正交），熊/牛市态的均衡情绪中枢不同，
          远端不应一律回到全局 center，而应向「分regime均衡中枢 regime_center」偏移。
-    hist_std / regime / center / regime_center / extreme_bounds / extreme_reversal 由 main() 计算后传入；
-    缺失时回退默认值，保证函数可独立调用。
+    R130 预测自适应增强（3 机制，均正交、均带 clamp 防过拟合）：
+      a. 最优窗口驱动回归时标：用 _horizon_scan.optimalHorizon 把固定 _REV_TAU=40 改为数据驱动
+         （H 小→回归快、H 大→回归慢），让「向中枢回归」节奏贴合当前逆势周期；
+      b. 漂移自适应置信带+降速：用 _recency_band.drift，漂移期带宽 ×1.2、远端回归上限由 0.5 降至 0.35
+         （不确定期更谦卑，不急于锚定可能已漂移的中枢）；
+      c. 状态经验胜率微调近端：用 _state_signal.posPct（当前 level×方向 象限历史上涨概率，纯经验频率）
+         对近端 forecast 做小幅方向偏置（权重 0.15 随 horizon 衰减、仅 N≥20 生效），与远端 R128/R129 正交。
+    hist_std / regime / center / regime_center / extreme_bounds / extreme_reversal / optimal_horizon /
+    drift / state_pospct / state_n 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -731,12 +764,18 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     _COV_TAU = 15.0  # 协变量均值回归时间常数（交易日）：约 15 日衰减 ~63%
     # R128 预测 score 水平均值回归（与 R127a 协变量解冻正交）：远端随 horizon 向历史中枢回归，
     # 避免路径派生极值被过度外推到 3 个月外；revert 上限 _REVERT_CAP 防曲线被拉平失真。
-    _REV_TAU = 40.0  # 预测水平均值回归时间常数（交易日）
-    _REVERT_CAP = 0.5  # 远端最多向中枢回归 50%
+    # R130a 最优窗口驱动回归时标：把固定 _REV_TAU=40 改为数据驱动（H 小→回归快、H 大→回归慢）。
+    _REV_TAU = _resolve_revert_tau(optimal_horizon)
+    # R130b 漂移自适应：regime 漂移期带宽 ×1.2、远端回归上限 0.5→0.35（更谦卑，不锚定漂移中枢）
+    _DRIFT_MULT, _REVERT_CAP = _resolve_drift_params(drift)
     # R129 经验方向修正超参：把已验证诊断反馈进 forecast，权重经 clamp 防过拟合/过度修正
     _REGIME_BIAS_W = 0.5   # 远端由全局中枢向「分regime均衡中枢」偏移的最大混合比例
     _EXTREME_BIAS_W = 0.6  # 极端区内向中枢回归的最大混合比例（实际再×2*(rev20-0.5)）
     _center = center if (center is not None) else 60.0  # 历史中枢锚点（缺省 60）
+    # R130c 状态经验胜率微调近端超参：当前 level×dir 象限历史上涨概率 posPct（纯经验频率）
+    # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效。
+    _STATE_BIAS_W = 0.15   # 近端状态偏置最大权重（实际再×(posPct-0.5)*2 × 近端衰减）
+    _STATE_MAX_PTS = 12.0  # 近端最大偏置点数（posPct=1.0 或 0.0 且权重=1 时）
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
     regime_mult = 1.15 if regime == "bear" else 1.0
@@ -829,10 +868,18 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
         if regime_center is not None:
             _rbias = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
             score = score * (1.0 - _rbias * _REGIME_BIAS_W) + regime_center * _rbias * _REGIME_BIAS_W
+        # R130c 状态经验胜率微调近端：当前 level×dir 象限历史上涨概率 posPct（纯经验频率），
+        # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效，
+        # 与远端 R128/R129 正交（近端时机信号 + 远端中枢回归）。
+        if state_pospct is not None and state_n is not None and state_n >= 20:
+            _edge = (state_pospct - 0.5) * 2.0  # ∈[-1,1]：>0 看多象限→上修、<0 看空象限→下修
+            _sdecay = math.exp(-(idx + 1) / _REV_TAU)  # 近端最强、远端归零
+            _bump = _edge * _STATE_BIAS_W * _STATE_MAX_PTS * _sdecay
+            score = _clamp(score + _bump, 0.0, 100.0)
         score = round(_clamp(score, 0.0, 100.0), 1)
-        # #666 经验置信带：随 horizon √扩张、熊市态额外放大；半宽 clamp[1,14]
+        # #666 经验置信带：随 horizon √扩张、熊市态额外放大；R130b 漂移期带宽 ×_DRIFT_MULT（更宽更诚实）
         kk = idx + 1
-        half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult, 1.0, 14.0)
+        half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult * _DRIFT_MULT, 1.0, 14.0)
         lo = _clamp(score - half, 0.0, 100.0)
         hi = _clamp(score + half, 0.0, 100.0)
         out.append({"date": d, "score": score,
@@ -927,13 +974,34 @@ def main():
                 if _vals:
                     _regime_center = sum(_vals) / len(_vals)
 
+        # R130：前置三个诊断信号（原仅在 forecast 之后 contra 段计算、仅作展示；现提前供
+        # forecast 自适应增强使用，与 R129 前置 _ext 同法）——delta/horizon/state/recency。
+        _hs0 = out["history"][-1].get("d20") if out.get("history") else None
+        _delta = _contra_delta_stats(D, out["history"])
+        _horizon = _horizon_scan(D, out["history"], bounds)
+        _state = None
+        if _delta is not None:
+            _state = _state_signal(D, out["history"], _delta,
+                                   out["today"].get("score"), _hs0, _regime)
+        _recency = _recency_band(D, out["history"], out["today"].get("label"), bounds)
+
         fcst = _compute_forecast(D, _base_std, _regime, _hist_mean,
                                  regime_center=_regime_center,
                                  extreme_bounds=(_ext.get("bounds") if _ext else None),
-                                 extreme_reversal=_ext)
+                                 extreme_reversal=_ext,
+                                 optimal_horizon=(_horizon.get("optimalHorizon") if _horizon else None),
+                                 drift=(_recency.get("drift") if _recency else None),
+                                 state_pospct=(_state.get("posPct") if _state else None),
+                                 state_n=(_state.get("n") if _state else None))
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
+        # R130 元信息：数据驱动回归时标/漂移带宽倍率/漂移期回归上限/状态偏置权重（与 _compute_forecast 内一致）
+        _revert_tau_eff = _resolve_revert_tau(_horizon.get("optimalHorizon") if _horizon else None)
+        _drift_mult, _revert_cap_eff = _resolve_drift_params(
+            _recency.get("drift") if _recency else None)
+        _state_pospct = (_state.get("posPct") if _state else None)
+        _state_n = (_state.get("n") if _state else None)
         out["forecastBand"] = {
             "method": "经验置信带（目标覆盖≈80%，基于滚动感知波动率的启发式近似，非严格统计置信区间）",
             "level": "≈80%",
@@ -944,27 +1012,39 @@ def main():
             "regimeMult": (1.15 if _regime == "bear" else 1.0),
             "horizonScale": "sqrt(k/20) 时间衰减（k=预测点序号/交易日）",
             "revertCenter": round(_hist_mean, 2),
-            "revertTau": 40.0,
-            "revertCap": 0.5,
+            "revertTau": round(_revert_tau_eff, 2),
+            "revertCap": round(_revert_cap_eff, 2),
+            "revertTauEff": round(_revert_tau_eff, 2),
+            "driftMult": round(_drift_mult, 2),
             "regimeBiasCenter": (round(_regime_center, 2) if _regime_center is not None else None),
             "regimeBiasW": 0.5,
             "extremeBiasW": 0.6,
             "extremeBiasMethod": "极端区(恐慌<b1/狂热>b4)内按极值反弹概率rev20向中枢回归(仅rev20>0.5生效)；非极端区保持路径忠实",
+            "stateBiasW": 0.15,
+            "stateBiasMethod": "近端按当前水平×Δ方向象限历史上涨概率posPct微调(权重0.15随horizon衰减、仅N>=20生效)，远端由R128/R129中枢回归主导",
             "note": ("预测为路径派生单点；本带按「滚动感知波动率」打底（近60日std=%.1f 与全局std=%.1f 混合=%.1f）、"
                      "随预测 horizon √扩张、熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
                      "近端带宽跟随当前湍流度（近期更平静→更窄）；(R128) 预测 score 水平随 horizon 向历史中枢(%.1f) "
-                     "指数均值回归(远端最多回归50%%)避免路径极值过度外推；(R129) 已把分regime均衡中枢(%.1f, %s态)与极值反弹概率"
+                     "指数均值回归(远端最多回归%.0f%%)避免路径极值过度外推；(R129) 已把分regime均衡中枢(%.1f, %s态)与极值反弹概率"
                      "反馈进方向修正——极端区按 rev20 逆势回归、远端由全局中枢向分regime中枢偏移(权重%.2f)，"
+                     "(R130) 预测自适应增强：①最优逆势窗口H=%s驱动回归时标(tau=%.1f，H小回归快/H大回归慢)；"
+                     "②regime漂移(等权vs衰减加权背离≥1%%)=%s→带宽×%.1f、远端回归上限降至%.2f；"
+                     "③近端按状态经验胜率posPct=%s(象限N=%s)微调(权重0.15随horizon衰减)。"
                      "仅供研判参考，不构成置信区间严格含义。"
                      ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean,
+                          _revert_cap_eff * 100,
                           (_regime_center if _regime_center is not None else _hist_mean),
-                          _regime, 0.5),
+                          _regime, 0.5,
+                          (_horizon.get("optimalHorizon") if _horizon else "N/A"), _revert_tau_eff,
+                          (_recency.get("drift") if _recency else False), _drift_mult, _revert_cap_eff,
+                          (str(_state_pospct) if _state_pospct is not None else "N/A"),
+                          (str(_state_n) if _state_n is not None else "N/A")),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
         if contra is not None and out.get("today", {}).get("score") is not None:
-            # R123a：情绪变化(Δ)预测力统计，作为水平分档信号的补充时机维度
-            delta = _contra_delta_stats(D, out["history"])
+            # R123a：情绪变化(Δ)预测力统计（R130 已前置计算，此处复用）
+            delta = _delta
             if delta is not None:
                 contra["delta"] = delta
             # R123c：分 regime 信号强度直读（复用 split 分态统计，避免重复口径）
@@ -986,17 +1066,11 @@ def main():
                         % (("熊市" if contra.get("regime") == "bear" else "牛市"),
                            out["today"].get("label"), _cur["n"]))
             # R124a/b/c：下一层预测力增强（均为 contra 下独立字段，不改 today.dims、不改今日展示口径）
-            _hs0 = out["history"][-1].get("d20") if out.get("history") else None
-            _horizon = _horizon_scan(D, out["history"], bounds)
+            # R130：_horizon/_state/_recency 已在 forecast 前前置计算并供 forecast 自适应增强使用，此处复用
             if _horizon is not None:
                 contra["horizonScan"] = _horizon
-            if delta is not None:
-                _state = _state_signal(D, out["history"], delta,
-                                       out["today"].get("score"), _hs0,
-                                       contra.get("regime"))
-                if _state is not None:
-                    contra["stateSignal"] = _state
-            _recency = _recency_band(D, out["history"], out["today"].get("label"), bounds)
+            if _state is not None:
+                contra["stateSignal"] = _state
             if _recency is not None:
                 contra["recency"] = _recency
             # R125a/R129：极值反转诊断（逆向投资核心信号）；_ext 已在 forecast 前计算并供方向修正使用，此处复用
@@ -1031,6 +1105,7 @@ def main():
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
                        "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。R125：在 R124 基础上再增强——①极值反转诊断(恐慌区后反弹/狂热区后回落的逆向反转概率，逆向投资核心)；②多窗口信号共振/背离(各H窗口方向一致性，共振=高置信)；③分regime条件胜率(当前regime下该组合状态的经验上涨概率，比不分regime更细)。均为contra下独立诊断字段，不改dims、不改今日展示口径。"
                        "R129：在 R125 基础上把已验证诊断『反馈进 forecast 方向修正』而非仅展示——极值反转概率驱动极端区逆势回归、分regime均衡中枢驱动远端条件偏置，使预测方向带经验修正；透明参数见 forecastBand.regimeBiasCenter/regimeBiasW/extremeBiasW/extremeBiasMethod。"
+                       "R130：在 R129 基础上对 forecast 做『预测自适应增强』——①最优逆势窗口H驱动回归时标(数据驱动tau，H小回归快/H大回归慢，贴合当前逆势周期)；②regime漂移期置信带宽×1.2、远端回归上限0.5→0.35(不确定期更谦卑，不锚定漂移中枢)；③近端按当前状态象限历史上涨概率posPct微调(权重0.15随horizon衰减、仅N>=20生效，与远端中枢回归正交)；透明参数见 forecastBand.revertTauEff/driftMult/stateBiasW/stateBiasMethod。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e

@@ -82,7 +82,7 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
     # R129 方向修正守门：权重须∈[0,1]、分regime中枢(若有)须∈[0,100]，防过拟合/过度修正
@@ -92,6 +92,18 @@ if _fb:
         chk(0.0 <= _fb["extremeBiasW"] <= 1.0, "R129 extremeBiasW 越界[0,1]: %r" % _fb.get("extremeBiasW"))
     if _fb.get("regimeBiasCenter") is not None:
         chk(0.0 <= _fb["regimeBiasCenter"] <= 100.0, "R129 regimeBiasCenter 越界[0,100]: %r" % _fb.get("regimeBiasCenter"))
+    # R130 预测自适应增强守门：数据驱动时标∈[10,80]、漂移带宽倍率∈[1,1.5]、漂移期回归上限∈[0.3,0.5]、
+    # 状态偏置权重∈[0,1]、方法说明非空——防超参越界/过度修正
+    if _fb.get("revertTauEff") is not None:
+        chk(10.0 <= _fb["revertTauEff"] <= 80.0, "R130 revertTauEff 越界[10,80]: %r" % _fb.get("revertTauEff"))
+    if _fb.get("driftMult") is not None:
+        chk(1.0 <= _fb["driftMult"] <= 1.5, "R130 driftMult 越界[1,1.5]: %r" % _fb.get("driftMult"))
+    if _fb.get("revertCap") is not None:
+        chk(0.3 <= _fb["revertCap"] <= 0.5, "R130 revertCap(漂移自适应) 越界[0.3,0.5]: %r" % _fb.get("revertCap"))
+    if _fb.get("stateBiasW") is not None:
+        chk(0.0 <= _fb["stateBiasW"] <= 1.0, "R130 stateBiasW 越界[0,1]: %r" % _fb.get("stateBiasW"))
+    chk(isinstance(_fb.get("stateBiasMethod"), str) and len(_fb.get("stateBiasMethod") or "") > 0,
+        "R130 stateBiasMethod 缺失或非字符串")
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None
