@@ -67,6 +67,35 @@ def main():
         chk(n_ok and f_ok, "contra[%s] 不一致: 存储 N=%s/fwd20=%s vs 独立 N=%s/fwd20=%s"
             % (lab, b.get("n"), b.get("fwd20"), exp.get("n"), exp.get("fwd20")))
 
+    # ---------- A2. contra.split 分态单一真值（R121） ----------
+    split = contra.get("split") or {}
+    regime = contra.get("regime")
+    chk(regime in ("bear", "bull"), "contra.regime 应为 bear/bull，实际 %r" % regime)
+    chk(set(split.keys()) == {"bear", "bull"}, "contra.split 应含 bear/bull 两态")
+    ma250_arr = data["kline"].get("ma250") or []
+    for state in ("bear", "bull"):
+        sb = (split.get(state) or {}).get("bands") or []
+        chk(len(sb) == 5, "contra.split.%s.bands 应为 5 档，实际 %d" % (state, len(sb)))
+        for b in sb:
+            lab = b.get("label")
+            lo, hi = next(((lo, hi) for (l, lo, hi) in exp_bands if l == lab), (None, None))
+            n, s = 0, 0.0
+            for off, h in enumerate(hist):
+                i = base + off
+                if lo <= h["score"] < hi and i < len(ma250_arr) and ma250_arr[i] is not None:
+                    pred = kc[i] < ma250_arr[i] if state == "bear" else kc[i] > ma250_arr[i]
+                    if pred:
+                        j = i + 20
+                        if j < len(kc):
+                            n += 1
+                            s += (kc[j] / kc[i] - 1.0) * 100.0
+            n_ok = b.get("n") == n
+            exp_fwd = round(s / n, 2) if n else None
+            f_ok = (b.get("fwd20") is None and exp_fwd is None) or \
+                   abs((b.get("fwd20") or 0) - (exp_fwd or 0)) < 0.011
+            chk(n_ok and f_ok, "contra.split.%s[%s] 不一致: 存储 N=%s/fwd20=%s vs 独立 N=%s/fwd20=%s"
+                % (state, lab, b.get("n"), b.get("fwd20"), n, exp_fwd))
+
     # ---------- B. N 合计语义 ----------
     tot_n = sum(b.get("n", 0) for b in bands)
     expect_n = max(len(hist) - 20, 0)  # 尾部 20 日无未来收益

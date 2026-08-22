@@ -252,35 +252,52 @@ def _contra_stats(D, hist):
     """逆向信号统计（单一真值，随窗口全量计算）。
 
     对每个 history 点按 label 分档，统计各档样本数 N 与「未来 20 交易日平均收益」。
-    实证：score 与未来收益负相关（逆势信号）。返回 {bands: [{label, n, fwd20}], note}。
+    实证：score 与未来收益负相关（逆势信号），且高度 regime 依赖——
+      价格 < MA250（熊市态）r≈-0.24 显著；价格 > MA250（牛市态）r≈-0.04 不显著。
+    故同时输出 split 分态统计（bear/bull），供前端按当前 regime 选择解读口径。
+    返回 {bands, split:{bear:{bands}, bull:{bands}}, regime, note}。
     """
     k = D.get("kline") or {}
     closes = [float(x) for x in (k.get("close") or [])]
+    ma250_arr = [x for x in (k.get("ma250") or [])]
     if not hist or len(closes) < len(hist) + 20:
         return None
     base = len(closes) - len(hist)
     bands = [("冰点", 0, 20), ("偏冷", 20, 40), ("中性", 40, 60), ("偏热", 60, 80), ("狂热", 80, 101)]
-    out_bands = []
-    for (lab, lo, hi) in bands:
-        n, s = 0, 0.0
-        for off, h in enumerate(hist):
-            if lo <= h["score"] < hi:
-                j = base + off + 20
-                if j < len(closes):
-                    n += 1
-                    s += (closes[j] / closes[base + off] - 1.0) * 100.0
-        out_bands.append({
-            "label": lab,
-            "n": n,
-            "fwd20": round(s / n, 2) if n else None,
-        })
+
+    def _bands_for(pred):
+        out = []
+        for (lab, lo, hi) in bands:
+            n, s = 0, 0.0
+            for off, h in enumerate(hist):
+                i = base + off
+                if lo <= h["score"] < hi and pred(i):
+                    j = i + 20
+                    if j < len(closes):
+                        n += 1
+                        s += (closes[j] / closes[i] - 1.0) * 100.0
+            out.append({"label": lab, "n": n, "fwd20": round(s / n, 2) if n else None})
+        return out
+
+    out_bands = _bands_for(lambda i: True)
+    # 分态统计：仅用有 MA250 的点（前 249 根无均线，天然排除）
+    bear_bands = _bands_for(lambda i: ma250_arr[i] is not None and closes[i] < ma250_arr[i])
+    bull_bands = _bands_for(lambda i: ma250_arr[i] is not None and closes[i] > ma250_arr[i])
+    # 当前 regime：末根价 vs MA250
+    last = closes[-1]
+    last_ma = ma250_arr[-1] if ma250_arr else None
+    regime = "bear" if (last_ma is not None and last < last_ma) else "bull"
     return {
         "bands": out_bands,
+        "split": {"bear": {"bands": bear_bands}, "bull": {"bands": bull_bands}},
+        "regime": regime,
         "note": ("近%d个交易日逐日回算：score 与未来20日收益负相关（逆势信号）；"
                  "N 为该档有未来20日收益的样本数（尾部20日不计），各档合计%d；"
-                 "当前分数区间 %.1f~%.1f") % (
+                 "当前分数区间 %.1f~%.1f；regime 分态：熊市态(价<MA250)信号显著(r≈-0.24)、"
+                 "牛市态(价>MA250)信号不显著(r≈-0.04)——当前为%s态，解读应以%s态统计为准") % (
             len(hist), sum(b["n"] for b in out_bands),
-            min(h["score"] for h in hist), max(h["score"] for h in hist)),
+            min(h["score"] for h in hist), max(h["score"] for h in hist),
+            "熊市" if regime == "bear" else "牛市", "熊市" if regime == "bear" else "牛市"),
     }
 
 

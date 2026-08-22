@@ -1887,16 +1887,24 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       legHtml += '</div>';
       html += barHtml + legHtml;
     }
-    // R114/R115：逆向解读（生成器全量统计，随 history 窗口自动更新；无 contra 时用历史兜底文案）
+    // R114/R115/R121：逆向解读（生成器全量统计，随 history 窗口自动更新；无 contra 时用历史兜底文案）
+    // R121：按当前 regime（熊市态/牛市态）选统计口径——熊市态信号显著、牛市态不显著
     var contra = t.contra || null;
     var revTxt = null, revCol = null;
     if (contra && contra.bands) {
-      for (var _bi = 0; _bi < contra.bands.length; _bi++) {
-        if (contra.bands[_bi].label === label) {
-          var bd = contra.bands[_bi];
+      var _useBands = contra.bands;
+      var _regimeTag = '';
+      if (contra.regime && contra.split) {
+        var _sp = contra.split[contra.regime === 'bear' ? 'bear' : 'bull'] || {};
+        if (_sp.bands) { _useBands = _sp.bands; _regimeTag = (contra.regime === 'bear') ? '熊市态' : '牛市态'; }
+      }
+      for (var _bi = 0; _bi < _useBands.length; _bi++) {
+        if (_useBands[_bi].label === label) {
+          var bd = _useBands[_bi];
           var fwd = (bd.fwd20 == null) ? '样本不足' : (bd.fwd20 >= 0 ? '+' + bd.fwd20.toFixed(2) + '%' : bd.fwd20.toFixed(2) + '%');
           var hint = (label === '狂热') ? '逆向风险区' : (label === '冰点' || label === '偏冷') ? '逆向布局参考' : (label === '偏热') ? '追高性价比低' : '多空均衡';
-          revTxt = '情绪' + label + '：全量样本 N=' + bd.n + '，此后20日平均收益 ' + fwd + '，' + hint;
+          var _sigTag = _regimeTag ? ('[' + _regimeTag + '] ') : '';
+          revTxt = _sigTag + '情绪' + label + '：样本 N=' + bd.n + '，此后20日平均收益 ' + fwd + '，' + hint;
           revCol = col;
           break;
         }
