@@ -687,8 +687,8 @@ def _extreme_reversal(D, hist, bounds=None, today_score=None):
             "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
-def _compute_forecast(D, hist_std=None, regime=None):
-    """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）。
+def _compute_forecast(D, hist_std=None, regime=None, center=None):
+    """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）+ 预测水平均值回归（R128）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
     按日历日线性插值得到连续价位，剔除周末后仅保留交易日近似序列，再沿路径计算动量+牛熊位置
@@ -698,7 +698,9 @@ def _compute_forecast(D, hist_std=None, regime=None):
     #666 经验置信带：每个预测点除 score 外，按历史情绪波动率(hist_std)打底、随预测 horizon √扩张、
     熊市态(regime='bear')额外×1.15，给出诚信 lo/hi 区间（详见 out["forecastBand"]），
     把「假精确单点」变「诚实区间」；区间半宽 clamp[1,14]，非严格统计置信区间。
-    hist_std / regime 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
+    R128 预测 score 水平均值回归：情绪长期围绕历史中枢波动，远端不应被路径派生极值过度外推；
+    预测分数随 horizon 指数回归「历史中枢 center」（revert 上限 50% 防过度拉平），使远端更诚实。
+    hist_std / regime / center 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -719,6 +721,11 @@ def _compute_forecast(D, hist_std=None, regime=None):
     vol250 = _ma(vols, 250) or 1.0
     sub_vol_today = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
     _COV_TAU = 15.0  # 协变量均值回归时间常数（交易日）：约 15 日衰减 ~63%
+    # R128 预测 score 水平均值回归（与 R127a 协变量解冻正交）：远端随 horizon 向历史中枢回归，
+    # 避免路径派生极值被过度外推到 3 个月外；revert 上限 _REVERT_CAP 防曲线被拉平失真。
+    _REV_TAU = 40.0  # 预测水平均值回归时间常数（交易日）
+    _REVERT_CAP = 0.5  # 远端最多向中枢回归 50%
+    _center = center if (center is not None) else 60.0  # 历史中枢锚点（缺省 60）
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
     regime_mult = 1.15 if regime == "bear" else 1.0
@@ -788,7 +795,11 @@ def _compute_forecast(D, hist_std=None, regime=None):
         _decay = math.exp(-(idx + 1) / _COV_TAU)
         _sub_vol = sub_vol_today * _decay
         _sub_volat = sub_volat_today * _decay
-        score = round(_score_from_subs([sub_mom, sub_pos, _sub_vol, _sub_volat, sub_breadth]), 1)
+        # R128 预测 score 水平均值回归：路径派生分随 horizon 向历史中枢回归（远端最多回归 50%），
+        # 避免 3 个月外的预测被今日路径极值过度外推；近端(idx=0) revert=0 完全忠实路径。
+        _path_score = _score_from_subs([sub_mom, sub_pos, _sub_vol, _sub_volat, sub_breadth])
+        _revert = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
+        score = round(_path_score * (1.0 - _revert) + _center * _revert, 1)
         # #666 经验置信带：随 horizon √扩张、熊市态额外放大；半宽 clamp[1,14]
         kk = idx + 1
         half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult, 1.0, 14.0)
@@ -854,6 +865,7 @@ def main():
         if _hist_scores:
             _mu = sum(_hist_scores) / len(_hist_scores)
             _hist_std = (sum((s - _mu) ** 2 for s in _hist_scores) / len(_hist_scores)) ** 0.5
+        _hist_mean = (sum(_hist_scores) / len(_hist_scores)) if _hist_scores else 60.0  # R128 预测水平均值回归锚点
 
         # R127b 滚动感知 base_std：近端带宽跟随「当前湍流度」，而非单一全局常数。
         # 近 60 日 std 与全局 std 混合（近期更平静→带宽更窄更诚实），clamp[4,18] 防极端。
@@ -865,7 +877,7 @@ def main():
         _base_std = (_clamp(0.6 * _recent_std + 0.4 * _hist_std, 4.0, 18.0)
                      if _recent_std is not None else _hist_std)
 
-        fcst = _compute_forecast(D, _base_std, _regime)
+        fcst = _compute_forecast(D, _base_std, _regime, _hist_mean)
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
@@ -878,10 +890,14 @@ def main():
             "regime": _regime,
             "regimeMult": (1.15 if _regime == "bear" else 1.0),
             "horizonScale": "sqrt(k/20) 时间衰减（k=预测点序号/交易日）",
+            "revertCenter": round(_hist_mean, 2),
+            "revertTau": 40.0,
+            "revertCap": 0.5,
             "note": ("预测为路径派生单点；本带按「滚动感知波动率」打底（近60日std=%.1f 与全局std=%.1f 混合=%.1f）、"
                      "随预测 horizon √扩张、熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
-                     "近端带宽跟随当前湍流度（近期更平静→更窄），仅供研判参考，不构成置信区间严格含义。"
-                     ) % ((_recent_std or _hist_std), _hist_std, _base_std),
+                     "近端带宽跟随当前湍流度（近期更平静→更窄）；(R128) 预测 score 水平随 horizon 向历史中枢(%.1f) "
+                     "指数均值回归(远端最多回归50%%)避免路径极值过度外推，仅供研判参考，不构成置信区间严格含义。"
+                     ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
