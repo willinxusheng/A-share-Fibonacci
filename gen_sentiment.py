@@ -223,6 +223,52 @@ def _pctile_rank(value, window):
     return 100.0 * cnt / len(window)
 
 
+def _volume_ratio_series(closes, vols):
+    """全样本 vol20/vol250-1 序列（R138 数据驱动量能归一化用）。
+
+    与 _compute_today / _compute_history 内部口径完全一致（20 日/250 日均量比-1），
+    供一次性计算全样本 σ，避免固定除数 (vr/0.5) 与真实离散度失配导致量能维度
+    在其真实动态区间被压缩、长期欠用其 20% 权重。
+    """
+    out = []
+    for i in range(len(closes)):
+        if i < 249:
+            continue
+        vol20 = _ma(vols[: i + 1], 20)
+        vol250 = _ma(vols[: i + 1], 250)
+        vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
+        out.append(vr)
+    return out
+
+
+def _adaptive_volume_divisor(closes, vols):
+    """R138：量能归一化除数 = 全样本 vol-ratio 标准差（σ），下限钳制防退化。
+
+    固定除数 0.5 相对真实 σ≈0.23 放大 ~2.2×，使 sub_vol 长期蜷缩在正窄带、
+    极少触达 ±1，量能维度实际贡献远低于其 20% 权重。改用 σ 后 sub_vol 在其真实
+    离散范围内展开，权重利用率与动量/位置维度对齐。下限 0.08 防极端低波动样本
+    把微小噪声放大成满量程（与 R127b base_std 同思路的钳制纪律）。
+    """
+    s = _volume_ratio_series(closes, vols)
+    if len(s) < 30:
+        return 0.5  # 样本不足回退固定除数（口径降级，不崩）
+    mu = sum(s) / len(s)
+    sd = (sum((x - mu) ** 2 for x in s) / len(s)) ** 0.5
+    return max(0.08, sd)
+
+
+def _breadth_centered(sub_breadth, breadth_mean):
+    """R138：广度退化维度诚实处理。
+
+    当前广度仅当前单值快照（R271 约束：海外 CI 不可达 eastmoney 历史涨跌家数，
+    广度尚未历史化），故 sub_breadth 长期为常数（+1.0，std=0），它向每个交易日
+    的 score 注入固定 +0.15 偏置并人为抬高「中性」基线——这是零信息量的常量偏置，
+    不是信号。将其按历史均值中心化：常量 → 0，移除静态偏置；未来若广度真正历史化
+    出现离散，则仅真实波动参与合成，不再污染基线。
+    """
+    return _clamp(sub_breadth - breadth_mean, -1.0, 1.0)
+
+
 def _compute_today(D):
     """返回 (score, label, dims_list) 或 None（数据不足）。dims_list 元素 = (name, weight, sub, meta)。"""
     k = D.get("kline") or {}
@@ -242,11 +288,12 @@ def _compute_today(D):
     pos = (last / ma250 - 1.0) if ma250 else 0.0
     sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
 
-    # 3. 量能水平（20 日 / 250 日均量比值）
+    # 3. 量能水平（20 日 / 250 日均量比值）— R138 数据驱动除数（全样本 σ）替代固定 0.5
     vol20 = _ma(vols, 20)
     vol250 = _ma(vols, 250)
     vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
-    sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
+    _vdiv = _adaptive_volume_divisor(closes, vols)
+    sub_vol = _clamp(vr / _vdiv, -1.0, 1.0)
 
     # 4. 波动恐慌（HV20 在「截至当日向前 250 日 HV 分布」中的分位，高波动=恐慌=降温）。
     # 与 _compute_history 末点口径一致，保证当日点与历史曲线平滑衔接；不足时回退 volRegime.pctile。
@@ -256,7 +303,9 @@ def _compute_today(D):
     sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
     # 5. 广度确认（R122c：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均）
-    sub_breadth, bw_avail, res_b_real, cross_b_real = _breadth_sub(D)
+    # R138：广度当前无历史源（R271），sub_breadth 为常数 → 按自身中心化移除静态偏置。
+    sub_breadth_raw, bw_avail, res_b_real, cross_b_real = _breadth_sub(D)
+    sub_breadth = _breadth_centered(sub_breadth_raw, sub_breadth_raw)
 
     dims = [
         ("momentum", 0.30, sub_mom, {"ret20_pct": round(ret20, 2)}),
@@ -301,8 +350,10 @@ def _compute_history(D):
         return []
 
     sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
+    _breadth_mean = sub_breadth  # 当前为常数 → 历史均值即自身；R138 中心化后归零（移除静态偏置）
 
     hv = _daily_hv_series(closes)
+    _vdiv = _adaptive_volume_divisor(closes, vols)  # R138 数据驱动量能除数（全样本 σ）
 
     start = 249  # 首个有完整 MA250/vol250 的点（0-based 索引）
     out = []
@@ -316,18 +367,19 @@ def _compute_history(D):
         pos = (closes[i] / ma250 - 1.0) if ma250 else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
 
-        # 量能
+        # 量能（R138：数据驱动除数替代固定 0.5）
         vol20 = _ma(vols[: i + 1], 20)
         vol250 = _ma(vols[: i + 1], 250)
         vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
-        sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
+        sub_vol = _clamp(vr / _vdiv, -1.0, 1.0)
 
         # 波动：当前 HV20 在「截至当日向前 250 日 HV 分布」中的分位
         win = [h for h in hv[max(0, i - 249): i + 1] if h is not None]
         pctile = _pctile_rank(hv[i], win) if hv[i] is not None else 50.0
         sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
-        score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
+        score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat,
+                                         _breadth_centered(sub_breadth, _breadth_mean)]), 1)
         out.append({"date": dates[i], "score": score})
     return out  # 全部可用点（约 5 年），不再截断到 250
 
