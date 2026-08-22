@@ -700,6 +700,19 @@ def _resolve_revert_tau(optimal_horizon):
     return _clamp(10.0 + (H - 5.0) * (80.0 - 10.0) / (60.0 - 5.0), 10.0, 80.0)
 
 
+def _resolve_mom_win(optimal_horizon):
+    """R131a 最优窗口驱动动量回看窗口：把固定回看 20 日改为数据驱动。
+
+    与 R130a 同源：最优逆势窗口 H 大 → 逆势周期长 → 路径动量应回看更长（捕捉慢变趋势）；
+    H 小 → 周期短 → 动量回看更短（贴合快变节奏）。线性映射 H∈[5,60] → win∈[10,40]，
+    再 clamp 防越界；H 缺失回退固定 20（与原行为一致）。
+    """
+    if optimal_horizon is None:
+        return 20
+    H = float(optimal_horizon)
+    return int(_clamp(round(10.0 + (H - 5.0) * (40.0 - 10.0) / (60.0 - 5.0)), 5, 60))
+
+
 def _resolve_drift_params(drift):
     """R130b 漂移自适应参数：regime 漂移标志 → (置信带半宽倍率, 远端回归上限)。
 
@@ -740,6 +753,13 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
          （不确定期更谦卑，不急于锚定可能已漂移的中枢）；
       c. 状态经验胜率微调近端：用 _state_signal.posPct（当前 level×方向 象限历史上涨概率，纯经验频率）
          对近端 forecast 做小幅方向偏置（权重 0.15 随 horizon 衰减、仅 N≥20 生效），与远端 R128/R129 正交。
+    R131 路径派生诚实化（3 机制，均正交、均带 clamp）：
+      a. 最优窗口驱动动量回看：_MOM_WIN 由 optimalHorizon 数据驱动（H 大→慢变趋势→回看长），
+         与 R130a 同源，不再固定 20 日；
+      b. 未来均线均值回归：牛熊位置锚点由「当前 MA250 恒值」改为「随 horizon 向路径价指数收敛」，
+         远端价格偏离均线终会回归中性，不再被 clamp 钉死在 ±1 失真；
+      c. 路径波动感知置信带：局部(近20点)收益波动 vs 全程波动，局部放大→带宽适度加宽(clamp[1,1.6])，
+         路径高风险段不再被误报为精确。
     hist_std / regime / center / regime_center / extreme_bounds / extreme_reversal / optimal_horizon /
     drift / state_pospct / state_n 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
     """
@@ -776,6 +796,12 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效。
     _STATE_BIAS_W = 0.15   # 近端状态偏置最大权重（实际再×(posPct-0.5)*2 × 近端衰减）
     _STATE_MAX_PTS = 12.0  # 近端最大偏置点数（posPct=1.0 或 0.0 且权重=1 时）
+    # R131a 最优窗口驱动动量回看窗口：与 R130a 同源（optimal_horizon），H 大→回看长（慢变趋势）、
+    # H 小→回看短（快变节奏）；缺失回退 20（与原行为一致）。
+    _MOM_WIN = _resolve_mom_win(optimal_horizon)
+    # R131b 未来均线均值回归时标：牛熊位置不再恒锚「当前 MA250」（路径大涨时远端被 clamp 钉死失真），
+    # 而令未来均线随 horizon 向路径价收敛（价格偏离均线终会均值回归的铁律），远端偏离回归中性。
+    _MA_TAU = 60.0  # 均线跟随价格的指数收敛时标（交易日）
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
     regime_mult = 1.15 if regime == "bear" else 1.0
@@ -828,18 +854,30 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     if not path:
         path = [(future_dates[-1], future_prices[-1])]
 
+    # R131c 路径波动感知置信带：先算路径逐日收益序列，供循环内「局部 vs 全程」波动比值使用。
+    # 局部波动显著放大（如路径锚点间急涨急跌）→ 近端带宽适度加宽，避免路径高风险段被误报为精确。
+    _path_prices = [p for (_d, p) in path]
+    _ret_all = [(_path_prices[i] / _path_prices[i - 1] - 1.0)
+                for i in range(1, len(_path_prices)) if _path_prices[i - 1]]
+    _std_all = (sum((r - sum(_ret_all) / len(_ret_all)) ** 2 for r in _ret_all) / len(_ret_all)) ** 0.5 \
+        if _ret_all else 0.0
+
     out = []
     for idx, (d, price) in enumerate(path):
-        # 动量：沿「交易日近似序列」回看 20 个交易日（非交易日已剔除，path 即交易日序列）；
-        # 早期点数不足 20 时以「今日收盘」兜底，避免衔接处动量硬归零造成的跳变。
-        if idx >= 20:
-            past_price = path[idx - 20][1]
+        # R131a 动量：回看窗口由最优逆势窗口 H 数据驱动（H 大→慢变趋势→回看长）；
+        # 早期点数不足 _MOM_WIN 时以「今日收盘」兜底，避免衔接处动量硬归零造成的跳变。
+        if idx >= _MOM_WIN:
+            past_price = path[idx - _MOM_WIN][1]
         else:
             past_price = last_close
         ret_path = (price / past_price - 1.0) * 100.0 if past_price else 0.0
         sub_mom = _clamp(ret_path / 8.0, -1.0, 1.0)
-        # 牛熊位置：相对「当前已知 250 均线」锚定（未来无均线数据，诚实沿用末值）
-        pos = (price / ma250_now - 1.0) if ma250_now else 0.0
+        # R131b 牛熊位置：未来均线随 horizon 向路径价指数收敛（价格偏离均线终会均值回归的铁律），
+        # 替代恒锚「当前 MA250」（路径大涨/大跌时远端不再被 clamp 钉死在 ±1 失真）。
+        # 近端(idx=0) 收敛因子≈0 → 完全沿用当前 MA250（与原行为一致）；远端渐入路径价 → 偏离回归中性。
+        _ma_revert = 1.0 - math.exp(-(idx + 1) / _MA_TAU)
+        _ma_future = (ma250_now + (price - ma250_now) * _ma_revert) if ma250_now else None
+        pos = (price / _ma_future - 1.0) if _ma_future else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
         # R127a 解冻协变量：量能/波动随 horizon 指数回归中性(0)，远期不再被今日异常值钉死
         _decay = math.exp(-(idx + 1) / _COV_TAU)
@@ -877,9 +915,22 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
             _bump = _edge * _STATE_BIAS_W * _STATE_MAX_PTS * _sdecay
             score = _clamp(score + _bump, 0.0, 100.0)
         score = round(_clamp(score, 0.0, 100.0), 1)
-        # #666 经验置信带：随 horizon √扩张、熊市态额外放大；R130b 漂移期带宽 ×_DRIFT_MULT（更宽更诚实）
+        # #666 经验置信带：随 horizon √扩张、熊市态额外放大；R130b 漂移期带宽 ×_DRIFT_MULT；
+        # R131c 路径波动感知：局部(近20点)收益波动 vs 全程波动，局部放大→带宽适度加宽（clamp[1,1.6]）
         kk = idx + 1
-        half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult * _DRIFT_MULT, 1.0, 14.0)
+        if _std_all > 1e-12:
+            _win = _ret_all[max(0, idx - 19):idx + 1]
+            if _win:
+                _mu = sum(_win) / len(_win)
+                _std_loc = (sum((r - _mu) ** 2 for r in _win) / len(_win)) ** 0.5
+                _ratio = _std_loc / _std_all
+            else:
+                _ratio = 1.0
+            _path_vol_mult = _clamp(1.0 + (_ratio - 1.0) * 0.5, 1.0, 1.6)
+        else:
+            _path_vol_mult = 1.0
+        half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult
+                      * _DRIFT_MULT * _path_vol_mult, 1.0, 14.0)
         lo = _clamp(score - half, 0.0, 100.0)
         hi = _clamp(score + half, 0.0, 100.0)
         out.append({"date": d, "score": score,
@@ -1000,6 +1051,7 @@ def main():
         _revert_tau_eff = _resolve_revert_tau(_horizon.get("optimalHorizon") if _horizon else None)
         _drift_mult, _revert_cap_eff = _resolve_drift_params(
             _recency.get("drift") if _recency else None)
+        _mom_win_eff = _resolve_mom_win(_horizon.get("optimalHorizon") if _horizon else None)
         _state_pospct = (_state.get("posPct") if _state else None)
         _state_n = (_state.get("n") if _state else None)
         out["forecastBand"] = {
@@ -1016,6 +1068,10 @@ def main():
             "revertCap": round(_revert_cap_eff, 2),
             "revertTauEff": round(_revert_tau_eff, 2),
             "driftMult": round(_drift_mult, 2),
+            "momWinEff": _mom_win_eff,
+            "maRevertTau": 60.0,
+            "pathVolMultMax": 1.6,
+            "pathVolMethod": "局部(近20点)路径收益波动 vs 全程波动，局部放大→带宽适度加宽(clamp[1,1.6])；路径高风险段不误报为精确",
             "regimeBiasCenter": (round(_regime_center, 2) if _regime_center is not None else None),
             "regimeBiasW": 0.5,
             "extremeBiasW": 0.6,
@@ -1030,6 +1086,9 @@ def main():
                      "(R130) 预测自适应增强：①最优逆势窗口H=%s驱动回归时标(tau=%.1f，H小回归快/H大回归慢)；"
                      "②regime漂移(等权vs衰减加权背离≥1%%)=%s→带宽×%.1f、远端回归上限降至%.2f；"
                      "③近端按状态经验胜率posPct=%s(象限N=%s)微调(权重0.15随horizon衰减)。"
+                     "(R131) 路径派生诚实化：①动量回看窗口由最优窗口H驱动(momWinEff=%d日，H大→慢变趋势→回看长)；"
+                     "②未来均线随horizon向路径价均值回归(maRevertTau=60日)，远端牛熊位置回归中性不再被clamp钉死；"
+                     "③路径波动感知带宽(局部vs全程波动比，放大上限×%.1f)，路径高风险段不误报为精确。"
                      "仅供研判参考，不构成置信区间严格含义。"
                      ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean,
                           _revert_cap_eff * 100,
@@ -1038,7 +1097,8 @@ def main():
                           (_horizon.get("optimalHorizon") if _horizon else "N/A"), _revert_tau_eff,
                           (_recency.get("drift") if _recency else False), _drift_mult, _revert_cap_eff,
                           (str(_state_pospct) if _state_pospct is not None else "N/A"),
-                          (str(_state_n) if _state_n is not None else "N/A")),
+                          (str(_state_n) if _state_n is not None else "N/A"),
+                          _mom_win_eff, 1.6),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
@@ -1106,6 +1166,7 @@ def main():
                        "R124：在 R123 基础上再增强预测力——①最优预测窗口扫描(逆势信号最强H∈{5,10,20,40,60})；②组合状态信号(当前水平档×Δ方向四象限经验胜率，纯样本频率非拟合)；③近期权重稳健性对照(等权 vs 近1年衰减加权，regime漂移诊断)。R125：在 R124 基础上再增强——①极值反转诊断(恐慌区后反弹/狂热区后回落的逆向反转概率，逆向投资核心)；②多窗口信号共振/背离(各H窗口方向一致性，共振=高置信)；③分regime条件胜率(当前regime下该组合状态的经验上涨概率，比不分regime更细)。均为contra下独立诊断字段，不改dims、不改今日展示口径。"
                        "R129：在 R125 基础上把已验证诊断『反馈进 forecast 方向修正』而非仅展示——极值反转概率驱动极端区逆势回归、分regime均衡中枢驱动远端条件偏置，使预测方向带经验修正；透明参数见 forecastBand.regimeBiasCenter/regimeBiasW/extremeBiasW/extremeBiasMethod。"
                        "R130：在 R129 基础上对 forecast 做『预测自适应增强』——①最优逆势窗口H驱动回归时标(数据驱动tau，H小回归快/H大回归慢，贴合当前逆势周期)；②regime漂移期置信带宽×1.2、远端回归上限0.5→0.35(不确定期更谦卑，不锚定漂移中枢)；③近端按当前状态象限历史上涨概率posPct微调(权重0.15随horizon衰减、仅N>=20生效，与远端中枢回归正交)；透明参数见 forecastBand.revertTauEff/driftMult/stateBiasW/stateBiasMethod。"
+                       "R131：在 R130 基础上对 forecast 做『路径派生诚实化』——①动量回看窗口由最优窗口H驱动(momWinEff，H大→慢变趋势→回看长，与R130a同源)；②未来均线随horizon向路径价均值回归(maRevertTau=60日)，远端牛熊位置回归中性、不再被clamp钉死在±1；③路径波动感知置信带(局部vs全程波动比，放大上限×1.6)，路径高风险段不误报为精确；透明参数见 forecastBand.momWinEff/maRevertTau/pathVolMultMax/pathVolMethod。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e

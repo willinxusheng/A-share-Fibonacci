@@ -82,7 +82,7 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod", "momWinEff", "maRevertTau", "pathVolMultMax", "pathVolMethod"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
     # R129 方向修正守门：权重须∈[0,1]、分regime中枢(若有)须∈[0,100]，防过拟合/过度修正
@@ -104,6 +104,15 @@ if _fb:
         chk(0.0 <= _fb["stateBiasW"] <= 1.0, "R130 stateBiasW 越界[0,1]: %r" % _fb.get("stateBiasW"))
     chk(isinstance(_fb.get("stateBiasMethod"), str) and len(_fb.get("stateBiasMethod") or "") > 0,
         "R130 stateBiasMethod 缺失或非字符串")
+    # R131 路径派生诚实化守门：动量窗口∈[5,60]、均线回归时标∈[30,120]、路径波动上限∈[1,2]、方法说明非空
+    if _fb.get("momWinEff") is not None:
+        chk(5 <= _fb["momWinEff"] <= 60, "R131 momWinEff 越界[5,60]: %r" % _fb.get("momWinEff"))
+    if _fb.get("maRevertTau") is not None:
+        chk(30.0 <= _fb["maRevertTau"] <= 120.0, "R131 maRevertTau 越界[30,120]: %r" % _fb.get("maRevertTau"))
+    if _fb.get("pathVolMultMax") is not None:
+        chk(1.0 <= _fb["pathVolMultMax"] <= 2.0, "R131 pathVolMultMax 越界[1,2]: %r" % _fb.get("pathVolMultMax"))
+    chk(isinstance(_fb.get("pathVolMethod"), str) and len(_fb.get("pathVolMethod") or "") > 0,
+        "R131 pathVolMethod 缺失或非字符串")
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None
