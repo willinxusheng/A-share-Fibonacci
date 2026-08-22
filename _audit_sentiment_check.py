@@ -137,6 +137,29 @@ if _fb:
             "R133 regimeWinN 须为非负 int: %r" % _fb.get("regimeWinN"))
     if _fb.get("posPctUsed") is not None:
         chk(0.0 <= _fb["posPctUsed"] <= 1.0, "R133 posPctUsed 越界[0,1]: %r" % _fb.get("posPctUsed"))
+    # R134 单一真值增强：元信息须与「生成器实际生效值」独立重算一致，防公式/口径漂移——
+    # ① confMult 须 = clamp(0.5+2*(consensusConf-0.5), 0.5, 1.5)（用未 round 原始比值，非展示值）；
+    # ② posPctUsed 须 = regimeWin.posPct（N>=20 时）否则 = stateSignal.posPct（N>=20 时）。
+    _cc = _fb.get("consensusConf")
+    if _cc is not None:
+        _exp_mult = max(0.5, min(1.5, 0.5 + 2.0 * (_cc - 0.5)))
+        chk(abs((_fb.get("confMult") or 0) - _exp_mult) < 0.011,
+            "R134 confMult 与 consensusConf 重算不一致: 存储%s vs 重算%.2f" % (_fb.get("confMult"), _exp_mult))
+    else:
+        chk(_fb.get("confMult") in (None, 1.0),
+            "R134 consensusConf=None 时 confMult 应为 1.0: %r" % _fb.get("confMult"))
+    _stSig = (today.get("contra") or {}).get("stateSignal") or {}
+    _rw2 = _stSig.get("regimeWin") or {}
+    if (_rw2.get("posPct") is not None and (_rw2.get("n") or 0) >= 20):
+        _exp_pp = _rw2.get("posPct")
+    elif (_stSig.get("posPct") is not None and (_stSig.get("n") or 0) >= 20):
+        _exp_pp = _stSig.get("posPct")
+    else:
+        _exp_pp = None
+    if _exp_pp is not None:
+        chk(_fb.get("posPctUsed") is not None and abs((_fb.get("posPctUsed") or 0) - _exp_pp) < 0.011,
+            "R134 posPctUsed(%s) 与 stateSignal/regimeWin 派生(%s) 不一致"
+            % (_fb.get("posPctUsed"), _exp_pp))
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None
