@@ -115,6 +115,36 @@ def main():
             fh_b, fm_b = _fwd_b("偏热"), _fwd_b("狂热")
             if _n_b("狂热") >= 10 and fh_b is not None and fm_b is not None:
                 chk(fh_b >= fm_b - 1.0, "逆向单调性(熊市态)：偏热 fwd20 %.2f < 狂热 %.2f（逆势信号存疑）" % (fh_b, fm_b))
+        # R123：contra.delta 与独立重算一致（单一真值）+ regimeSummary 存在
+        _delta = (contra or {}).get("delta") or {}
+        if _delta:
+            _rising = _delta.get("rising") or {}
+            _falling = _delta.get("falling") or {}
+            _base = len(kd) - len(hist) if hist else 0
+            _rn = _rs = _fn = _fs = 0.0
+            for _off, _h in enumerate(hist):
+                _d = _h.get("d20")
+                if _d is None:
+                    continue
+                _i = _base + _off
+                _j = _i + 20
+                if _j >= len(kc):
+                    continue
+                _f = (kc[_j] / kc[_i] - 1.0) * 100.0
+                if _d >= 0:
+                    _rn += 1
+                    _rs += _f
+                else:
+                    _fn += 1
+                    _fs += _f
+            _rf = round(_rs / _rn, 2) if _rn else None
+            _ff = round(_fs / _fn, 2) if _fn else None
+            chk((_rising.get("fwd20") is None and _rf is None) or abs((_rising.get("fwd20") or 0) - (_rf or 0)) < 0.011,
+                "contra.delta.rising.fwd20 不一致(R123): 存储 %s vs 独立 %s" % (_rising.get("fwd20"), _rf))
+            chk((_falling.get("fwd20") is None and _ff is None) or abs((_falling.get("fwd20") or 0) - (_ff or 0)) < 0.011,
+                "contra.delta.falling.fwd20 不一致(R123): 存储 %s vs 独立 %s" % (_falling.get("fwd20"), _ff))
+            _rs_str = contra.get("regimeSummary")
+            chk(isinstance(_rs_str, str) and len(_rs_str) > 0, "contra.regimeSummary 缺失或空(R123)")
 
     # ---------- B. forecast 每日期均为 A股交易日 ----------
     fcst = sent.get("forecast") or []

@@ -130,7 +130,7 @@ def main():
     bad_lbl = [f for f in fcst if f.get("label") != label_of(f.get("score"))]
     chk(not bad_lbl, "forecast %d 个点 label 与 score 分档不符: %r" % (len(bad_lbl), bad_lbl[:3]))
 
-    # ---------- E. today 与 history 末点衔接 ----------
+    # ---------- E. today 与 history 末点衔接 + R123 Δ/z 一致（单一真值） ----------
     if hist:
         last_h = hist[-1]
         t = sent.get("today") or {}
@@ -138,6 +138,16 @@ def main():
             "today score %s 与 history 末点 %s 不一致" % (t.get("score"), last_h["score"]))
         chk(t.get("label") == last_h["label"],
             "today label %s 与 history 末点 %s 不一致" % (t.get("label"), last_h["label"]))
+        _sc = t.get("sentimentChange") or {}
+        chk(_sc.get("d20") == last_h.get("d20"),
+            "today.sentimentChange.d20(%r) != history 末点 d20(%r)" % (_sc.get("d20"), last_h.get("d20")))
+        chk(t.get("zscore") == last_h.get("z"),
+            "today.zscore(%r) != history 末点 z(%r)" % (t.get("zscore"), last_h.get("z")))
+    # ---------- E3. R123：contra.delta + regimeSummary 存在且结构合理 ----------
+    _delta = (contra or {}).get("delta") or {}
+    chk("rising" in _delta and "falling" in _delta, "contra.delta 缺 rising/falling(R123)")
+    _rs_str = contra.get("regimeSummary")
+    chk(isinstance(_rs_str, str) and len(_rs_str) > 0, "contra.regimeSummary 缺失或空(R123)")
 
     # ---------- F. contra.note 诚实口径 ----------
     note = contra.get("note") or ""

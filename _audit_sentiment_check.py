@@ -36,6 +36,9 @@ chk(ts is not None and 0 <= ts <= 100, "today.score 越界或缺失: %r" % ts)
 if ts is not None:
     chk(today.get("label") == _label(ts, _bounds), "today.label 与 score 分档不一致(动态标尺): %s vs %s" % (today.get("label"), _label(ts, _bounds)))
     chk(isinstance(today.get("dims"), list) and len(today["dims"]) == 5, "today.dims 维度数异常: %r" % today.get("dims"))
+    sc = today.get("sentimentChange") or {}
+    chk("d5" in sc and "d20" in sc, "today.sentimentChange 缺 d5/d20(R123)")
+    chk("zscore" in today, "today 缺 zscore 字段(R123)")
 
 # 3. history
 hist = S.get("history") or []
@@ -44,6 +47,8 @@ dates_h = [h["date"] for h in hist]
 for h in hist:
     for k in ("date", "score", "label"):
         chk(h.get(k) is not None, "history 缺字段 %s: %r" % (k, h))
+    for kk in ("d5", "d20", "z"):
+        chk(kk in h, "history 缺派生字段 %s(R123): %r" % (kk, h))
     if h.get("score") is not None:
         chk(0 <= h["score"] <= 100, "history score 越界: %r" % h)
         chk(h.get("label") == _label(h["score"], _bounds), "history label 与 score 不一致(动态标尺): %r" % h)

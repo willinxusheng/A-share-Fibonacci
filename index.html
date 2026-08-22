@@ -1856,6 +1856,22 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     if (_extra.length) {
       html += '<div style="margin:0 0 6px;font-size:12px;color:#8a94a6;">' + _extra.join(' · ') + '</div>';
     }
+    // R123a/b：情绪20日变化(Δ) + 滚动 z 分位（比绝对水平更具预测信息，见生成器统计）
+    var _sc = t.sentimentChange || {};
+    var _d20 = (_sc.d20 != null) ? _sc.d20 : null;
+    var _z = (t.zscore != null) ? t.zscore : null;
+    var _r123 = [];
+    if (_d20 != null) {
+      var _ds = (_d20 > 0 ? '↗ 升温 ' : (_d20 < 0 ? '↘ 降温 ' : '→ 持平 ')) + (_d20 >= 0 ? '+' : '') + _d20.toFixed(1);
+      _r123.push('情绪20日变化 <b style="color:#2a3340;">' + _ds + '</b>');
+    }
+    if (_z != null) {
+      var _zs = (_z >= 1 ? '偏高' : _z <= -1 ? '偏低' : '中性');
+      _r123.push('z分位 <b style="color:#2a3340;">' + _z.toFixed(2) + '</b>（' + _zs + '）');
+    }
+    if (_r123.length) {
+      html += '<div style="margin:0 0 6px;font-size:12px;color:#8a94a6;">' + _r123.join(' · ') + '</div>';
+    }
     // R117：分档分布条（各档历史占比，当前档高亮）
     if (histScores.length) {
       var BANDS5 = [
@@ -1925,6 +1941,12 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
       '<span style="color:' + revCol + ';font-weight:600;">逆向解读：</span>' + revTxt +
       '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+    // R123c：分 regime 信号强度直读（复用生成器 split 分态统计，避免前端重算口径漂移）
+    if (contra && contra.regimeSummary) {
+      html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
+        '<span style="color:' + col + ';font-weight:600;">信号强度：</span>' + contra.regimeSummary +
+        '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+    }
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +

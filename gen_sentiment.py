@@ -27,6 +27,12 @@
 五档定性（R122a 动态分位标尺）：基于 history 分布 p10/p30/p70/p90 切五档（冰点/偏冷/中性/偏热/狂热）；
   分布退化时回退固定 <20 / 20-40 / 40-60 / 60-80 / ≥80。today/history/forecast 共用同一标尺。
 
+R123 预测力增强（不改水平口径，仅加派生信号）：
+  - 情绪变化 Δ：每段历史算 5/20 日情绪差，并做『升温 vs 降温』分组未来20日收益统计
+    （实证：情绪越涨越慎/越跌越贪，Δ 比水平更会预测未来收益）。
+  - 滚动 z 分位：近120日均值/标准差归一化，标出『当前情绪相对自身近期有多极端』，跨 regime 可比。
+  - 分 regime 信号强度直读：复用熊/牛分态统计，当前 regime 下一句话给信号强弱结论。
+
 诚实标注：这是「量能/动量/波动/广度」合成的代理情绪温度，非全市场涨跌家数；
   且量能维度受跨源 volume 单位差异影响，仅作相对参考。退出码恒 0（软，透明化不阻断）。
 """
@@ -377,6 +383,59 @@ def _contra_stats(D, hist, bounds=None, scale_mode="fixed"):
     }
 
 
+def _contra_delta_stats(D, hist):
+    """情绪变化(Δ)预测力统计（R123a）：经典结论——情绪的变化比情绪的水平更会预测未来收益。
+
+    对每个有 Δ20 与未来20日收益的历史点，按 Δ 符号分『升温/降温』两组，
+    统计各自未来20日平均收益；并做四象限（高/中/低 水平 × 升/降）细分，
+    揭示『高位升温』『低位降温』等极端情形的方向。返回 {rising, falling, quadrants, note}。
+    """
+    k = D.get("kline") or {}
+    closes = [float(x) for x in (k.get("close") or [])]
+    if not hist or len(closes) < len(hist) + 20:
+        return None
+    base = len(closes) - len(hist)
+    rising_n = rising_s = falling_n = falling_s = 0.0
+    quad = {}
+    for off, h in enumerate(hist):
+        d = h.get("d20")
+        if d is None:
+            continue
+        i = base + off
+        j = i + 20
+        if j >= len(closes):
+            continue
+        f = (closes[j] / closes[i] - 1.0) * 100.0
+        if d >= 0:
+            rising_n += 1
+            rising_s += f
+        else:
+            falling_n += 1
+            falling_s += f
+        lb = "高" if h["score"] >= 60 else ("低" if h["score"] < 40 else "中")
+        key = (lb, "升" if d >= 0 else "降")
+        q = quad.setdefault(key, [0, 0.0])
+        q[0] += 1
+        q[1] += f
+
+    def _mean(n, s):
+        return round(s / n, 2) if n else None
+
+    r_rise = _mean(int(rising_n), rising_s)
+    r_fall = _mean(int(falling_n), falling_s)
+    quads = [{"level": lv, "dir": dr, "n": v[0], "fwd20": _mean(v[0], v[1])}
+             for (lv, dr), v in sorted(quad.items())]
+    note = ("情绪变化(Δ20)预测力：升温组 N=%d 未来20日平均 %.2f%%，降温组 N=%d 平均 %.2f%%。"
+            % (int(rising_n), r_rise if r_rise is not None else 0.0,
+               int(falling_n), r_fall if r_fall is not None else 0.0))
+    if r_rise is not None and r_fall is not None:
+        note += ("升温后收益%s降温后，印证『情绪越涨越慎、越跌越贪』的逆向时机信号。"
+                 % ("低于" if r_rise < r_fall else "高于"))
+    return {"rising": {"n": int(rising_n), "fwd20": r_rise},
+            "falling": {"n": int(falling_n), "fwd20": r_fall},
+            "quadrants": quads, "note": note}
+
+
 def _compute_forecast(D):
     """由 subForecast 价格路径派生未来情绪预测序列。
 
@@ -484,6 +543,17 @@ def main():
             h["label"] = _label(h["score"], bounds)
         out["history"] = hist
 
+        # R123a/R123b：每段历史的情绪变化 Δ5/Δ20 与滚动 z 分位（近120日均值/标准差）
+        _hs = [h["score"] for h in hist]
+        for _i, _h in enumerate(hist):
+            _s = _h["score"]
+            _h["d5"] = round(_hs[_i] - _hs[_i - 5], 1) if _i >= 5 else None
+            _h["d20"] = round(_hs[_i] - _hs[_i - 20], 1) if _i >= 20 else None
+            _win = _hs[max(0, _i - 119):_i + 1]
+            _mu = sum(_win) / len(_win)
+            _sd = (sum((_x - _mu) ** 2 for _x in _win) / len(_win)) ** 0.5
+            _h["z"] = round((_s - _mu) / _sd, 2) if _sd > 1e-9 else 0.0
+
         r = _compute_today(D)
         if r is None:
             out["today"] = {"score": None, "label": "数据不足",
@@ -504,7 +574,34 @@ def main():
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
         if contra is not None and out.get("today", {}).get("score") is not None:
+            # R123a：情绪变化(Δ)预测力统计，作为水平分档信号的补充时机维度
+            delta = _contra_delta_stats(D, out["history"])
+            if delta is not None:
+                contra["delta"] = delta
+            # R123c：分 regime 信号强度直读（复用 split 分态统计，避免重复口径）
+            _spb = (contra.get("split") or {}).get(contra.get("regime"), {}).get("bands") or []
+            _cur = next((b for b in _spb if b.get("label") == out["today"].get("label")), None)
+            if _cur is not None:
+                _f = _cur.get("fwd20")
+                if _f is not None:
+                    _strong = "显著" if abs(_f) >= 1.0 else "偏弱"
+                    contra["regimeSummary"] = (
+                        "当前为%s态：情绪%s档 N=%d，此后20日平均收益 %s%%，逆势信号%s（%s）。"
+                        % (("熊市" if contra.get("regime") == "bear" else "牛市"),
+                           out["today"].get("label"), _cur["n"],
+                           ("+" + str(_f) if _f >= 0 else str(_f)),
+                           _strong, ("历史实证支持逆向操作" if _strong == "显著" else "信号不稳固、仅作参考")))
+                else:
+                    contra["regimeSummary"] = (
+                        "当前为%s态：情绪%s档样本不足(N=%d)，逆势信号暂无统计支撑，仅作参考。"
+                        % (("熊市" if contra.get("regime") == "bear" else "牛市"),
+                           out["today"].get("label"), _cur["n"]))
             out["today"]["contra"] = contra
+        # R123a/b：今日情绪变化(Δ)与 z 分位（取自 history 末点，单一真值派生，不新增维度）
+        if out.get("today", {}).get("score") is not None:
+            _last = out["history"][-1] if out.get("history") else {}
+            out["today"]["sentimentChange"] = {"d5": _last.get("d5"), "d20": _last.get("d20")}
+            out["today"]["zscore"] = _last.get("z")
 
         out["scale"] = {
             "mode": scale_mode,
@@ -524,7 +621,7 @@ def main():
                        "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。"
                        "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
                        "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
-                       "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。"
+                       "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
