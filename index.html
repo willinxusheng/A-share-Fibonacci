@@ -2165,8 +2165,9 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           {
             name: '预测情绪', type: 'line', data: fcstData,
             showSymbol: false, smooth: true,
-            lineStyle: { width: 2, color: '#7b61c4', type: 'dashed' },
-            itemStyle: { color: '#7b61c4' },
+            // 预测段用青色虚线，与历史紫色实线区分，暗示未来推演
+            lineStyle: { width: 2, color: '#38b2ac', type: 'dashed' },
+            itemStyle: { color: '#38b2ac' },
             markLine: todayDate ? {
               silent: true, symbol: 'none',
               lineStyle: { color: '#8a94a6', type: 'dotted', width: 1 },
