@@ -21,8 +21,9 @@
   - today   : 当日单点快照（含 5 维 dims），保持 R87 既有契约。
   - history : 近 250 个交易日逐日回算的历史情绪序列（date, score, label）。
   - forecast: 由 subForecast 价格路径派生（斐波那契路径映射）的未来情绪预测序列（date, score, label）。
-              预测段无量能/波动/广度未来因子，故量能沿用当前比值、波动沿用当前分位、广度沿用当前均值，
-              仅「动量+牛熊位置」随价格路径变化 —— 这是路径派生预测，非因子预测，已在 note 中诚实标注。
+              预测段无量能/波动/广度未来因子，故量能/波动随预测 horizon 指数回归历史中枢（波动率均值回归，
+              不再恒用今日值钉死全程）、广度沿用当前均值，仅「动量+牛熊位置」随价格路径变化 —— 这是路径派生
+              预测，非因子预测，已在 note 中诚实标注。
 
 五档定性（R122a 动态分位标尺）：基于 history 分布 p10/p30/p70/p90 切五档（冰点/偏冷/中性/偏热/狂热）；
   分布退化时回退固定 <20 / 20-40 / 40-60 / 60-80 / ≥80。today/history/forecast 共用同一标尺。
@@ -691,7 +692,8 @@ def _compute_forecast(D, hist_std=None, regime=None):
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
     按日历日线性插值得到连续价位，剔除周末后仅保留交易日近似序列，再沿路径计算动量+牛熊位置
-    （量能/波动/广度沿用当前值）。这是「斐波那契路径派生」而非因子预测，已在 note 诚实标注。
+    （量能/波动随预测 horizon 指数回归历史中枢、广度沿用当前值）。这是「斐波那契路径派生」而非因子预测，
+    已在 note 诚实标注。
 
     #666 经验置信带：每个预测点除 score 外，按历史情绪波动率(hist_std)打底、随预测 horizon √扩张、
     熊市态(regime='bear')额外×1.15，给出诚信 lo/hi 区间（详见 out["forecastBand"]），
@@ -709,11 +711,14 @@ def _compute_forecast(D, hist_std=None, regime=None):
     ma250_now = _ma(closes, 250) or last_close
 
     sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
-    sub_volat = _clamp(1.0 - _f((D.get("volRegime") or {}).get("pctile"), 50.0) / 50.0, -1.0, 1.0)
+    # R127a 解冻：量能/波动为「今日锚值」，沿预测 horizon 指数回归中性(0)（波动率均值回归铁律），
+    # 不再恒用今日值贯穿整个预测期；仅广度无历史源、仍沿用当前值。
+    sub_volat_today = _clamp(1.0 - _f((D.get("volRegime") or {}).get("pctile"), 50.0) / 50.0, -1.0, 1.0)
     vols = [float(x) for x in (k.get("volume") or [])]
     vol20 = _ma(vols, 20) or 1.0
     vol250 = _ma(vols, 250) or 1.0
-    sub_vol = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
+    sub_vol_today = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
+    _COV_TAU = 15.0  # 协变量均值回归时间常数（交易日）：约 15 日衰减 ~63%
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
     regime_mult = 1.15 if regime == "bear" else 1.0
@@ -779,7 +784,11 @@ def _compute_forecast(D, hist_std=None, regime=None):
         # 牛熊位置：相对「当前已知 250 均线」锚定（未来无均线数据，诚实沿用末值）
         pos = (price / ma250_now - 1.0) if ma250_now else 0.0
         sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
-        score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
+        # R127a 解冻协变量：量能/波动随 horizon 指数回归中性(0)，远期不再被今日异常值钉死
+        _decay = math.exp(-(idx + 1) / _COV_TAU)
+        _sub_vol = sub_vol_today * _decay
+        _sub_volat = sub_volat_today * _decay
+        score = round(_score_from_subs([sub_mom, sub_pos, _sub_vol, _sub_volat, sub_breadth]), 1)
         # #666 经验置信带：随 horizon √扩张、熊市态额外放大；半宽 clamp[1,14]
         kk = idx + 1
         half = _clamp(base_std * math.sqrt(kk / 20.0) * 0.8 * regime_mult, 1.0, 14.0)
@@ -846,20 +855,33 @@ def main():
             _mu = sum(_hist_scores) / len(_hist_scores)
             _hist_std = (sum((s - _mu) ** 2 for s in _hist_scores) / len(_hist_scores)) ** 0.5
 
-        fcst = _compute_forecast(D, _hist_std, _regime)
+        # R127b 滚动感知 base_std：近端带宽跟随「当前湍流度」，而非单一全局常数。
+        # 近 60 日 std 与全局 std 混合（近期更平静→带宽更窄更诚实），clamp[4,18] 防极端。
+        _recent_scores = _hist_scores[-60:] if len(_hist_scores) >= 20 else []
+        _recent_std = None
+        if _recent_scores:
+            _rmu = sum(_recent_scores) / len(_recent_scores)
+            _recent_std = (sum((s - _rmu) ** 2 for s in _recent_scores) / len(_recent_scores)) ** 0.5
+        _base_std = (_clamp(0.6 * _recent_std + 0.4 * _hist_std, 4.0, 18.0)
+                     if _recent_std is not None else _hist_std)
+
+        fcst = _compute_forecast(D, _base_std, _regime)
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
         out["forecastBand"] = {
-            "method": "经验置信带（目标覆盖≈80%，基于历史波动率的启发式近似，非严格统计置信区间）",
+            "method": "经验置信带（目标覆盖≈80%，基于滚动感知波动率的启发式近似，非严格统计置信区间）",
             "level": "≈80%",
-            "baseStd": round(_hist_std, 2),
+            "baseStd": round(_base_std, 2),
+            "baseStdGlobal": round(_hist_std, 2),
+            "baseStdRecent60": (round(_recent_std, 2) if _recent_std is not None else None),
             "regime": _regime,
             "regimeMult": (1.15 if _regime == "bear" else 1.0),
             "horizonScale": "sqrt(k/20) 时间衰减（k=预测点序号/交易日）",
-            "note": ("预测为路径派生单点；本带按历史情绪波动率(hist_std=%.1f)打底、随预测 horizon √扩张、"
-                     "熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
-                     "仅供研判参考，不构成置信区间严格含义。") % _hist_std,
+            "note": ("预测为路径派生单点；本带按「滚动感知波动率」打底（近60日std=%.1f 与全局std=%.1f 混合=%.1f）、"
+                     "随预测 horizon √扩张、熊市态额外×1.15，将「假精确单点」变为「诚实区间」；区间半宽上限14分、下限1分，"
+                     "近端带宽跟随当前湍流度（近期更平静→更窄），仅供研判参考，不构成置信区间严格含义。"
+                     ) % ((_recent_std or _hist_std), _hist_std, _base_std),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
@@ -926,7 +948,8 @@ def main():
                        "宽基与跨市场广度合成，非全市场涨跌家数；量能维度受跨源 volume 单位差异影响，"
                        "仅供研判参考，不参与任何概率/方向计算。"
                        "history 为全部可用交易日逐日回算（约 5 年）；forecast 由 subForecast 价格路径派生"
-                       "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。"
+                       "（量能/波动随 horizon 指数回归历史中枢、广度沿用当前值，仅动量+位置随路径变化），"
+                       "为路径派生预测非因子预测。"
                        "广度维度（R122c）：仅用 breadthAvailable>0 的可用源均值，缺失源不参与平均、"
                        "全缺失归零不偏置；当前广度尚未历史化（R271 海外 CI 不可达 eastmoney 涨跌家数）。"
                        "五档定性（R122a）：采用动态分位标尺（mode=%s），非固定阈值。R123：新增情绪20日变化(Δ)与滚动z分位(近120日)，并给出当前regime下信号强度直读。"

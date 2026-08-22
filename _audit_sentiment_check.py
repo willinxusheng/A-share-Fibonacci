@@ -82,7 +82,7 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "regime", "regimeMult", "horizonScale"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
