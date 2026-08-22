@@ -61,9 +61,17 @@ def build_features(D):
     if len(closes) < 250:
         return None, None
 
-    res_b = float((D.get("resonance") or {}).get("breadth") or 0.0)
-    cross_b = float((D.get("crossMarket") or {}).get("breadth") or 0.0)
-    sub_breadth = clamp((res_b + cross_b) / 2.0, -1.0, 1.0)
+    # R122c 同口径：广度仅用 breadthAvailable>0 的源均值，缺失源不参与平均、全缺失归零不偏置
+    res_b = (D.get("resonance") or {}).get("breadth")
+    res_a = (D.get("resonance") or {}).get("breadthAvailable") or 0
+    cross_b = (D.get("crossMarket") or {}).get("breadth")
+    cross_a = (D.get("crossMarket") or {}).get("breadthAvailable") or 0
+    _parts = []
+    if res_a > 0 and res_b is not None:
+        _parts.append(float(res_b))
+    if cross_a > 0 and cross_b is not None:
+        _parts.append(float(cross_b))
+    sub_breadth = clamp(sum(_parts) / len(_parts), -1.0, 1.0) if _parts else 0.0
     hv = daily_hv(closes)
 
     feats = {}

@@ -157,16 +157,24 @@ def main():
         chk(not h_bad, "H: spark 与 kline 收盘不一致 %d 处: %r" % (len(h_bad), h_bad[:3]))
         chk(len(sp) >= 50, "H: spark 点数 %d 偏少（预期近60日）" % len(sp))
 
-    # ---------- I. sentiment 广度与 resonance/crossMarket 联动 ----------
+    # ---------- I. sentiment 广度与 resonance/crossMarket 联动（R122c 同口径：仅可用源均值） ----------
     dims = (sent.get("today") or {}).get("dims") or []
     br = next((d for d in dims if d.get("name") == "breadth"), None)
     res_b = (data.get("resonance") or {}).get("breadth")
+    res_a = (data.get("resonance") or {}).get("breadthAvailable") or 0
     cross_b = (data.get("crossMarket") or {}).get("breadth")
-    if br is not None and res_b is not None and cross_b is not None:
-        expect_b = (res_b + cross_b) / 2.0
+    cross_a = (data.get("crossMarket") or {}).get("breadthAvailable") or 0
+    if br is not None and (res_a > 0 or cross_a > 0):
+        # R122c：仅用 breadthAvailable>0 的源均值，缺失源不参与平均、全缺失归零
+        parts = []
+        if res_a > 0 and res_b is not None:
+            parts.append(float(res_b))
+        if cross_a > 0 and cross_b is not None:
+            parts.append(float(cross_b))
+        expect_b = (sum(parts) / len(parts)) if parts else 0.0
         i_ok = abs(br.get("sub", 0) - expect_b) < 0.011
-        chk(i_ok, "I: sentiment breadth sub=%.4f != (res %.3f + cross %.3f)/2=%.4f"
-            % (br.get("sub", 0), res_b, cross_b, expect_b))
+        chk(i_ok, "I: sentiment breadth sub=%.4f != 可用源均值=%.4f (res avail=%d %s + cross avail=%d %s，缺失源不参与)"
+            % (br.get("sub", 0), expect_b, res_a, res_b, cross_a, cross_b))
 
     # ---------- J. subZigzag 起点 与 wavePoints 浪③起联动（5% 子浪 zigzag 从浪③起开始） ----------
     if sz and wp:
