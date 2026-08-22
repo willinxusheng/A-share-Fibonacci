@@ -1837,6 +1837,18 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<div style="flex:1;height:10px;border-radius:6px;background:linear-gradient(90deg,#1f6fb2,#8a94a6,#e0903a,#c23531);position:relative;">' +
       '<div style="position:absolute;left:' + score + '%;top:-4px;width:4px;height:18px;border-radius:2px;background:#242a35;"></div>' +
       '</div></div>';
+    // R114：逆向解读（实证：score 与未来收益负相关，近250日真实样本，N=各档样本数）
+    var REVERSE = {
+      '冰点': ['情绪冰点：近250日样本 N=0（未触发过），极端情绪位仅作提示', '#1f6fb2'],
+      '偏冷': ['情绪偏冷：近250日样本 N=16，此后20日平均收益 +2.49%，逆向布局参考', '#3b8fc2'],
+      '中性': ['情绪中性：近250日样本 N=92，此后20日平均收益 +0.62%，多空均衡', '#8a94a6'],
+      '偏热': ['情绪偏热：近250日样本 N=118，此后20日平均收益 0.00%，追高性价比低', '#e0903a'],
+      '狂热': ['情绪狂热：近250日样本 N=19，此后20日平均收益 -0.03%，逆向风险区', '#c23531']
+    };
+    var rev = REVERSE[label] || ['—', '#8a94a6'];
+    html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
+      '<span style="color:' + rev[1] + ';font-weight:600;">逆向解读：</span>' + rev[0] +
+      '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
