@@ -1818,8 +1818,9 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var bodyEl = document.getElementById('sentBody');
   if (!bodyEl) return;
   if (!s) { bodyEl.textContent = '情绪温度暂不可用（首次生成前）。'; return; }
-  var score = s.score;
-  var label = s.label || '—';
+  var t = s.today || {};
+  var score = t.score;
+  var label = t.label || '—';
   var BAND = { '冰点': '#1f6fb2', '偏冷': '#3b8fc2', '中性': '#8a94a6', '偏热': '#e0903a', '狂热': '#c23531' };
   var col = BAND[label] || '#8a94a6';
   function tag(txt, c) {
@@ -1828,7 +1829,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   }
   if (statusEl) statusEl.innerHTML = tag(label, col);
   if (dateEl) dateEl.textContent = '数据截止 ' + (s.asOf || '—');
-  var dims = s.dims || [];
+  var dims = t.dims || [];
   var html = '';
   if (score != null) {
     html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">' +
@@ -1855,9 +1856,91 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<td style="padding:4px 8px;border-top:1px solid #f2eee6;text-align:right;color:#8a94a6;">' + detail + '</td></tr>';
   });
   html += '</table>';
+
+  // 走势图容器（历史实线 + 未来虚线预测 + dataZoom 缩略轴）
+  html += '<div id="sentChart" style="width:100%;height:300px;margin-top:12px;"></div>';
   if (s.error) html += '<div style="margin-top:8px;color:#c23531;">⚠️ ' + s.error + '</div>';
   html += '<div style="margin-top:8px;color:#8a94a6;font-size:12px;">' + (s.note || '') + '</div>';
   bodyEl.innerHTML = html;
+
+  // 走势图（仅在浏览器且有 echarts 时绘制；沙箱/无头环境跳过且不报错）
+  if (typeof echarts !== 'undefined') {
+    var chartEl = document.getElementById('sentChart');
+    if (chartEl) {
+      var hist = s.history || [];
+      var fcst = s.forecast || [];
+      var hd = hist.map(function (d) { return d.date; });
+      var fd = fcst.map(function (d) { return d.date; });
+      var allDates = hd.concat(fd);
+      var histData = hist.map(function (d) { return d.score; });
+      histData = histData.concat(fd.map(function () { return null; }));
+      var lastHist = hist.length ? hist[hist.length - 1].score : null;
+      var fcstData = hd.map(function (_, i) { return i === hd.length - 1 ? lastHist : null; })
+        .concat(fcst.map(function (d) { return d.score; }));
+      var todayDate = hd.length ? hd[hd.length - 1] : null;
+
+      var chart = echarts.init(chartEl);
+      chart.setOption({
+        backgroundColor: '#ffffff',
+        grid: { left: 48, right: 16, top: 36, bottom: 64 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
+          formatter: function (ps) {
+            if (!ps || !ps.length) return '';
+            var p = ps[0];
+            return p.axisValue + '<br/>情绪温度：<b>' + (p.data == null ? '—' : p.data.toFixed(1)) + '</b>';
+          }
+        },
+        legend: {
+          data: ['历史情绪', '预测情绪'],
+          top: 4, textStyle: { color: '#2a3340' },
+          itemWidth: 18, itemHeight: 8
+        },
+        xAxis: {
+          type: 'category', data: allDates, boundaryGap: false,
+          axisLine: { lineStyle: { color: '#c8cfda' } },
+          axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
+          axisTick: { show: false }
+        },
+        yAxis: {
+          type: 'value', min: 0, max: 100, name: '温度',
+          nameTextStyle: { color: '#8a94a6' },
+          axisLine: { show: false },
+          axisLabel: { color: '#5a6675' },
+          splitLine: { lineStyle: { color: '#eef1f6' } }
+        },
+        dataZoom: [
+          { type: 'inside', start: 55, end: 100 },
+          { type: 'slider', start: 55, end: 100, height: 18, bottom: 18,
+            borderColor: '#e3e8f0', fillerColor: 'rgba(43,108,176,0.12)',
+            textStyle: { color: '#8a94a6' }, handleStyle: { color: '#2b6cb0' } }
+        ],
+        series: [
+          {
+            name: '历史情绪', type: 'line', data: histData,
+            showSymbol: false, smooth: true,
+            lineStyle: { width: 2, color: '#2b6cb0' },
+            itemStyle: { color: '#2b6cb0' },
+            areaStyle: { color: 'rgba(43,108,176,0.08)' }
+          },
+          {
+            name: '预测情绪', type: 'line', data: fcstData,
+            showSymbol: false, smooth: true,
+            lineStyle: { width: 2, color: '#e0903a', type: 'dashed' },
+            itemStyle: { color: '#e0903a' },
+            markLine: todayDate ? {
+              silent: true, symbol: 'none',
+              lineStyle: { color: '#8a94a6', type: 'dotted', width: 1 },
+              label: { formatter: '今日', color: '#5a6675', position: 'insideEndTop' },
+              data: [{ xAxis: todayDate }]
+            } : undefined
+          }
+        ]
+      });
+      charts.push(chart);
+    }
+  }
 })();
 
 

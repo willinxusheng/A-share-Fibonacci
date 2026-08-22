@@ -14,8 +14,15 @@
   1. 趋势动量   w=0.30  上证 ret20（20 日涨跌幅），clamp(ret20/8)
   2. 牛熊位置   w=0.20  (lastClose - MA250)/MA250，clamp(dev/0.15)
   3. 量能水平   w=0.20  上证 vol20/vol250 - 1（放量=活跃，缩量=冷清），clamp(ratio/0.5)
-  4. 波动恐慌   w=0.15  volRegime.pctile（HV20 五年分位；高波动=恐慌=降温），1 - pctile/50
+  4. 波动恐慌   w=0.15  HV20 的五年分位（高波动=恐慌=降温），1 - pctile/50
   5. 广度确认   w=0.15  (宽基 resonance.breadth + 跨市场 crossMarket.breadth)/2
+
+输出（schema a-share-fib-sentiment/v3）：
+  - today   : 当日单点快照（含 5 维 dims），保持 R87 既有契约。
+  - history : 近 250 个交易日逐日回算的历史情绪序列（date, score, label）。
+  - forecast: 由 subForecast 价格路径派生（斐波那契路径映射）的未来情绪预测序列（date, score, label）。
+              预测段无量能/波动/广度未来因子，故量能沿用当前比值、波动沿用当前分位、广度沿用当前均值，
+              仅「动量+牛熊位置」随价格路径变化 —— 这是路径派生预测，非因子预测，已在 note 中诚实标注。
 
 五档定性：<20 冰点 / 20-40 偏冷 / 40-60 中性 / 60-80 偏热 / ≥80 狂热。
 
@@ -32,6 +39,8 @@ import math
 REPO = os.path.dirname(os.path.abspath(__file__))
 DATA_JS = os.path.join(REPO, "data", "data.js")
 OUT_JSON = os.path.join(REPO, "data", "sentiment.json")
+
+N_HISTORY = 250  # 近 250 个交易日历史回算窗口
 
 
 def _load_data():
@@ -50,7 +59,7 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
-def _f(x, default=0.0):
+def _f(x, default= 0.0):
     """防御性 float 转换：None/非数值/NaN/Inf → default（build_data 正常给数值，
     此处防降级时 None 崩溃，且 float('nan')/float('inf') 不会抛异常会穿透，
     必须用 math.isfinite 守门，否则 NaN 会污染 score 并令 round(score,1) 抛 ValueError）。"""
@@ -73,7 +82,22 @@ def _label(score):
     return "狂热"
 
 
-def _compute(D):
+def _score_from_subs(subs):
+    """subs = (sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth)，权重固定。"""
+    w = [0.30, 0.20, 0.20, 0.15, 0.15]
+    score = 50.0 + 50.0 * sum(wi * s for wi, s in zip(w, subs))
+    return _clamp(score, 0.0, 100.0)
+
+
+def _pctile_rank(value, window):
+    """value 在 window（数值列表）中的分位 [0,100]，>=value 的占比。window 为空返回 50。"""
+    if not window:
+        return 50.0
+    cnt = sum(1 for x in window if x <= value)
+    return 100.0 * cnt / len(window)
+
+
+def _compute_today(D):
     """返回 (score, label, dims_list) 或 None（数据不足）。dims_list 元素 = (name, weight, sub, meta)。"""
     k = D.get("kline") or {}
     closes = [float(x) for x in (k.get("close") or [])]
@@ -95,12 +119,14 @@ def _compute(D):
     # 3. 量能水平（20 日 / 250 日均量比值）
     vol20 = _ma(vols, 20)
     vol250 = _ma(vols, 250)
-    # 显式判 None（缺失）而非布尔真值：量能均线合法算出 0.0 时不应被误判为缺失
     vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
     sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
 
-    # 4. 波动恐慌（HV20 五年分位，高波动=恐慌=降温）
-    pctile = _f((D.get("volRegime") or {}).get("pctile"), 50.0)
+    # 4. 波动恐慌（HV20 在「截至当日向前 250 日 HV 分布」中的分位，高波动=恐慌=降温）。
+    # 与 _compute_history 末点口径一致，保证当日点与历史曲线平滑衔接；不足时回退 volRegime.pctile。
+    hv = _daily_hv_series(closes)
+    win = [h for h in hv[max(0, len(closes) - 250):] if h is not None]
+    pctile = _pctile_rank(hv[-1], win) if hv[-1] is not None else _f((D.get("volRegime") or {}).get("pctile"), 50.0)
     sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
 
     # 5. 广度确认（宽基共振 + 跨市场共振 平均）
@@ -118,14 +144,158 @@ def _compute(D):
         ("breadth", 0.15, sub_breadth, {"domestic": round(res_b, 3),
                                         "cross_market": round(cross_b, 3)}),
     ]
-    score = 50.0 + 50.0 * sum(w * s for (_n, w, s, _meta) in dims)
-    score = _clamp(score, 0.0, 100.0)
+    score = _score_from_subs([s for (_n, _w, s, _m) in dims])
     return score, _label(score), dims
+
+
+def _daily_hv_series(closes):
+    """逐日 HV20：以收盘日收益率为基础，20 日滚动标准差年化（近似用 sqrt(252)*stdev）。"""
+    hv = [None] * len(closes)
+    for i in range(1, len(closes)):
+        if i < 20:
+            continue
+        rets = [(closes[j] / closes[j - 1] - 1.0) for j in range(i - 19, i + 1)]
+        mean = sum(rets) / len(rets)
+        var = sum((r - mean) ** 2 for r in rets) / len(rets)
+        hv[i] = math.sqrt(var) * math.sqrt(252.0)
+    return hv
+
+
+def _compute_history(D):
+    """近 N_HISTORY 个交易日逐日情绪序列。返回 [{date, score, label}, ...]。"""
+    k = D.get("kline") or {}
+    dates = [str(x) for x in (k.get("dates") or [])]
+    closes = [float(x) for x in (k.get("close") or [])]
+    vols = [float(x) for x in (k.get("volume") or [])]
+    if len(closes) < N_HISTORY:
+        return []
+
+    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
+    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
+    sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)  # 广度静态代理（无历史源）
+
+    hv = _daily_hv_series(closes)
+
+    start = max(N_HISTORY - 1, 0)
+    out = []
+    for i in range(start, len(closes)):
+        # 动量：20 日涨跌幅（与 _compute_today 的 closes[-1]/closes[-21] 口径一致，即始于 i、回溯 20 交易日）
+        ret20 = (closes[i] / closes[i - 20] - 1.0) * 100.0 if i >= 20 else 0.0
+        sub_mom = _clamp(ret20 / 8.0, -1.0, 1.0)
+
+        # 牛熊位置
+        ma250 = _ma(closes[: i + 1], 250)
+        pos = (closes[i] / ma250 - 1.0) if ma250 else 0.0
+        sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
+
+        # 量能
+        vol20 = _ma(vols[: i + 1], 20)
+        vol250 = _ma(vols[: i + 1], 250)
+        vr = (vol20 / vol250 - 1.0) if (vol20 is not None and vol250 is not None) else 0.0
+        sub_vol = _clamp(vr / 0.5, -1.0, 1.0)
+
+        # 波动：当前 HV20 在「截至当日向前 250 日 HV 分布」中的分位
+        win = [h for h in hv[max(0, i - 249): i + 1] if h is not None]
+        pctile = _pctile_rank(hv[i], win) if hv[i] is not None else 50.0
+        sub_volat = _clamp(1.0 - pctile / 50.0, -1.0, 1.0)
+
+        score = _score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth])
+        out.append({"date": dates[i], "score": round(score, 1), "label": _label(score)})
+    # 只保留最后 N_HISTORY 个点，避免序列过长
+    return out[-N_HISTORY:]
+
+
+def _compute_forecast(D):
+    """由 subForecast 价格路径派生未来情绪预测序列。
+
+    做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
+    按交易日逐日线性插值得到未来每日价位，再沿路径计算动量+牛熊位置（量能/波动/广度沿用当前值）。
+    这是「斐波那契路径派生」而非因子预测，已在 note 诚实标注。
+    """
+    k = D.get("kline") or {}
+    dates = [str(x) for x in (k.get("dates") or [])]
+    closes = [float(x) for x in (k.get("close") or [])]
+    if not closes:
+        return []
+
+    today = dates[-1]
+    last_close = closes[-1]
+    ma250_now = _ma(closes, 250) or last_close
+
+    res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
+    cross_b = _f((D.get("crossMarket") or {}).get("breadth"), 0.0)
+    sub_breadth = _clamp((res_b + cross_b) / 2.0, -1.0, 1.0)
+    sub_volat = _clamp(1.0 - _f((D.get("volRegime") or {}).get("pctile"), 50.0) / 50.0, -1.0, 1.0)
+    vols = [float(x) for x in (k.get("volume") or [])]
+    vol20 = _ma(vols, 20) or 1.0
+    vol250 = _ma(vols, 250) or 1.0
+    sub_vol = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
+
+    sf = (D.get("subForecast") or {}).get("points") or []
+    # 锚点：(date, price)，加入今日作为起点
+    anchors = [(today, last_close)]
+    for p in sf:
+        d = str(p.get("date"))
+        pr = p.get("price")
+        if d and pr is not None:
+            anchors.append((d, float(pr)))
+    anchors = sorted(set(anchors), key=lambda x: x[0])
+
+    # 仅取今日及之后的锚点（未来段）
+    future = [(d, pr) for (d, pr) in anchors if d >= today]
+    if len(future) < 2:
+        return []
+
+    future_dates = [d for (d, _p) in future]
+    future_prices = [pr for (_d, pr) in future]
+    # 逐日插值：从今日到末锚点之间按日历日（含周末）线性插值，得到连续路径
+    from datetime import datetime as _dt
+
+    def _to_dt(s):
+        return _dt.strptime(s, "%Y-%m-%d")
+
+    path = []  # (date_str, price)
+    for idx in range(len(future) - 1):
+        d0, p0 = future[idx]
+        d1, p1 = future[idx + 1]
+        t0, t1 = _to_dt(d0), _to_dt(d1)
+        ndays = (t1 - t0).days
+        if ndays <= 0:
+            continue
+        for step in range(1, ndays + 1):
+            t = t0 + __import__("datetime").timedelta(days=step)
+            frac = step / ndays
+            price = p0 + (p1 - p0) * frac
+            path.append((t.strftime("%Y-%m-%d"), price))
+    # path 已含每个分段末点；需确保末锚点本身纳入
+    if path and path[-1][0] != future_dates[-1]:
+        path.append((future_dates[-1], future_prices[-1]))
+    if not path:
+        path = [(future_dates[-1], future_prices[-1])]
+
+    out = []
+    for (d, price) in path:
+        # 动量：沿路径 20 个日历日内的价格变化（近似 20 交易日）
+        # 找路径中 ~20 天前的价位
+        tgt = _to_dt(d) - __import__("datetime").timedelta(days=20)
+        # 在 path 内找最接近 tgt 的价位
+        past_price = price
+        for (pd, pp) in path:
+            if _to_dt(pd) <= tgt:
+                past_price = pp
+        ret_path = (price / past_price - 1.0) * 100.0 if past_price else 0.0
+        sub_mom = _clamp(ret_path / 8.0, -1.0, 1.0)
+        # 牛熊位置：相对「当前已知 250 均线」锚定（未来无均线数据，诚实沿用末值）
+        pos = (price / ma250_now - 1.0) if ma250_now else 0.0
+        sub_pos = _clamp(pos / 0.15, -1.0, 1.0)
+        score = _score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth])
+        out.append({"date": d, "score": round(score, 1), "label": _label(score)})
+    return out
 
 
 def main():
     out = {
-        "schema": "a-share-fib-sentiment/v1",
+        "schema": "a-share-fib-sentiment/v3",
         "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "mode": "monitor_only",
         "error": None,
@@ -133,48 +303,54 @@ def main():
     try:
         D = _load_data()
         out["asOf"] = D.get("fetchedAt") or D.get("updated")
-        r = _compute(D)
+
+        r = _compute_today(D)
         if r is None:
-            out["score"] = None
-            out["label"] = "数据不足"
-            out["note"] = "样本 < 250 日，暂不合成情绪温度（monitor_only）。"
+            out["today"] = {"score": None, "label": "数据不足",
+                            "note": "样本 < 250 日，暂不合成情绪温度（monitor_only）。"}
         else:
             score, label, dims = r
-            out["score"] = round(score, 1)
-            out["label"] = label
-            out["dims"] = [
-                {"name": n, "weight": w, "sub": round(s, 4), **m}
-                for (n, w, s, m) in dims
-            ]
-            out["note"] = ("代理情绪温度（monitor_only）：由上证量能/动量/波动/牛熊位置 + "
-                           "宽基与跨市场广度合成，非全市场涨跌家数；量能维度受跨源 volume 单位差异影响，"
-                           "仅供研判参考，不参与任何概率/方向计算。")
+            out["today"] = {
+                "score": round(score, 1),
+                "label": label,
+                "dims": [{"name": n, "weight": w, "sub": round(s, 4), **m}
+                         for (n, w, s, m) in dims],
+            }
+
+        out["history"] = _compute_history(D)
+        out["forecast"] = _compute_forecast(D)
+        out["note"] = ("代理情绪温度（monitor_only）：由上证量能/动量/波动/牛熊位置 + "
+                       "宽基与跨市场广度合成，非全市场涨跌家数；量能维度受跨源 volume 单位差异影响，"
+                       "仅供研判参考，不参与任何概率/方向计算。"
+                       "history 为近 250 交易日逐日回算；forecast 由 subForecast 价格路径派生"
+                       "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。")
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
-        out["score"] = None
-        out["label"] = "数据不足"
+        out["today"] = {"score": None, "label": "数据不足"}
+        out["history"] = []
+        out["forecast"] = []
     finally:
         os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
         with open(OUT_JSON, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
-        with open(OUT_JSON.replace(".json", ".js"), "w", encoding="utf-8") as f:
+        with open(OUT_JSON.replace(".json", ".js"), "w",  encoding="utf-8") as f:
             f.write("window.SENTIMENT = ")
             json.dump(out, f, ensure_ascii=False)
             f.write(";")
 
-    print("=== 市场情绪温度 (R87 · monitor_only) ===")
+    print("=== 市场情绪温度 (R87 · monitor_only · v3) ===")
     print("asOf      = %s" % out.get("asOf"))
-    print("score     = %s  label=%s" % (out.get("score"), out.get("label")))
-    if out.get("dims"):
-        for d in out["dims"]:
+    t = out.get("today") or {}
+    print("today     = %s  label=%s" % (t.get("score"), t.get("label")))
+    print("history   = %d 点" % len(out.get("history") or []))
+    print("forecast  = %d 点" % len(out.get("forecast") or []))
+    if t.get("dims"):
+        for d in t["dims"]:
             print("  %-10s w=%.2f sub=%+.3f  %s" % (d["name"], d["weight"], d["sub"],
                                                      json.dumps({kk: vv for kk, vv in d.items()
                                                                  if kk not in ("name", "weight", "sub")},
                                                                 ensure_ascii=False)))
     if out.get("error"):
-        # 防御：用 ASCII "WARN:" 而非 emoji。本仓 Windows 本地/cp936 等非 UTF-8 stdout 下，
-        # 4 字节 emoji 会触发 UnicodeEncodeError，使 main() 异常外泄、sys.exit(main()) 退出码变 1，
-        # 违反本脚本文档明确的「monitor_only 退出码恒 0」契约（R100 修复）。
         print("[WARN] %s" % out["error"])
     return 0
 
