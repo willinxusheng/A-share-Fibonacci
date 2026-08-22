@@ -82,7 +82,7 @@ for c in fcst:
 chk("forecastBand" in S, "#666 forecastBand 元信息缺失")
 _fb = S.get("forecastBand") or {}
 if _fb:
-    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod", "momWinEff", "maRevertTau", "pathVolMultMax", "pathVolMethod", "consensusConf", "confMult", "inertiaTau", "inertiaMaxPts", "inertiaMethod"):
+    for _kk in ("method", "level", "baseStd", "baseStdGlobal", "baseStdRecent60", "regime", "regimeMult", "horizonScale", "revertCenter", "revertTau", "revertCap", "regimeBiasCenter", "regimeBiasW", "extremeBiasW", "extremeBiasMethod", "revertTauEff", "driftMult", "stateBiasW", "stateBiasMethod", "momWinEff", "maRevertTau", "pathVolMultMax", "pathVolMethod", "consensusConf", "confMult", "inertiaTau", "inertiaMaxPts", "inertiaMethod", "verdict", "verdictMult", "regimeWinN", "posPctUsed"):
         chk(_kk in _fb, "#666 forecastBand 缺字段 %s" % _kk)
     chk(_fb.get("regime") in ("bear", "bull"), "#666 forecastBand.regime 异常: %r" % _fb.get("regime"))
     # R129 方向修正守门：权重须∈[0,1]、分regime中枢(若有)须∈[0,100]，防过拟合/过度修正
@@ -125,6 +125,18 @@ if _fb:
         chk(1.0 <= _fb["inertiaMaxPts"] <= 15.0, "R132 inertiaMaxPts 越界[1,15]: %r" % _fb.get("inertiaMaxPts"))
     chk(isinstance(_fb.get("inertiaMethod"), str) and len(_fb.get("inertiaMethod") or "") > 0,
         "R132 inertiaMethod 缺失或非字符串")
+    # R133 信号方向调制守门：verdict 须为合法三值之一或 None、调制倍率∈[0.5,1]、regimeWinN 非负 int 或 None、
+    # posPctUsed∈[0,1]——防方向调制越界/口径漂移
+    if _fb.get("verdict") is not None:
+        chk(_fb["verdict"] in ("共振(逆势有效)", "共振(顺势有效)", "背离(信号分裂)"),
+            "R133 verdict 异常: %r" % _fb.get("verdict"))
+    if _fb.get("verdictMult") is not None:
+        chk(0.5 <= _fb["verdictMult"] <= 1.0, "R133 verdictMult 越界[0.5,1]: %r" % _fb.get("verdictMult"))
+    if _fb.get("regimeWinN") is not None:
+        chk(isinstance(_fb["regimeWinN"], int) and _fb["regimeWinN"] >= 0,
+            "R133 regimeWinN 须为非负 int: %r" % _fb.get("regimeWinN"))
+    if _fb.get("posPctUsed") is not None:
+        chk(0.0 <= _fb["posPctUsed"] <= 1.0, "R133 posPctUsed 越界[0,1]: %r" % _fb.get("posPctUsed"))
 _missing_band = [c for c in fcst if c.get("lo") is None or c.get("hi") is None]
 chk(len(_missing_band) == 0, "#666 forecast 有 %d 点缺 lo/hi 置信带" % len(_missing_band))
 _bad_band = [c for c in fcst if c.get("lo") is not None and c.get("hi") is not None

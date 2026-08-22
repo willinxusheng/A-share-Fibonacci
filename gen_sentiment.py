@@ -728,7 +728,8 @@ def _resolve_drift_params(drift):
 def _compute_forecast(D, hist_std=None, regime=None, center=None,
                      regime_center=None, extreme_bounds=None, extreme_reversal=None,
                      optimal_horizon=None, drift=None, state_pospct=None, state_n=None,
-                     consensus=None, today_d20=None):
+                     consensus=None, today_d20=None,
+                     verdict=None, regime_win_pospct=None, regime_win_n=None):
     """由 subForecast 价格路径派生未来情绪预测序列 + 经验置信带（#666）+ 预测水平均值回归（R128）。
 
     做法：把 subForecast.points 的未来锚点（date, price）与「今日收盘」拼成路径，
@@ -768,9 +769,18 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
       b. Δ 动量惯性近端偏置：情绪序列有自相关（今天 Δ20 升/降的方向短期往往延续），
          用 today_d20 方向对近端做小幅惯性偏置（随 horizon 指数衰减、近端最强），与 R130c 的
          「象限历史胜率」正交（一个看当前动量方向、一个看该状态历史频率）。
+    R133 信号方向调制（2 机制，均正交、均带 clamp）：
+      a. 共振方向调制：R132a 只用了共振『程度』(agree/total)，此处再考虑共振『方向』——
+         consensus.verdict=『共振(顺势有效)』表示高情绪后继续涨/低情绪后继续跌（趋势延续强），
+         此时 R129 极端区『逆势修正』方向可能相反（恐慌上修/狂热下修与顺势冲突），
+         故顺势有效或背离(信号分裂)时极端区修正权重 ×0.5 保守化，防方向性错误；逆势有效维持。
+      b. 分regime条件胜率升级近端微调：R130c 用全局 stateSignal.posPct（水平×Δ方向象限历史上涨
+         概率），而 regimeWin.posPct 是『当前牛/熊态下该组合状态的条件胜率』（R125 已验证熊市态
+         中升51%>全样本47%，更贴合当前 regime）——优先用 regimeWin.posPct（N>=20 生效），
+         缺失或样本不足时回退全局 posPct，使近端方向偏置更贴合当前市场状态。
     hist_std / regime / center / regime_center / extreme_bounds / extreme_reversal / optimal_horizon /
-    drift / state_pospct / state_n / consensus / today_d20 由 main() 计算后传入；
-    缺失时回退默认值，保证函数可独立调用。
+    drift / state_pospct / state_n / consensus / today_d20 / verdict / regime_win_pospct /
+    regime_win_n 由 main() 计算后传入；缺失时回退默认值，保证函数可独立调用。
     """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
@@ -825,6 +835,20 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     _INERTIA_TAU = 15.0
     _INERTIA_MAX_PTS = 8.0
     _d20_edge = _clamp((today_d20 or 0.0) / 10.0, -1.0, 1.0)  # Δ20=+10 → +1(强升温)，-10 → -1
+    # R133a 共振方向调制：verdict 方向 → 极端区逆势修正权重倍率。
+    # 『共振(顺势有效)』=趋势延续强（高情绪后涨/低情绪后跌），与逆势修正方向冲突→×0.5 保守；
+    # 『背离(信号分裂)』=方向不明→×0.5 保守；『共振(逆势有效)』或缺失→×1.0 维持。
+    _VERDICT_MULT = 0.5 if (verdict in ("共振(顺势有效)", "背离(信号分裂)")) else 1.0
+    # R133b 分regime条件胜率升级：近端微调优先用 regimeWin.posPct（当前牛/熊态下该组合状态的条件胜率，
+    # R125 已验证熊市态中升51%>全样本47%），仅 N>=20 生效；缺失/样本不足回退全局 state_pospct。
+    _pospct_eff = None
+    _posn_eff = None
+    if regime_win_pospct is not None and regime_win_n is not None and regime_win_n >= 20:
+        _pospct_eff = regime_win_pospct
+        _posn_eff = regime_win_n
+    elif state_pospct is not None and state_n is not None and state_n >= 20:
+        _pospct_eff = state_pospct
+        _posn_eff = state_n
 
     # #666 经验置信带参数：熊市态额外放大，缺失回退
     regime_mult = 1.15 if regime == "bear" else 1.0
@@ -918,24 +942,27 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
         #    中枢不同，远端不应一律回到全局 center，而应向 regime_center 偏移（上限 _REGIME_BIAS_W）。
         # R132a 共识置信度调制：上述方向修正权重 ×_CONF_MULT（共振放大、背离保守），
         # 信号置信度来自多窗口共识，只在方向修正层生效、不动 R128 中枢回归。
+        # R133a 共振方向调制：极端区逆势修正再 ×_VERDICT_MULT——顺势有效/背离时保守(×0.5)，
+        # 防『趋势延续强』时逆势修正方向错误；逆势有效维持(×1.0)。
         if extreme_bounds is not None and extreme_reversal is not None:
             _b1, _b4 = extreme_bounds[0], extreme_bounds[-1]
             if score < _b1 and (extreme_reversal.get("panic") or {}).get("rev20") is not None:
                 _p = extreme_reversal["panic"]["rev20"]
-                _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
+                _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT * _VERDICT_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
                 score = score * (1.0 - _w) + _center * _w
             elif score > _b4 and (extreme_reversal.get("euphoria") or {}).get("rev20") is not None:
                 _p = extreme_reversal["euphoria"]["rev20"]
-                _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
+                _w = _clamp(_EXTREME_BIAS_W * _CONF_MULT * _VERDICT_MULT, 0.0, 1.0) * max(0.0, _p - 0.5) * 2.0
                 score = score * (1.0 - _w) + _center * _w
         if regime_center is not None:
             _rbias = min(1.0 - math.exp(-(idx + 1) / _REV_TAU), _REVERT_CAP)
             score = score * (1.0 - _rbias * _REGIME_BIAS_W * _CONF_MULT) + regime_center * _rbias * _REGIME_BIAS_W * _CONF_MULT
-        # R130c 状态经验胜率微调近端：当前 level×dir 象限历史上涨概率 posPct（纯经验频率），
+        # R130c 状态经验胜率微调近端：当前 level×dir 象限历史上涨概率（纯经验频率），
         # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效，
-        # 与远端 R128/R129 正交（近端时机信号 + 远端中枢回归）；R132a 共识置信度调制权重。
-        if state_pospct is not None and state_n is not None and state_n >= 20:
-            _edge = (state_pospct - 0.5) * 2.0  # ∈[-1,1]：>0 看多象限→上修、<0 看空象限→下修
+        # 与远端 R128/R129 正交（近端时机信号 + 远端中枢回归）。
+        # R132a 共识置信度调制权重；R133b 优先用分regime条件胜率 _pospct_eff（更贴合当前牛熊态）。
+        if _pospct_eff is not None and _posn_eff is not None and _posn_eff >= 20:
+            _edge = (_pospct_eff - 0.5) * 2.0  # ∈[-1,1]：>0 看多象限→上修、<0 看空象限→下修
             _sdecay = math.exp(-(idx + 1) / _REV_TAU)  # 近端最强、远端归零
             _bump = _edge * _STATE_BIAS_W * _CONF_MULT * _STATE_MAX_PTS * _sdecay
             score = _clamp(score + _bump, 0.0, 100.0)
@@ -1076,7 +1103,10 @@ def main():
                                  state_pospct=(_state.get("posPct") if _state else None),
                                  state_n=(_state.get("n") if _state else None),
                                  consensus=((_horizon or {}).get("consensus") or None),
-                                 today_d20=_hs0)
+                                 today_d20=_hs0,
+                                 verdict=(((_horizon or {}).get("consensus") or {}).get("verdict") or None),
+                                 regime_win_pospct=(((_state or {}).get("regimeWin") or {}).get("posPct") or None),
+                                 regime_win_n=(((_state or {}).get("regimeWin") or {}).get("n") or None))
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
@@ -1094,6 +1124,13 @@ def main():
                      if (_cons_agree is not None and _cons_total) else None)
         _conf_mult_val = round(_clamp(0.5 + 2.0 * ((_conf_val or 0.75) - 0.5), 0.5, 1.5), 2) \
             if _conf_val is not None else 1.0
+        _verdict_val = (_consensus.get("verdict") if _consensus else None)
+        _verdict_mult_val = (0.5 if _verdict_val in ("共振(顺势有效)", "背离(信号分裂)") else 1.0)
+        _rw = ((_state or {}).get("regimeWin") or {})
+        _rw_pospct = (_rw.get("posPct") if _rw else None)
+        _rw_n = (_rw.get("n") if _rw else None)
+        _pospct_used = _rw_pospct if (_rw_n or 0) >= 20 else (_state.get("posPct") if _state else None)
+        _posn_used = _rw_n if (_rw_n or 0) >= 20 else (_state.get("n") if _state else None)
         out["forecastBand"] = {
             "method": "经验置信带（目标覆盖≈80%，基于滚动感知波动率的启发式近似，非严格统计置信区间）",
             "level": "≈80%",
@@ -1120,6 +1157,10 @@ def main():
             "stateBiasMethod": "近端按当前水平×Δ方向象限历史上涨概率posPct微调(权重0.15随horizon衰减、仅N>=20生效)，远端由R128/R129中枢回归主导",
             "consensusConf": _conf_val,
             "confMult": _conf_mult_val,
+            "verdict": _verdict_val,
+            "verdictMult": _verdict_mult_val,
+            "regimeWinN": _rw_n,
+            "posPctUsed": (round(_pospct_used, 2) if _pospct_used is not None else None),
             "inertiaTau": 15.0,
             "inertiaMaxPts": 8.0,
             "inertiaMethod": "近端按今日Δ20方向做情绪自相关惯性偏置(Δ20=+10→上修最多8分、-10→下修，随horizon指数衰减)，与R130c象限胜率正交",
@@ -1137,6 +1178,9 @@ def main():
                      "(R132) 经验信号调制：①共识置信度(多窗口共振agree/total=%s)调制方向修正权重(confMult=%.2f，"
                      "共振放大/背离保守，不动R128中枢回归)；②Δ20动量惯性近端偏置(inertiaMaxPts=%.0f分，"
                      "今日Δ20=%s方向短期延续、随horizon衰减)，与R130c象限胜率正交。"
+                     "(R133) 信号方向调制：①共振方向(verdict=%s)调制极端区逆势修正(顺势有效/背离→×%.1f保守，"
+                     "防趋势延续时逆势修正方向错误；逆势有效维持)；②近端微调优先用分regime条件胜率"
+                     "(regimeWin.posPct=%s·N=%s，更贴合当前%s态，缺失回退全局posPct=%s·N=%s)。"
                      "仅供研判参考，不构成置信区间严格含义。"
                      ) % ((_recent_std or _hist_std), _hist_std, _base_std, _hist_mean,
                           _revert_cap_eff * 100,
@@ -1148,7 +1192,13 @@ def main():
                           (str(_state_n) if _state_n is not None else "N/A"),
                           _mom_win_eff, 1.6,
                           (str(_conf_val) if _conf_val is not None else "N/A"), _conf_mult_val, 8.0,
-                          (("%+.1f" % _hs0) if _hs0 is not None else "N/A")),
+                          (("%+.1f" % _hs0) if _hs0 is not None else "N/A"),
+                          (str(_verdict_val) if _verdict_val is not None else "N/A"), _verdict_mult_val,
+                          (str(_rw_pospct) if _rw_pospct is not None else "N/A"),
+                          (str(_rw_n) if _rw_n is not None else "N/A"),
+                          ("熊市" if _regime == "bear" else "牛市"),
+                          (str(_state.get("posPct")) if (_state and _state.get("posPct") is not None) else "N/A"),
+                          (str(_state.get("n")) if (_state and _state.get("n") is not None) else "N/A")),
         }
 
         contra = _contra_stats(D, out["history"], bounds, scale_mode)
@@ -1218,6 +1268,7 @@ def main():
                        "R130：在 R129 基础上对 forecast 做『预测自适应增强』——①最优逆势窗口H驱动回归时标(数据驱动tau，H小回归快/H大回归慢，贴合当前逆势周期)；②regime漂移期置信带宽×1.2、远端回归上限0.5→0.35(不确定期更谦卑，不锚定漂移中枢)；③近端按当前状态象限历史上涨概率posPct微调(权重0.15随horizon衰减、仅N>=20生效，与远端中枢回归正交)；透明参数见 forecastBand.revertTauEff/driftMult/stateBiasW/stateBiasMethod。"
                        "R131：在 R130 基础上对 forecast 做『路径派生诚实化』——①动量回看窗口由最优窗口H驱动(momWinEff，H大→慢变趋势→回看长，与R130a同源)；②未来均线随horizon向路径价均值回归(maRevertTau=60日)，远端牛熊位置回归中性、不再被clamp钉死在±1；③路径波动感知置信带(局部vs全程波动比，放大上限×1.6)，路径高风险段不误报为精确；透明参数见 forecastBand.momWinEff/maRevertTau/pathVolMultMax/pathVolMethod。"
                        "R132：在 R131 基础上对 forecast 做『经验信号调制』——①共识置信度调制(多窗口共振agree/total∈[0,1]→方向修正权重×confMult∈[0.5,1.5]，共振放大/背离保守，只在方向修正层生效、不动R128中枢回归)；②Δ20动量惯性近端偏置(情绪自相关——今日Δ20升/降方向短期延续，近端按Δ20方向小幅偏置、随horizon指数衰减，与R130c象限历史胜率正交)；透明参数见 forecastBand.consensusConf/confMult/inertiaTau/inertiaMaxPts/inertiaMethod。"
+                       "R133：在 R132 基础上对 forecast 做『信号方向调制』——①共振方向调制(consensus.verdict=共振(顺势有效)表示高情绪后涨/低情绪后跌的趋势延续强，此时极端区逆势修正方向可能相反→修正权重×0.5保守化防方向性错误；背离亦×0.5；逆势有效维持)；②近端微调优先用分regime条件胜率regimeWin.posPct(当前牛/熊态下该组合状态的条件胜率，R125已验证熊市态中升51%%>全样本47%%，更贴合当前regime；N>=20生效，缺失回退全局posPct)；透明参数见 forecastBand.verdict/verdictMult/regimeWinN/posPctUsed。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
