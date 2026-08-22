@@ -847,11 +847,18 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     sub_breadth, _bw, _dr, _cr = _breadth_sub(D)  # 广度静态代理（无历史源）：仅可用源均值，缺失不偏置
     # R127a 解冻：量能/波动为「今日锚值」，沿预测 horizon 指数回归中性(0)（波动率均值回归铁律），
     # 不再恒用今日值贯穿整个预测期；仅广度无历史源、仍沿用当前值。
-    sub_volat_today = _clamp(1.0 - _f((D.get("volRegime") or {}).get("pctile"), 50.0) / 50.0, -1.0, 1.0)
+    # R139b：波动率今日锚值改与已实现路径(_compute_today)同源——用 _daily_hv_series+_pctile_rank
+    # 计算，不再依赖 build 层 volRegime.pctile 双源；消除 forecast/realized 波动率口径漂移。
+    _hv_all = _daily_hv_series(closes)
+    _hv_win = [h for h in _hv_all[max(0, len(closes) - 250):] if h is not None]
+    _hv_pctile = _pctile_rank(_hv_all[-1], _hv_win) if _hv_all[-1] is not None else 50.0
+    sub_volat_today = _clamp(1.0 - _hv_pctile / 50.0, -1.0, 1.0)
+    # R139a：量能今日锚值除数与已实现路径(_adaptive_volume_divisor≈0.23)同源，
+    # 替代 R138 前遗留的硬编码 /0.5（与 realized 口径漂移 ~2.2×，forecast 量能维度欠缩放）。
     vols = [float(x) for x in (k.get("volume") or [])]
     vol20 = _ma(vols, 20) or 1.0
     vol250 = _ma(vols, 250) or 1.0
-    sub_vol_today = _clamp((vol20 / vol250 - 1.0) / 0.5, -1.0, 1.0)
+    sub_vol_today = _clamp((vol20 / vol250 - 1.0) / _adaptive_volume_divisor(closes, vols), -1.0, 1.0)
     _COV_TAU = 15.0  # 协变量均值回归时间常数（交易日）：约 15 日衰减 ~63%
     # R128 预测 score 水平均值回归（与 R127a 协变量解冻正交）：远端随 horizon 向历史中枢回归，
     # 避免路径派生极值被过度外推到 3 个月外；revert 上限 _REVERT_CAP 防曲线被拉平失真。
