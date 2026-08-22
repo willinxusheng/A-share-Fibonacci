@@ -280,7 +280,7 @@
        安全说明：本 @media(orientation:landscape AND max-width:960) 在九门禁的重叠审计中
        不会被命中（desktop 审计 innerWidth=1432>960 / mobile 审计 375×460 为竖屏），
        故以下纯 CSS 改动对审计零影响，仅作用于真实手机横屏。 */
-    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm {
+    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm, #sentChart, #sentVsChart {
       box-sizing: border-box; padding: 6px;
       border: 1px solid var(--hairline); border-radius: 12px;
       background: linear-gradient(180deg, #fcfdff 0%, #f6f8fc 100%);
@@ -442,14 +442,15 @@
   /* 图表画框：桌面(≥961px) + 竖屏。横屏(landscape ∧ ≤960)已由 R38 另设 12px 圆角，
      这里用 (orientation:portrait),(min-width:961px) 精确排除，避免覆盖 R38。 */
   @media (orientation: portrait), (min-width: 961px) {
-    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm {
+    .chart-lg, #chart2, #chartSubF, .chart-md, .chart-sm, #sentChart, #sentVsChart {
       box-sizing: border-box; padding: 10px;
       border: 1px solid var(--hairline); border-radius: 16px;
       background: linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
       box-shadow: var(--shadow-sm);
       transition: box-shadow .22s ease, border-color .22s ease;
     }
-    .chart-lg:hover, #chart2:hover, #chartSubF:hover, .chart-md:hover, .chart-sm:hover {
+    .chart-lg:hover, #chart2:hover, #chartSubF:hover, .chart-md:hover, .chart-sm:hover,
+    #sentChart:hover, #sentVsChart:hover {
       box-shadow: var(--shadow-md); border-color: #d8dee9;
     }
   }
@@ -478,6 +479,34 @@
   .panel table::-webkit-scrollbar { height: 6px; }
   .panel table::-webkit-scrollbar-thumb { background: rgba(22,33,62,.22); border-radius: 3px; }
   .panel table::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============================================================
+     情绪/证书卡 对齐设计系统（深度美化，2026-08-22）
+     cert-card：与 .panel 同族（金顶饰 + 白渐变 + 发丝边 + 层叠阴影），
+     仅半径/阴影略收敛以嵌套在面板内；证书卡与情绪卡统一同款，消除
+     原「冷蓝 vs 暖米」渐变不一致；cert-head 用 flex 替代 float:right，
+     窄屏可换行，根治标题/状态/日期重叠。
+     ============================================================ */
+  .cert-card { position: relative; margin: 14px 0; padding: 14px 16px; border-radius: 14px;
+    border: 1px solid var(--hairline); border-top: 3px solid transparent;
+    background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .cert-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--gold-grad); border-radius: 14px 14px 0 0; }
+  .cert-head { display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
+  .cert-head .sub-h { margin: 0; }
+  .cert-date { flex: none; font-size: 12px; color: #8a94a6; white-space: nowrap; }
+
+  /* 维度表：复用全局 table 设计语言（去内联暖色边框/collapse），仅微调外边距 */
+  .dim-tbl { margin: 6px 0 2px; }
+
+  /* 诊断内嵌卡：逆向解读/信号强度/R124/R125 收口，统一为浅色卡片 + 小标题，消除裸 <br/> 拼接 */
+  .sent-diag { margin: 0 0 10px; padding: 10px 13px; border: 1px solid var(--hairline);
+    border-radius: 12px; background: linear-gradient(180deg, #fbfcff 0%, #f5f8fc 100%); box-shadow: var(--shadow-sm); }
+  .sent-diag .sd-h { font-size: 12.5px; font-weight: 700; color: var(--navy); margin: 0 0 6px;
+    display: flex; align-items: center; gap: 6px; letter-spacing: .2px; }
+  .sent-diag .sd-b { font-size: 12px; color: #8a94a6; line-height: 1.7; }
+  .sent-diag .note-invest { color: #b0b8c4; }
 </style>
 </head>
 <body>
@@ -600,19 +629,23 @@
     <div class="note" id="noteBt">每日生成的目标位（卖①②③ + 子浪ⅰ~ⅴ）自动存档，并在其后 30 个交易日内回看是否触及，统计各目标历史命中率。命中率仅基于「已到观察期」的样本；冷启动阶段（样本不足）不展示比率，避免误导。这是后续区间宽度与比率校准的数据地基。</div>
 
     <!-- 预测质量自检证书（R87 借鉴缠论 quality_cert.json，A股斐波那契适配版；gen_quality_cert.py 生成） -->
-    <div class="cert-card" id="certCard" style="margin:14px 0;padding:14px 16px;border:1px solid #e3e8f0;border-radius:12px;background:linear-gradient(180deg,#fbfdff,#f3f8ff)">
-      <div class="sub-h" style="margin:0 0 8px;">📊 预测质量自检证书
-        <span class="tag" id="certStatus" style="margin-left:8px;font-size:12px;">…</span>
-        <span style="float:right;font-size:12px;color:#8a94a6;" id="certDate"></span>
+    <div class="cert-card" id="certCard">
+      <div class="cert-head">
+        <span class="sub-h">📊 预测质量自检证书
+          <span class="tag" id="certStatus">…</span>
+        </span>
+        <span class="cert-date" id="certDate"></span>
       </div>
       <div id="certBody" style="font-size:13px;line-height:1.75;color:#2a3340;">加载中…</div>
     </div>
 
     <!-- 市场情绪温度（R87 借鉴缠论 sentiment/，monitor_only 代理；gen_sentiment.py 生成） -->
-    <div class="cert-card" id="sentCard" style="margin:14px 0;padding:14px 16px;border:1px solid #e3e8f0;border-radius:12px;background:linear-gradient(180deg,#fffdfa,#fff7ec)">
-      <div class="sub-h" style="margin:0 0 8px;">🌡️ 市场情绪温度
-        <span class="tag" id="sentStatus" style="margin-left:8px;font-size:12px;">…</span>
-        <span style="float:right;font-size:12px;color:#8a94a6;" id="sentDate"></span>
+    <div class="cert-card" id="sentCard">
+      <div class="cert-head">
+        <span class="sub-h">🌡️ 市场情绪温度
+          <span class="tag" id="sentStatus">…</span>
+        </span>
+        <span class="cert-date" id="sentDate"></span>
       </div>
       <div id="sentBody" style="font-size:13px;line-height:1.75;color:#2a3340;">加载中…</div>
     </div>
@@ -1833,7 +1866,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var html = '';
   if (score != null) {
     html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">' +
-      '<div style="font-size:28px;font-weight:700;color:' + col + ';">' + score.toFixed(1) + '</div>' +
+      '<div style="font-size:28px;font-weight:700;color:' + col + ';font-variant-numeric:tabular-nums;letter-spacing:.3px;">' + score.toFixed(1) + '</div>' +
       '<div style="flex:1;height:10px;border-radius:6px;background:linear-gradient(90deg,#1f6fb2,#8a94a6,#e0903a,#c23531);position:relative;">' +
       '<div style="position:absolute;left:' + score + '%;top:-4px;width:4px;height:18px;border-radius:2px;background:#242a35;"></div>' +
       '</div></div>';
@@ -1938,14 +1971,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       revTxt = _rv[0];
       revCol = _rv[1];
     }
-    html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
-      '<span style="color:' + revCol + ';font-weight:600;">逆向解读：</span>' + revTxt +
-      '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+    html += '<div class="sent-diag"><div class="sd-h">🔄 逆向解读</div>' +
+      '<div class="sd-b"><span style="color:' + revCol + ';font-weight:600;">' + revTxt + '</span>' +
+      '<span class="note-invest">（非投资建议）</span></div></div>';
     // R123c：分 regime 信号强度直读（复用生成器 split 分态统计，避免前端重算口径漂移）
     if (contra && contra.regimeSummary) {
-      html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
-        '<span style="color:' + col + ';font-weight:600;">信号强度：</span>' + contra.regimeSummary +
-        '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+      html += '<div class="sent-diag"><div class="sd-h">📶 信号强度</div>' +
+        '<div class="sd-b"><span style="color:' + col + ';font-weight:600;">' + contra.regimeSummary + '</span>' +
+        '<span class="note-invest">（非投资建议）</span></div></div>';
     }
     // R124：预测力增强三件套（生成器独立诊断字段，前端只读展示，不改图表系列、不改 dims）
     if (contra) {
@@ -1972,8 +2005,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         _r124.push('<span style="color:' + col + ';font-weight:600;">稳健对照：</span>等权 ' + _eq + ' vs 衰减 ' + _dec + ' · ' + _drift);
       }
       if (_r124.length) {
-        html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.7;">' +
-          _r124.join('<br/>') + '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+        html += '<div class="sent-diag"><div class="sd-h">📈 预测力诊断</div>' +
+          '<div class="sd-b">' + _r124.join('<br/>') + '<span class="note-invest">（非投资建议）</span></div></div>';
       }
       // R125：预测力再增强三件套（生成器独立诊断字段，前端只读展示，不改图表系列、不改 dims）
       var _r125 = [];
@@ -2008,16 +2041,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           '（全样本 ' + _rwb + '）');
       }
       if (_r125.length) {
-        html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.7;">' +
-          _r125.join('<br/>') + '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
+        html += '<div class="sent-diag"><div class="sd-h">🔮 极值反转 · 共振</div>' +
+          '<div class="sd-b">' + _r125.join('<br/>') + '<span class="note-invest">（非投资建议）</span></div></div>';
       }
     }
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };
-  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
-    '<tr style="color:#8a94a6;"><th style="text-align:left;padding:4px 8px;font-weight:600;">维度</th>' +
-    '<th style="text-align:right;padding:4px 8px;font-weight:600;">子分</th>' +
-    '<th style="text-align:right;padding:4px 8px;font-weight:600;">明细</th></tr>';
+  html += '<table class="dim-tbl"><thead><tr>' +
+    '<th class="c-l">维度</th><th class="c-r">子分</th><th class="c-r">明细</th></tr></thead><tbody>';
   dims.forEach(function (d) {
     var sub = d.sub != null ? (d.sub >= 0 ? '+' : '') + d.sub.toFixed(2) : '—';
     var detail = '';
@@ -2026,16 +2057,16 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     else if (d.name === 'volume') detail = '量比 ' + (d.vol20_vol250_ratio != null ? d.vol20_vol250_ratio : '—');
     else if (d.name === 'volatility') detail = 'HV20分位 ' + (d.hv20_pctile != null ? d.hv20_pctile : '—');
     else if (d.name === 'breadth') detail = '宽基' + (d.domestic != null ? d.domestic : '—') + ' / 跨市' + (d.cross_market != null ? d.cross_market : '—');
-    html += '<tr><td style="padding:4px 8px;border-top:1px solid #f2eee6;">' + (NAME[d.name] || d.name) + '</td>' +
-      '<td style="padding:4px 8px;border-top:1px solid #f2eee6;text-align:right;font-weight:600;">' + sub + '</td>' +
-      '<td style="padding:4px 8px;border-top:1px solid #f2eee6;text-align:right;color:#8a94a6;">' + detail + '</td></tr>';
+    html += '<tr><td class="c-l">' + (NAME[d.name] || d.name) + '</td>' +
+      '<td class="c-r" style="font-weight:600;">' + sub + '</td>' +
+      '<td class="c-r" style="color:#8a94a6;">' + detail + '</td></tr>';
   });
-  html += '</table>';
+  html += '</tbody></table>';
 
   // 走势图容器（历史实线 + 未来虚线预测 + dataZoom 缩略轴）
   html += '<div id="sentChart" style="width:100%;height:300px;margin-top:12px;"></div>';
   // R118：情绪 vs 上证指数 叠图（近 120 交易日，双 Y 轴逆向对照）
-  html += '<div style="margin-top:14px;font-size:13px;font-weight:600;color:#2a3340;">📊 情绪 vs 上证指数' +
+  html += '<div class="sub-h" style="margin-top:14px;">📊 情绪 vs 上证指数' +
     '<span style="font-weight:400;font-size:11px;color:#8a94a6;">（近120日 · 情绪高位多对应大盘回调）</span></div>' +
     '<div id="sentVsChart" style="width:100%;height:200px;margin-top:4px;"></div>';
   if (s.error) html += '<div style="margin-top:8px;color:#c23531;">⚠️ ' + s.error + '</div>';
