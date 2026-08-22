@@ -1959,7 +1959,25 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
             showSymbol: false, smooth: true,
             lineStyle: { width: 2, color: '#2b6cb0' },
             itemStyle: { color: '#2b6cb0' },
-            areaStyle: { color: 'rgba(43,108,176,0.08)' }
+            areaStyle: { color: 'rgba(43,108,176,0.08)' },
+            // R116：逆向参考区（实证：score 与未来收益负相关——高位易跌、低位易涨）
+            markArea: {
+              silent: true,
+              data: [
+                [{ yAxis: 60, itemStyle: { color: 'rgba(194,53,49,0.07)' },
+                   label: { formatter: '风险区·大盘易跌', color: '#c23531', fontSize: 10, position: 'insideTop' } },
+                 { yAxis: 100 }],
+                [{ yAxis: 0, itemStyle: { color: 'rgba(47,158,68,0.07)' },
+                   label: { formatter: '机会区·大盘易涨', color: '#2f9e44', fontSize: 10, position: 'insideBottom' } },
+                 { yAxis: 40 }]
+              ]
+            },
+            markLine: {
+              silent: true, symbol: 'none',
+              lineStyle: { color: '#c8cfda', type: 'dashed', width: 1 },
+              label: { show: false },
+              data: [{ yAxis: 60 }, { yAxis: 40 }]
+            }
           },
           {
             name: '预测情绪', type: 'line', data: fcstData,
