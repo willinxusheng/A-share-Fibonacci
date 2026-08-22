@@ -1837,17 +1837,35 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<div style="flex:1;height:10px;border-radius:6px;background:linear-gradient(90deg,#1f6fb2,#8a94a6,#e0903a,#c23531);position:relative;">' +
       '<div style="position:absolute;left:' + score + '%;top:-4px;width:4px;height:18px;border-radius:2px;background:#242a35;"></div>' +
       '</div></div>';
-    // R114：逆向解读（实证：score 与未来收益负相关，近250日真实样本，N=各档样本数）
-    var REVERSE = {
-      '冰点': ['情绪冰点：近250日样本 N=0（未触发过），极端情绪位仅作提示', '#1f6fb2'],
-      '偏冷': ['情绪偏冷：近250日样本 N=16，此后20日平均收益 +2.49%，逆向布局参考', '#3b8fc2'],
-      '中性': ['情绪中性：近250日样本 N=92，此后20日平均收益 +0.62%，多空均衡', '#8a94a6'],
-      '偏热': ['情绪偏热：近250日样本 N=118，此后20日平均收益 0.00%，追高性价比低', '#e0903a'],
-      '狂热': ['情绪狂热：近250日样本 N=19，此后20日平均收益 -0.03%，逆向风险区', '#c23531']
-    };
-    var rev = REVERSE[label] || ['—', '#8a94a6'];
+    // R114/R115：逆向解读（生成器全量统计，随 history 窗口自动更新；无 contra 时用历史兜底文案）
+    var contra = t.contra || null;
+    var revTxt = null, revCol = null;
+    if (contra && contra.bands) {
+      for (var _bi = 0; _bi < contra.bands.length; _bi++) {
+        if (contra.bands[_bi].label === label) {
+          var bd = contra.bands[_bi];
+          var fwd = (bd.fwd20 == null) ? '样本不足' : (bd.fwd20 >= 0 ? '+' + bd.fwd20.toFixed(2) + '%' : bd.fwd20.toFixed(2) + '%');
+          var hint = (label === '狂热') ? '逆向风险区' : (label === '冰点' || label === '偏冷') ? '逆向布局参考' : (label === '偏热') ? '追高性价比低' : '多空均衡';
+          revTxt = '情绪' + label + '：全量样本 N=' + bd.n + '，此后20日平均收益 ' + fwd + '，' + hint;
+          revCol = col;
+          break;
+        }
+      }
+    }
+    if (!revTxt) {
+      var REVERSE = {
+        '冰点': ['情绪冰点：近250日样本 N=0（未触发过），极端情绪位仅作提示', '#1f6fb2'],
+        '偏冷': ['情绪偏冷：近250日样本 N=16，此后20日平均收益 +2.49%，逆向布局参考', '#3b8fc2'],
+        '中性': ['情绪中性：近250日样本 N=92，此后20日平均收益 +0.62%，多空均衡', '#8a94a6'],
+        '偏热': ['情绪偏热：近250日样本 N=118，此后20日平均收益 0.00%，追高性价比低', '#e0903a'],
+        '狂热': ['情绪狂热：近250日样本 N=19，此后20日平均收益 -0.03%，逆向风险区', '#c23531']
+      };
+      var _rv = REVERSE[label] || ['—', '#8a94a6'];
+      revTxt = _rv[0];
+      revCol = _rv[1];
+    }
     html += '<div style="margin:0 0 10px;font-size:12px;color:#8a94a6;line-height:1.5;">' +
-      '<span style="color:' + rev[1] + ';font-weight:600;">逆向解读：</span>' + rev[0] +
+      '<span style="color:' + revCol + ';font-weight:600;">逆向解读：</span>' + revTxt +
       '<span style="color:#b0b8c4;">（非投资建议）</span></div>';
   }
   var NAME = { momentum: '趋势动量', position: '牛熊位置', volume: '量能水平', volatility: '波动恐慌', breadth: '广度确认' };

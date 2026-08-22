@@ -53,18 +53,53 @@ def main():
     kset = set(kd)
     klast = kd[-1]
 
-    # ---------- A. sentiment.history 与 kline 末250根逐点对齐 ----------
+    # ---------- A. sentiment.history 与 kline 全量对齐（R115：窗口 250 → 全部可用） ----------
     hist = sent.get("history") or []
-    chk(len(hist) == 250, "history 点数=%d != 250" % len(hist))
-    chk(not hist or all("score" in h and "label" in h for h in hist), "history 缺 score/label 字段")
-    tail250 = kd[-250:]
     hist_dates = [h["date"] for h in hist]
-    mismatch = [(a, b) for a, b in zip(hist_dates, tail250) if a != b]
-    chk(not mismatch, "history 与 kline 末250根日期逐点不一致 %d 处，前3: %r" % (len(mismatch), mismatch[:3]))
+    # 首个有完整 MA250/vol250 的点 = 第 249 根（0-based）；data.js 1211 根 → history 应 962 点
+    expect_n = max(len(kd) - 249, 0)
+    chk(len(hist) == expect_n, "history 点数=%d != 预期 %d（kline %d 根 - 249 预热）" % (len(hist), expect_n, len(kd)))
+    tail = kd[249:]
+    mismatch = [(a, b) for a, b in zip(hist_dates, tail) if a != b]
+    chk(not mismatch, "history 与 kline 可算区间日期逐点不一致 %d 处，前3: %r" % (len(mismatch), mismatch[:3]))
     chk(hist_dates[-1] == klast, "history 末点 %s != kline 末根 %s" % (hist_dates[-1], klast))
-    chk(hist_dates[0] == tail250[0], "history 首点 %s != kline 倒数第250根 %s" % (hist_dates[0], tail250[0]))
+    chk(hist_dates[0] == tail[0], "history 首点 %s != kline 第250根 %s" % (hist_dates[0], tail[0]))
     # history 严格递增、无重复
     chk(all(b > a for a, b in zip(hist_dates, hist_dates[1:])), "history 日期非严格递增")
+
+    # ---------- A2. today.contra 逆向统计一致性（R115） ----------
+    contra = (sent.get("today") or {}).get("contra") or {}
+    cb = contra.get("bands") or []
+    if cb:
+        chk(len(cb) == 5, "contra.bands 应为 5 档，实际 %d" % len(cb))
+        for band in cb:
+            n = band.get("n", 0)
+            fwd = band.get("fwd20")
+            if n > 0:
+                chk(fwd is not None, "contra 档 %s N=%d 但 fwd20 为空" % (band.get("label"), n))
+            else:
+                chk(fwd is None, "contra 档 %s N=0 但 fwd20=%s（应为 None）" % (band.get("label"), fwd))
+        # 逆向单调性（稳健链：冷端强、热端弱；狂热档样本常 <30 且集中在趋势中段，
+        # 其后 20 日有时继续冲高 → 不强断言狂热档单调）
+        def _fwd(lab):
+            for b in cb:
+                if b.get("label") == lab and b.get("n", 0) > 0:
+                    return b.get("fwd20")
+            return None
+        def _n(lab):
+            for b in cb:
+                if b.get("label") == lab:
+                    return b.get("n", 0)
+            return 0
+        f_cold, f_mid, f_hot = _fwd("偏冷"), _fwd("中性"), _fwd("偏热")
+        if f_cold is not None and f_mid is not None:
+            chk(f_cold >= f_mid - 0.5, "逆向单调性：偏冷 fwd20 %.2f < 中性 %.2f（逆势信号存疑）" % (f_cold, f_mid))
+        if f_mid is not None and f_hot is not None:
+            chk(f_mid >= f_hot - 0.5, "逆向单调性：中性 fwd20 %.2f < 偏热 %.2f（逆势信号存疑）" % (f_mid, f_hot))
+        if _n("狂热") >= 30:
+            f_mania = _fwd("狂热")
+            if f_hot is not None and f_mania is not None:
+                chk(f_hot >= f_mania - 1.0, "逆向单调性：偏热 fwd20 %.2f < 狂热 %.2f（逆势信号存疑）" % (f_hot, f_mania))
 
     # ---------- B. forecast 每日期均为 A股交易日 ----------
     fcst = sent.get("forecast") or []

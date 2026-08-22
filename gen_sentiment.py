@@ -40,7 +40,7 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 DATA_JS = os.path.join(REPO, "data", "data.js")
 OUT_JSON = os.path.join(REPO, "data", "sentiment.json")
 
-N_HISTORY = 250  # 近 250 个交易日历史回算窗口
+N_HISTORY = 0  # 历史回算窗口：0=全部可用（自第 250 根起有完整 MA250/vol250 预热，约 5 年样本）
 
 
 def _load_data():
@@ -203,12 +203,15 @@ def _daily_hv_series(closes):
 
 
 def _compute_history(D):
-    """近 N_HISTORY 个交易日逐日情绪序列。返回 [{date, score, label}, ...]。"""
+    """全部可用交易日逐日情绪序列（自第 250 根起，保证 MA250/vol250 完整预热）。
+
+    返回 [{date, score, label}, ...]；数据不足 250 根时返回空。
+    """
     k = D.get("kline") or {}
     dates = [str(x) for x in (k.get("dates") or [])]
     closes = [float(x) for x in (k.get("close") or [])]
     vols = [float(x) for x in (k.get("volume") or [])]
-    if len(closes) < N_HISTORY:
+    if len(closes) < 250:
         return []
 
     res_b = _f((D.get("resonance") or {}).get("breadth"), 0.0)
@@ -217,7 +220,7 @@ def _compute_history(D):
 
     hv = _daily_hv_series(closes)
 
-    start = max(N_HISTORY - 1, 0)
+    start = 249  # 首个有完整 MA250/vol250 的点（0-based 索引）
     out = []
     for i in range(start, len(closes)):
         # 动量：20 日涨跌幅（与 _compute_today 的 closes[-1]/closes[-21] 口径一致，即始于 i、回溯 20 交易日）
@@ -242,8 +245,39 @@ def _compute_history(D):
 
         score = round(_score_from_subs([sub_mom, sub_pos, sub_vol, sub_volat, sub_breadth]), 1)
         out.append({"date": dates[i], "score": score, "label": _label(score)})
-    # 只保留最后 N_HISTORY 个点，避免序列过长
-    return out[-N_HISTORY:]
+    return out  # 全部可用点（约 5 年），不再截断到 250
+
+
+def _contra_stats(D, hist):
+    """逆向信号统计（单一真值，随窗口全量计算）。
+
+    对每个 history 点按 label 分档，统计各档样本数 N 与「未来 20 交易日平均收益」。
+    实证：score 与未来收益负相关（逆势信号）。返回 {bands: [{label, n, fwd20}], note}。
+    """
+    k = D.get("kline") or {}
+    closes = [float(x) for x in (k.get("close") or [])]
+    if not hist or len(closes) < len(hist) + 20:
+        return None
+    base = len(closes) - len(hist)
+    bands = [("冰点", 0, 20), ("偏冷", 20, 40), ("中性", 40, 60), ("偏热", 60, 80), ("狂热", 80, 101)]
+    out_bands = []
+    for (lab, lo, hi) in bands:
+        n, s = 0, 0.0
+        for off, h in enumerate(hist):
+            if lo <= h["score"] < hi:
+                j = base + off + 20
+                if j < len(closes):
+                    n += 1
+                    s += (closes[j] / closes[base + off] - 1.0) * 100.0
+        out_bands.append({
+            "label": lab,
+            "n": n,
+            "fwd20": round(s / n, 2) if n else None,
+        })
+    return {
+        "bands": out_bands,
+        "note": "近%d个交易日全量样本：score 与未来20日收益负相关（逆势信号）；N 为该档样本数" % len(hist),
+    }
 
 
 def _compute_forecast(D):
@@ -363,10 +397,13 @@ def main():
 
         out["history"] = _compute_history(D)
         out["forecast"] = _compute_forecast(D)
+        contra = _contra_stats(D, out["history"])
+        if contra is not None:
+            out["today"]["contra"] = contra
         out["note"] = ("代理情绪温度（monitor_only）：由上证量能/动量/波动/牛熊位置 + "
                        "宽基与跨市场广度合成，非全市场涨跌家数；量能维度受跨源 volume 单位差异影响，"
                        "仅供研判参考，不参与任何概率/方向计算。"
-                       "history 为近 250 交易日逐日回算；forecast 由 subForecast 价格路径派生"
+                       "history 为全部可用交易日逐日回算（约 5 年）；forecast 由 subForecast 价格路径派生"
                        "（量能/波动/广度沿用当前值，仅动量+位置随路径变化），为路径派生预测非因子预测。")
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
