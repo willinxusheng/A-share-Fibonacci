@@ -1837,6 +1837,56 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<div style="flex:1;height:10px;border-radius:6px;background:linear-gradient(90deg,#1f6fb2,#8a94a6,#e0903a,#c23531);position:relative;">' +
       '<div style="position:absolute;left:' + score + '%;top:-4px;width:4px;height:18px;border-radius:2px;background:#242a35;"></div>' +
       '</div></div>';
+    // R117：历史分位 + 温度趋势（从 history 动态计算，单一真值派生）
+    var histScores = (s.history || []).map(function (h) { return h.score; });
+    var pctRank = null;
+    if (histScores.length) {
+      var _le = 0;
+      for (var _pi = 0; _pi < histScores.length; _pi++) { if (histScores[_pi] <= score) _le++; }
+      pctRank = Math.round(100 * _le / histScores.length);
+    }
+    var trend = null;
+    if (histScores.length >= 2) {
+      var _d = score - histScores[histScores.length - 2];
+      trend = (_d > 0.05) ? '↗ 升温' : (_d < -0.05) ? '↘ 降温' : '→ 持平';
+    }
+    var _extra = [];
+    if (pctRank != null) _extra.push('近' + histScores.length + '日分位 <b style="color:#2a3340;">' + pctRank + '%</b>');
+    if (trend) _extra.push(trend);
+    if (_extra.length) {
+      html += '<div style="margin:0 0 6px;font-size:12px;color:#8a94a6;">' + _extra.join(' · ') + '</div>';
+    }
+    // R117：分档分布条（各档历史占比，当前档高亮）
+    if (histScores.length) {
+      var BANDS5 = [
+        { label: '冰点', lo: 0, hi: 20, color: '#1f6fb2' },
+        { label: '偏冷', lo: 20, hi: 40, color: '#3b8fc2' },
+        { label: '中性', lo: 40, hi: 60, color: '#8a94a6' },
+        { label: '偏热', lo: 60, hi: 80, color: '#e0903a' },
+        { label: '狂热', lo: 80, hi: 101, color: '#c23531' }
+      ];
+      var _cnt = [0, 0, 0, 0, 0];
+      for (var _si = 0; _si < histScores.length; _si++) {
+        var _v = histScores[_si];
+        for (var _bi2 = 0; _bi2 < 5; _bi2++) {
+          if (_v >= BANDS5[_bi2].lo && _v < BANDS5[_bi2].hi) { _cnt[_bi2]++; break; }
+        }
+      }
+      var _tot = Math.max(histScores.length, 1);
+      var barHtml = '<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin:2px 0 2px;">';
+      for (var _bi3 = 0; _bi3 < 5; _bi3++) {
+        barHtml += '<div style="width:' + (100 * _cnt[_bi3] / _tot).toFixed(2) + '%;background:' + BANDS5[_bi3].color +
+          ';opacity:' + (BANDS5[_bi3].label === label ? '1' : '0.35') + ';" title="' + BANDS5[_bi3].label + ' ' + _cnt[_bi3] + '日"></div>';
+      }
+      barHtml += '</div>';
+      var legHtml = '<div style="display:flex;font-size:11px;color:#8a94a6;margin:0 0 8px;gap:10px;flex-wrap:wrap;">';
+      for (var _bi4 = 0; _bi4 < 5; _bi4++) {
+        legHtml += '<span style="' + (BANDS5[_bi4].label === label ? 'font-weight:700;color:' + BANDS5[_bi4].color + ';' : '') + '">' +
+          BANDS5[_bi4].label + ' ' + _cnt[_bi4] + '日</span>';
+      }
+      legHtml += '</div>';
+      html += barHtml + legHtml;
+    }
     // R114/R115：逆向解读（生成器全量统计，随 history 窗口自动更新；无 contra 时用历史兜底文案）
     var contra = t.contra || null;
     var revTxt = null, revCol = null;
