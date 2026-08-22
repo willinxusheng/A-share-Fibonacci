@@ -815,6 +815,9 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     # 对近端 forecast 做小幅方向偏置；权重随 horizon 衰减（近端最强、远端归零），仅 N>=20 生效。
     _STATE_BIAS_W = 0.15   # 近端状态偏置最大权重（实际再×(posPct-0.5)*2 × 近端衰减）
     _STATE_MAX_PTS = 12.0  # 近端最大偏置点数（posPct=1.0 或 0.0 且权重=1 时）
+    # R130c/R133b 近端偏置独立快衰减时标（与 R132b 惯性同语义：近端时机信号应快速归零）：
+    # 不用数据驱动 _REV_TAU（H=60 时 tau=80，53 点预测末尾仍残留 52% 权重，与『近端归零』矛盾）。
+    _STATE_TAU = 15.0
     # R131a 最优窗口驱动动量回看窗口：与 R130a 同源（optimal_horizon），H 大→回看长（慢变趋势）、
     # H 小→回看短（快变节奏）；缺失回退 20（与原行为一致）。
     _MOM_WIN = _resolve_mom_win(optimal_horizon)
@@ -829,7 +832,9 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
         _t = consensus.get("total") or 0
         if _t > 0:
             _conf = float(consensus.get("agree") or 0) / float(_t)
-    _CONF_MULT = _clamp(0.5 + 2.0 * ((_conf or 0.75) - 0.5), 0.5, 1.5) if _conf is not None else 1.0
+    # 防御：显式 None 判断，不用 `_conf or 0.75`（0.0 是合法值，or 会误吞）
+    _CONF_MULT = _clamp(0.5 + 2.0 * ((_conf if _conf is not None else 0.75) - 0.5), 0.5, 1.5) \
+        if _conf is not None else 1.0
     # R132b Δ 动量惯性近端偏置：情绪自相关——今天 Δ20 升/降的方向短期往往延续。
     # _INERTIA_TAU 控制衰减快慢（近端最强、远端归零），_INERTIA_MAX_PTS 为近端最大偏置点数。
     _INERTIA_TAU = 15.0
@@ -963,7 +968,7 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
         # R132a 共识置信度调制权重；R133b 优先用分regime条件胜率 _pospct_eff（更贴合当前牛熊态）。
         if _pospct_eff is not None and _posn_eff is not None and _posn_eff >= 20:
             _edge = (_pospct_eff - 0.5) * 2.0  # ∈[-1,1]：>0 看多象限→上修、<0 看空象限→下修
-            _sdecay = math.exp(-(idx + 1) / _REV_TAU)  # 近端最强、远端归零
+            _sdecay = math.exp(-(idx + 1) / _STATE_TAU)  # 近端最强、远端归零（快衰减，不用数据驱动 _REV_TAU）
             _bump = _edge * _STATE_BIAS_W * _CONF_MULT * _STATE_MAX_PTS * _sdecay
             score = _clamp(score + _bump, 0.0, 100.0)
         # R132b Δ 动量惯性近端偏置：情绪自相关——今天 Δ20 升/降方向短期往往延续。
@@ -1105,8 +1110,10 @@ def main():
                                  consensus=((_horizon or {}).get("consensus") or None),
                                  today_d20=_hs0,
                                  verdict=(((_horizon or {}).get("consensus") or {}).get("verdict") or None),
-                                 regime_win_pospct=(((_state or {}).get("regimeWin") or {}).get("posPct") or None),
-                                 regime_win_n=(((_state or {}).get("regimeWin") or {}).get("n") or None))
+                                 regime_win_pospct=(((_state or {}).get("regimeWin") or {}).get("posPct")
+                                                    if (_state and (_state.get("regimeWin") or {}).get("posPct") is not None) else None),
+                                 regime_win_n=(((_state or {}).get("regimeWin") or {}).get("n")
+                                               if (_state and (_state.get("regimeWin") or {}).get("n") is not None) else None))
         for c in fcst:
             c["label"] = _label(c["score"], bounds)
         out["forecast"] = fcst
@@ -1120,17 +1127,22 @@ def main():
         _consensus = ((_horizon or {}).get("consensus") or {})
         _cons_agree = (_consensus.get("agree") if _consensus else None)
         _cons_total = (_consensus.get("total") if _consensus else None)
-        _conf_val = (round(_cons_agree / _cons_total, 2)
+        _conf_raw = (float(_cons_agree) / float(_cons_total)
                      if (_cons_agree is not None and _cons_total) else None)
-        _conf_mult_val = round(_clamp(0.5 + 2.0 * ((_conf_val or 0.75) - 0.5), 0.5, 1.5), 2) \
-            if _conf_val is not None else 1.0
+        _conf_val = (round(_conf_raw, 2) if _conf_raw is not None else None)
+        # confMult 须基于未 round 原始比值计算（与 _compute_forecast 内 _CONF_MULT 一致），
+        # 避免 round 后的展示值误导实际生效值（如 0.6666→展示0.67→mult 0.84 vs 实际 0.833）
+        _conf_mult_val = round(_clamp(0.5 + 2.0 * ((_conf_raw if _conf_raw is not None else 0.75) - 0.5), 0.5, 1.5), 2) \
+            if _conf_raw is not None else 1.0
         _verdict_val = (_consensus.get("verdict") if _consensus else None)
         _verdict_mult_val = (0.5 if _verdict_val in ("共振(顺势有效)", "背离(信号分裂)") else 1.0)
         _rw = ((_state or {}).get("regimeWin") or {})
         _rw_pospct = (_rw.get("posPct") if _rw else None)
         _rw_n = (_rw.get("n") if _rw else None)
-        _pospct_used = _rw_pospct if (_rw_n or 0) >= 20 else (_state.get("posPct") if _state else None)
-        _posn_used = _rw_n if (_rw_n or 0) >= 20 else (_state.get("n") if _state else None)
+        # 展示口径与 _compute_forecast 内 _pospct_eff 完全一致：regimeWin.posPct 存在且 N>=20 才用条件胜率
+        _use_rw = (_rw_pospct is not None and _rw_n is not None and _rw_n >= 20)
+        _pospct_used = _rw_pospct if _use_rw else (_state.get("posPct") if _state else None)
+        _posn_used = _rw_n if _use_rw else (_state.get("n") if _state else None)
         out["forecastBand"] = {
             "method": "经验置信带（目标覆盖≈80%，基于滚动感知波动率的启发式近似，非严格统计置信区间）",
             "level": "≈80%",
