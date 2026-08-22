@@ -638,6 +638,11 @@ if (document && document.documentElement) { document.documentElement.className +
 var _HOLIDAYS_2026 = {};
 "2026-01-01,2026-01-02,2026-01-03,2026-02-15,2026-02-16,2026-02-17,2026-02-18,2026-02-19,2026-02-20,2026-02-21,2026-02-22,2026-02-23,2026-04-04,2026-04-05,2026-04-06,2026-05-01,2026-05-02,2026-05-03,2026-05-04,2026-05-05,2026-06-19,2026-06-20,2026-06-21,2026-09-25,2026-09-26,2026-09-27,2026-10-01,2026-10-02,2026-10-03,2026-10-04,2026-10-05,2026-10-06,2026-10-07"
   .split(',').forEach(function (h) { _HOLIDAYS_2026[h] = 1; });
+// R108：调休补班日（周末上班仍交易），与 build_data.py _A_SHARE_MAKEUP_2026 / report.py _A_SHARE_MAKEUP 同源。
+// 与 _HOLIDAYS_2026 口径对齐，使 addBizDays 与子浪预测图(_next_trading_day)、chanlun(_is_trading_day) 三处日历完全一致。
+var _MAKEUP_2026 = {};
+"2026-02-14,2026-02-28,2026-05-09,2026-09-20,2026-10-10"
+  .split(',').forEach(function (h) { _MAKEUP_2026[h] = 1; });
 // R209：统一数值格式化——避免裸拼接浮点(如 125.38 在 IEEE754 下最短表示为 125.38000000000011)导致小数点过长。
 // 所有价格/比率显示必须经此收口；null/undefined 显示占位符，非数字原样透传。
 function fmt2(v) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) : (v == null ? '—' : v); }
@@ -650,7 +655,8 @@ function addBizDays(from, n) {
     var wd = d.getDay();
     var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
     var ds = y + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
-    if (wd !== 0 && wd !== 6 && !_HOLIDAYS_2026[ds]) added++;
+    // 交易日 = (工作日 且 非休市) 或 调休补班日；补班日虽在周末仍交易，须计入。
+    if (((wd !== 0 && wd !== 6) || _MAKEUP_2026[ds]) && !_HOLIDAYS_2026[ds]) added++;
   }
   var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
   return y + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);

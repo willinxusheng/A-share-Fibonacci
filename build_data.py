@@ -963,11 +963,18 @@ def main():
             _A_SHARE_HOLIDAYS_2026.add(_hd.strftime("%Y-%m-%d"))
             _hd += pd.Timedelta(days=1)
 
+    # R108：调休补班日（周末上班仍交易），与 report.py _A_SHARE_MAKEUP / index.html _MAKEUP_2026 同源。
+    # 缺失会使该补班日被误当休市，影响子浪预测图日期与 expDays 的微小精度（与 _is_trading_day 口径分裂的回归修复）。
+    _A_SHARE_MAKEUP_2026 = {
+        "2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10",
+    }
+
     def _next_trading_day(ts):
-        """返回 ts 或其之后最近的 A股交易日（工作日且非休市日）。"""
+        """返回 ts 或其之后最近的 A股交易日（工作日或调休补班日，且非休市日）。"""
         _d = pd.Timestamp(ts)
         while True:
-            if _d.dayofweek < 5 and _d.strftime("%Y-%m-%d") not in _A_SHARE_HOLIDAYS_2026:
+            _ds = _d.strftime("%Y-%m-%d")
+            if _ds in _A_SHARE_MAKEUP_2026 or (_d.dayofweek < 5 and _ds not in _A_SHARE_HOLIDAYS_2026):
                 return _d
             _d += pd.Timedelta(days=1)
 

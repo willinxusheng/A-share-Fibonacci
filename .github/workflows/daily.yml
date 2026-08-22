@@ -172,11 +172,11 @@ jobs:
       # 用 ast 抽取 build_data._drift_prior_prob 与 oos_breadth.enrich 内联首达段真实源码、桩执行，
       # 与可导入真源 calibrate.first_passage_prob 及一份独立参考实现逐点数值比对；任一副本漂移
       # （改了公式忘改其他副本）即 EXIT≠0 阻断数据推送——杜绝弱守卫自洽假绿（R85 反假绿纪律）。
-      - name: Gatekeepers (validate + audit49..53)
+      - name: Gatekeepers (validate + audit49..53 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done
