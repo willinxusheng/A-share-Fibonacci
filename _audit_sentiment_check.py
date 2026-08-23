@@ -43,6 +43,9 @@ if ts is not None:
 # 3. history
 hist = S.get("history") or []
 chk(len(hist) > 0, "history 为空")
+# R143 契约硬守门：history 为累积序列（当前≈962 点，随时间增长），须防截断/空跑——
+# 低于 900 视为异常（远小于常态即数据损坏或生成器未产出），非精确==962（会随年份自然增长而误报）。
+chk(len(hist) >= 900, "history 点数异常偏低(截断/空跑?): %d（契约下限 900）" % len(hist))
 dates_h = [h["date"] for h in hist]
 for h in hist:
     for k in ("date", "score", "label"):
@@ -68,6 +71,10 @@ if any(g[2].startswith("倒序") for g in gaps):
 # 4. forecast（核心：是否含周末/非交易日；补班日虽在周末仍交易，须与生成器同源口径）
 fcst = S.get("forecast") or []
 chk(len(fcst) > 0, "forecast 为空")
+# R143 契约硬守门：forecast 为锚点驱动的交易日序列（当前≈53 点，由今日→末锚点 2026-11-10 派生），
+# 非硬编码常量，故用容差窗口[40,65]守门——既能捕获灾难性漂移(0/空/截断/误生成数百点)，
+# 又容忍日历边界±数点的正常波动；此前仅打印点数、无断言，属假绿漏洞。
+chk(40 <= len(fcst) <= 65, "forecast 点数异常(漂移/截断?): %d（契约窗口[40,65]，常态≈53）" % len(fcst))
 dates_f = [c["date"] for c in fcst]
 bad_fcst_day = [d for d in dates_f if not _is_a_share_trading_day(d)]
 chk(len(bad_fcst_day) == 0, "forecast 含 %d 个非交易日(周末/长假,补班日除外): %r" % (len(bad_fcst_day), bad_fcst_day[:10]))

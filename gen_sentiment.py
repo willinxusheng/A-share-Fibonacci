@@ -314,18 +314,6 @@ def _adaptive_volume_divisor(closes, vols):
     return max(0.08, sd)
 
 
-def _breadth_centered(sub_breadth, breadth_mean):
-    """R141：广度数据驱动归一化入口（替代 R138 常量中心化）。
-
-    R138 时期广度是常数 +1.0（std=0），中心化归零移除静态偏置；但 R141 已把
-    crossMarket.breadth（海外可达、每日刷新、∈[0,1] 的真实离散信号）真正启用，
-    常量退化不再成立，故改走 _breadth_adaptive（(b-0.5)*2 映射回 [-1,1] 信号维度）。
-    保留此函数签名兼容，但直接委托 _breadth_adaptive；breadth_mean 参数不再使用
-    （历史均值中心化语义已由数据驱动映射取代），保留仅防旧调用断链。
-    """
-    return _breadth_adaptive(sub_breadth, getattr(sub_breadth, "_src_tags", ["cross"]))
-
-
 def _compute_today(D):
     """返回 (score, label, dims_list) 或 None（数据不足）。dims_list 元素 = (name, weight, sub, meta)。"""
     k = D.get("kline") or {}
@@ -805,6 +793,11 @@ def _extreme_reversal(D, hist, bounds=None, today_score=None):
             "panic": _row("panic"), "euphoria": _row("euphoria"), "note": note}
 
 
+# R133b 单一真值：分regime条件中枢残偏权重（与 _compute_forecast 内 _REGIME_BIAS_W 同一常量，
+# forecastBand.regimeBiasW 展示值必须引用此处，避免契约字段谎报生效权重（R134 铁律）。
+_REGIME_BIAS_W = 0.25
+
+
 def _resolve_revert_tau(optimal_horizon):
     """R130a 最优窗口驱动回归时标：把固定 _REV_TAU=40 改为数据驱动。
 
@@ -828,7 +821,7 @@ def _resolve_mom_win(optimal_horizon):
     if optimal_horizon is None:
         return 20
     H = float(optimal_horizon)
-    return int(_clamp(round(10.0 + (H - 5.0) * (40.0 - 10.0) / (60.0 - 5.0)), 5, 60))
+    return int(_clamp(round(10.0 + (H - 5.0) * (40.0 - 10.0) / (60.0 - 5.0)), 10, 40))
 
 
 def _resolve_drift_params(drift):
@@ -939,7 +932,7 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
     # R129 经验方向修正超参：把已验证诊断反馈进 forecast，权重经 clamp 防过拟合/过度修正
     # R140：_REGIME_BIAS_W 由 0.5 降至 0.25——R140 已在 R128 锚点层引入 regime 感知主拉引力，
     # 此处保留远端残余强调，避免与 R140 双重叠加同一信号导致过度修正。
-    _REGIME_BIAS_W = 0.25  # 远端由（R140 已 regime 混合的）中枢向 regime_center 残余偏移的最大混合比例
+    # _REGIME_BIAS_W 使用模块级单一真值常量（R133b），不再局部重定义，避免与 forecastBand.regimeBiasW 展示值漂移
     _EXTREME_BIAS_W = 0.6  # 极端区内向中枢回归的最大混合比例（实际再×2*(rev20-0.5)）
     _center = center if (center is not None) else 60.0  # 历史中枢锚点（缺省 60）
     # R140 regime 感知中枢（贯穿全 horizon 的主拉引力，与 R128 正交叠加）：
@@ -1359,7 +1352,7 @@ def main():
             "pathVolMultMax": 1.6,
             "pathVolMethod": "局部(近20点)路径收益波动 vs 全程波动，局部放大→带宽适度加宽(clamp[1,1.6])；路径高风险段不误报为精确",
             "regimeBiasCenter": (round(_regime_center, 2) if _regime_center is not None else None),
-            "regimeBiasW": 0.5,
+            "regimeBiasW": _REGIME_BIAS_W,  # 单一真值：与 _compute_forecast 内生效权重一致（R134 铁律）
             "regimePctileToday": (round(_regime_pct_today, 1) if _regime_pct_today is not None else None),
             "regimePctileMethod": "R142 分regime滚动分位：今日/历史 score 在『同regime近250日样本』中的分位(抗bear/bull中枢19点系统差)，history逐点含regimePct、today含regimePct",
             "levelWMod": (round(_clamp(0.35 * _clamp(1.0 - abs(_clamp(_regime_pct_today, 0.0, 100.0) - 50.0) / 50.0, 0.3, 1.0), 0.0, 1.0), 3)
