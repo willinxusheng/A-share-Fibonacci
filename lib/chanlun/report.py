@@ -1182,6 +1182,10 @@ def forecast_svg(klines, r, wcls, conf, sigma, sym, horizon=60, bt=None, bt_path
     # 主窗口（保持推演图视觉连续）：最近 min(horizon,90) 日
     _tw = closes[-min(horizon, 90):]
     _main_slope, _r2, trend_end = _loglin(_tw)
+    if trend_end is None:
+        # _tw 元素不足(_loglin 在 n<10 时提前返回 None)：无可用趋势外推，端点回退为现价；
+        # 且 _r2=0 使下方 trend_agree 自然为 False，不虚构共振增益（R146 修复 horizon<10 崩溃）。
+        trend_end = 1.0
     trend_end_price = last * trend_end   # R71 修复：_loglin 第三返回为对数线性外推「比值」，须乘 last 还原为绝对价位；
                                            # 此前在 L1585(SVG青线)/L1617(图例)/L1686(fc字段) 直接当价格用 → 青线指向图表底部、图例显示"趋势外推 1"、数值 0.99 错乱
     # 多窗口方向共识：所有可用窗口斜率同号（全上行/全下行）
