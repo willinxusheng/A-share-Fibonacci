@@ -13,11 +13,9 @@
   I. sentiment 广度维度与 resonance/crossMarket breadth 联动
   J. subZigzag 与 zigzag 派生（子浪 zigzag 是主 zigzag 的子集或延续）
 """
-import json
-import re
-import sys
+import json, os, re, sys
 
-REPO = r"C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\A-share-Fibonacci"
+REPO = os.path.dirname(os.path.abspath(__file__))
 
 problems = []
 checks = []
@@ -40,9 +38,9 @@ def load_json(path):
 
 
 def main():
-    data = load_js(REPO + r"\data\data.js", "FIB_DATA")
-    st = load_json(REPO + r"\data\structures.json")
-    sent = load_json(REPO + r"\data\sentiment.json")
+    data = load_js(os.path.join(REPO, "data", "data.js"), "FIB_DATA")
+    st = load_json(os.path.join(REPO, "data", "structures.json"))
+    sent = load_json(os.path.join(REPO, "data", "sentiment.json"))
 
     kd = data["kline"]["dates"]
     kc = data["kline"]["close"]
@@ -157,7 +155,7 @@ def main():
         chk(not h_bad, "H: spark 与 kline 收盘不一致 %d 处: %r" % (len(h_bad), h_bad[:3]))
         chk(len(sp) >= 50, "H: spark 点数 %d 偏少（预期近60日）" % len(sp))
 
-    # ---------- I. sentiment 广度与 resonance/crossMarket 联动（R122c 同口径：仅可用源均值） ----------
+    # ---------- I. sentiment 广度与 resonance/crossMarket 联动（R122c→R141 同口径） ----------
     dims = (sent.get("today") or {}).get("dims") or []
     br = next((d for d in dims if d.get("name") == "breadth"), None)
     res_b = (data.get("resonance") or {}).get("breadth")
@@ -165,16 +163,23 @@ def main():
     cross_b = (data.get("crossMarket") or {}).get("breadth")
     cross_a = (data.get("crossMarket") or {}).get("breadthAvailable") or 0
     if br is not None and (res_a > 0 or cross_a > 0):
-        # R122c：仅用 breadthAvailable>0 的源均值，缺失源不参与平均、全缺失归零
-        parts = []
+        # R122c：仅用 breadthAvailable>0 的源均值（缺失源不参与平均、全缺失归零）
+        # R141：引擎对原始源均值做 (b-0.5)*2 映射到 [-1,1] 信号维度（_breadth_adaptive），
+        #       故维度 sub 应等于该映射值，而非原始均值本身（旧校验口径在 R141 后失真）。
+        parts, tags = [], []
         if res_a > 0 and res_b is not None:
-            parts.append(float(res_b))
+            parts.append(float(res_b)); tags.append("dom")
         if cross_a > 0 and cross_b is not None:
-            parts.append(float(cross_b))
-        expect_b = (sum(parts) / len(parts)) if parts else 0.0
+            parts.append(float(cross_b)); tags.append("cross")
+        raw_mean = (sum(parts) / len(parts)) if parts else 0.0
+        # 单一真值：直接复用 gen_sentiment._breadth_adaptive（与引擎完全一致，避免双份公式漂移）
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("gen_sentiment", os.path.join(REPO, "gen_sentiment.py"))
+        _gs = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_gs)
+        expect_b = _gs._breadth_adaptive(raw_mean, tags)
         i_ok = abs(br.get("sub", 0) - expect_b) < 0.011
-        chk(i_ok, "I: sentiment breadth sub=%.4f != 可用源均值=%.4f (res avail=%d %s + cross avail=%d %s，缺失源不参与)"
-            % (br.get("sub", 0), expect_b, res_a, res_b, cross_a, cross_b))
+        chk(i_ok, "I: sentiment breadth sub=%.4f != 可用源映射=%.4f (raw_mean=%.4f, 源=%s，R141 _breadth_adaptive)"
+            % (br.get("sub", 0), expect_b, raw_mean, "+".join(tags)))
 
     # ---------- J. subZigzag 起点 与 wavePoints 浪③起联动（5% 子浪 zigzag 从浪③起开始） ----------
     if sz and wp:
