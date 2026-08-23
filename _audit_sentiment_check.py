@@ -254,3 +254,11 @@ for p in problems:
     print("  X %s" % p)
 if not problems:
     print("  OK 全部契约项通过")
+else:
+    # R144 反假绿收尾：R143 加了 history/forecast 硬守门 chk() 断言，但脚本末尾漏了
+    # 把「problems 非空」翻译成非零退出码——此前即便收集到 X 问题也 EXIT=0，
+    # CI 软门禁(continue-on-error)连 ::warning:: 都不发、静默吞掉，属假绿漏洞。
+    # 此处显式 EXIT=1：CI 因 continue-on-error 不阻断部署，但会发黄色 ::warning:: 透明可见；
+    # 本地/CI 均能真实感知契约失败（与 R85 反假绿纪律一致）。
+    print("::warning::情绪契约审计发现 %d 项问题，详见上方 X 清单（软门禁不阻断部署，仅告警）" % len(problems))
+    sys.exit(1)
