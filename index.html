@@ -13,6 +13,21 @@
 <script>document.write('<script src="data/quality_cert.js?v=' + Date.now() + '"><\/script>');</script>
 <!-- 市场情绪温度（gen_sentiment.py 生成；monitor_only，不参与概率/方向计算） -->
 <script>document.write('<script src="data/sentiment.js?v=' + Date.now() + '"><\/script>');</script>
+<!-- 入口版本哨兵（R-ENTRY-CACHE）：缩短 index.html 被 CDN 缓存的生效延迟。
+     部署新版本后，下次访问检测到 BUILD_TS 变化即强刷，避免旧入口长期滞留。
+     注意：branch 模式 Pages 的 HTML 响应头无法由本项目设置 no-cache，故此哨兵为
+     前端层兜底；如需 100% 即时生效需迁移 Actions 部署并设 Cache-Control: no-cache。 -->
+<script>
+(function(){
+  var BUILD_TS = "2026-08-23T08:37:00Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
+  try {
+    var key = "ashare_index_build_ts";
+    var prev = localStorage.getItem(key);
+    if (prev && prev !== BUILD_TS) { localStorage.setItem(key, BUILD_TS); location.reload(true); }
+    else { localStorage.setItem(key, BUILD_TS); }
+  } catch(e){}
+})();
+</script>
 <style>
   :root {
     --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
