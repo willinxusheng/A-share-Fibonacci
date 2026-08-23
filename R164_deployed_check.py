@@ -38,7 +38,10 @@ s1 = st[0]["price"] if st else None
 vrow = next((r for r in rows if r.get("wave") == "子浪ⅴ"), None)
 if vrow and s1 is not None:
     diff = abs(vrow["target"] - s1)
-    print(f"\n端点锁: 子浪ⅴ={vrow['target']} 卖①={s1} 差={diff:.6f} -> {'PASS' if diff < 1e-6 else 'FAIL'}")
+    _lock_ok = diff < 1e-6
+    print(f"\n端点锁: 子浪ⅴ={vrow['target']} 卖①={s1} 差={diff:.6f} -> {'PASS' if _lock_ok else 'FAIL'}")
+    if not _lock_ok:
+        bad += 1
 
 # 回测实证
 bt = obj.get("backtest") or {}
@@ -61,3 +64,8 @@ print("  ratioSrc:", cb.get("ratioSrc"), " empSamples:", cb.get("empSamples"),
 print("\n=== 汇总 ===")
 print("  子浪行异常数:", bad, " (0=全部健全)")
 print("  结论:", "已部署实物数值健全" if bad == 0 else "存在数值异常需修")
+
+if bad > 0:
+    print("\n::error::R164 已部署实产物存在 %d 处数值异常，须修复后再部署" % bad)
+    sys.exit(1)
+print("\n::notice::R164 已部署实产物数值健全")

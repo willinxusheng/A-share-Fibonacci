@@ -617,6 +617,8 @@ def main():
     _breadth_total = len(_breadth_idx)
     _breadth_avail = len(_bs)
     _breadth_missing = sorted(_breadth_idx - set(d["name"] for d in _bs))
+    _breadth = 0.0
+    _breadth_mag = 0.0
     if _bs:
         # 符号广度按「设计集总数」归一(R165)：仅 k/N 个可用时按比例缩放，避免单指数在场就给满 ±1
         # 置信(此前 沪深300 静默丢失→只剩创业板指→breadth 直接 ±1 过度自信)。正常双指数在场仍为 ±1。

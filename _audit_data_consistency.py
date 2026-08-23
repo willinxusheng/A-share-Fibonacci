@@ -1,7 +1,7 @@
-import json, re, datetime
+import json, re, datetime, sys, os
 
-REPO = "C:\\Users\\Administrator\\WorkBuddy\\2026-08-04-23-16-18\\A-share-Fibonacci"
-DATA = REPO + "\\data"
+REPO = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(REPO, "data")
 problems = []
 def chk(cond, msg):
     if not cond:
@@ -103,3 +103,8 @@ if problems:
 else:
     print("  无一致性问题（已确认双口径命中率为设计，非 bug）")
 print("PROBLEM_COUNT", len(problems))
+
+if problems:
+    print("\n::error::_audit_data_consistency 发现 %d 处一致性问题" % len(problems))
+    sys.exit(1)
+print("\n::notice::_audit_data_consistency 通过")

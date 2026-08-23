@@ -14,7 +14,7 @@ R231 — 回测日志内部字段质量体检（前 11 轮从未真正查过的"
 只读不改；band 边界不在日志中存储（R91 设计：evaluate 用记录自身_date 的
 vol regime 重算 _frac，与 build_data._enrich / calibrate 同源，避免前视泄漏）。
 """
-import json, collections, os, re
+import json, collections, os, re, sys
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(BASE, "data", "predictions_log.jsonl")
@@ -92,6 +92,12 @@ def main():
     print("    'hold' = 持有类上行目标，evaluate 走上行分支(hi>=px*(1-_frac))，合法非 bug")
 
     print("\n" + "=" * 72)
+    _anom = bool(bad) or bool(dups) or bool(uneven)
+    if _anom:
+        print("结论：日志字段质量【异常】—— 字段异常%d / 重复键%d / 每日记录不均%d"
+              % (len(bad), len(dups), len(uneven)))
+        print("=" * 72)
+        sys.exit(1)
     print("结论：日志字段质量健康（0缺失/0重复/0非法/每日稳定9条）；")
     print("band 不在日志存储(R91设计：evaluate 用记录_date vol 重算_frac，与模型同源)。")
     print("=" * 72)

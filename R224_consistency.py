@@ -16,6 +16,7 @@ import json
 import math
 import os
 import re
+import sys
 
 import numpy as np
 import pandas as pd
@@ -261,3 +262,6 @@ else:
     print("  FAIL：发现 %d 处不一致：" % len(fails))
     for f in fails:
         print("   ", f)
+    print("\n::error::R224 模型-实产物存在 %d 处不一致，须修复后再部署" % len(fails))
+    sys.exit(1)
+print("\n::notice::R224 自洽性通过")
