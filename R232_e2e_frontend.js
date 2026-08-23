@@ -96,6 +96,7 @@ function main() {
   console.log(fmt('结论: %s — 前端渲染读数与 data.js 存档值端到端一致，无 NaN/无脱节/无派生偏差。',
     pass ? 'PASS（无新 bug）' : 'FAIL'));
   console.log('='.repeat(72));
+  return pass;   // R150：返回给调用方决定退出码，避免失败时仍 EXIT=0 假绿（与 R228/R230 一致）
 }
 
-main();
+process.exit(main() ? 0 : 1);

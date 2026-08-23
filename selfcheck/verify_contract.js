@@ -113,6 +113,36 @@ chk(D.channel && Array.isArray(D.channel.upper) && Array.isArray(D.channel.lower
 chk(Array.isArray(D.tzWaveStart), 'tzWaveStart 缺失/非数组（前端 L903 时间窗）');
 chk(Array.isArray(D.tzWave3Top), 'tzWave3Top 缺失/非数组（前端 L909 时间窗）');
 
+// R150 盲区补齐：主图直接消费的 kline 叶子字段与顶层标量此前未校验，
+// 若 build_data 重构改名/缺失，前端对应渲染会静默 NaN 白屏而本门禁假绿通过。
+// rsi/ma* 允许 NaN→null（build_data 合法值），故仅校验数组存在+长度对齐+非 null 元素为有限数。
+const _KLEN = (D.kline && Array.isArray(D.kline.dates)) ? D.kline.dates.length : -1;
+chk(Array.isArray(D.kline.close) && D.kline.close.length === _KLEN,
+    'kline.close 缺失/长度与 dates 不一致（前端 L1033/1107/1177）');
+chk(Array.isArray(D.kline.volume) && D.kline.volume.length === _KLEN,
+    'kline.volume 缺失/长度不一致（前端 L1077）');
+['rsi', 'ma20', 'ma60', 'ma120', 'ma250'].forEach(function (k) {
+  const arr = D.kline && D.kline[k];
+  chk(Array.isArray(arr) && arr.length === _KLEN,
+      'kline.' + k + ' 缺失/长度不一致（前端 L1072-1085/1193）');
+  if (Array.isArray(arr)) {
+    arr.forEach(function (v, i) {
+      chk(v === null || numOK(v), 'kline.' + k + '[' + i + '] 既非 null 亦非有限数（build_data 应 NaN→null）');
+    });
+  }
+});
+chk(numOK(D.lastClose), 'lastClose NaN（前端 L1186 兜底压入）');
+chk(typeof D.updated === 'string' && D.updated.length > 0,
+    'updated 缺失/非字符串（前端 dateIdx/标记 L795/1024/1069/1162）');
+chk(D.volatility && numOK(D.volatility.now) && numOK(D.volatility.pctile),
+    'volatility.now/pctile NaN（前端 L811 HV20 分位）');
+chk(D.volRegime && typeof D.volRegime.bucket === 'string',
+    'volRegime.bucket 缺失/非字符串（前端 L811 波动区）');
+chk(typeof D.tzBaseTop === 'string' && D.tzBaseTop.length > 0,
+    'tzBaseTop 缺失/非字符串（前端 L1067 浪④买点参考区 xAxis，应为日期串）');
+chk(typeof D.tzBaseStart === 'string' && D.tzBaseStart.length > 0,
+    'tzBaseStart 缺失/非字符串（前端 tzBaseStart 参考，应为日期串）');
+
 console.log('state.cls =', D.state && D.state.cls);
 console.log('sellTargets =', ((D.tradePlan && D.tradePlan.sellTargets) || []).length,
   ' buyZones =', ((D.tradePlan && D.tradePlan.buyZones) || []).length,
