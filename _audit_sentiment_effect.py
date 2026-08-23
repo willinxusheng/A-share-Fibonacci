@@ -10,19 +10,20 @@
   5) 与随机基准对比（打乱 score 序列 1000 次，看真实相关性是否显著优于随机）
 """
 import json
+import os
 import random
 import re
 import statistics
 
-REPO = r"C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\A-share-Fibonacci"
+REPO = os.path.dirname(os.path.abspath(__file__))
 
 def load_js(path, var):
     raw = open(path, encoding="utf-8").read()
     return json.loads(re.sub(r"^\s*window\.%s\s*=\s*" % re.escape(var), "", raw).rstrip().rstrip(";"))
 
 def main():
-    data = load_js(REPO + r"\data\data.js", "FIB_DATA")
-    sent = json.load(open(REPO + r"\data\sentiment.json", encoding="utf-8"))
+    data = load_js(os.path.join(REPO, "data", "data.js"), "FIB_DATA")
+    sent = json.load(open(os.path.join(REPO, "data", "sentiment.json"), encoding="utf-8"))
 
     kd = data["kline"]["dates"]
     kc = data["kline"]["close"]

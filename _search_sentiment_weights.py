@@ -12,10 +12,11 @@
 """
 import json
 import math
+import os
 import random
 import re
 
-REPO = r"C:\Users\Administrator\WorkBuddy\2026-08-04-23-16-18\A-share-Fibonacci"
+REPO = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_js(path, var):
@@ -127,7 +128,7 @@ def spearman(a, b):
 
 
 def main():
-    D = load_js(REPO + r"\data\data.js", "FIB_DATA")
+    D = load_js(os.path.join(REPO, "data", "data.js"), "FIB_DATA")
     feats, dates = build_features(D)
     if not feats:
         print("数据不足")
