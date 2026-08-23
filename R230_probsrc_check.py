@@ -3,7 +3,7 @@
 判断"线上确实 8/9 目标走经验频率档(回测实证)、仅 1 个走漂移模型档"是否成立。
 只报告，不改引擎。
 """
-import os, re, json, collections
+import os, re, json, collections, sys
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
@@ -60,6 +60,7 @@ def main():
         print("[基石假设 OK] 经验频率档= %d 个、漂移模型档= %d 个(浪⑤起) → R225 候选提升对线上零影响结论成立" % (emp, drf))
     elif drf > 1:
         print("[基石假设 FAIL] 漂移模型档有 %d 个(>1) → R225 候选提升可能波及线上, 需重新审视!" % drf)
+        sys.exit(1)
     else:
         print("[基石假设 NOTE] 分布 emp=%d drf=%d → 请人工核对" % (emp, drf))
     print("=" * 78)

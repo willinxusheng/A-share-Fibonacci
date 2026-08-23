@@ -16,7 +16,7 @@ R228 — 子浪价位比率「R85 诚实性 + 样本充足性 + 自洽」体检
 
 严守 R85：只读、不改生产。
 """
-import os, re, json, math, statistics
+import os, re, json, math, statistics, sys
 import numpy as np
 import pandas as pd
 
@@ -181,6 +181,8 @@ def main():
     reason = [] if honest else ["独立重算(%s) != 发布推断(%s)" % (my_choice, pub_choice)]
     print("\n[R85 诚实性] %s%s" % ("OK 发布选择=独立重算" if honest else "FAIL",
                                   ("（" + "; ".join(reason) + "）") if reason else ""))
+    if not honest:
+        sys.exit(1)
 
     # 2) 样本充足性
     n = (_sw_emp["n"] if _sw_emp else 0)
