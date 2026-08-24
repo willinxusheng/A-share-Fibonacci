@@ -115,3 +115,12 @@
 {"date": "2026-08-21", "key": "子浪ⅲ", "cat": "subwave", "side": "sell", "price": 4357.48, "expDays": 37.0}
 {"date": "2026-08-21", "key": "子浪ⅳ", "cat": "subwave", "side": "buy", "price": 4191.23, "expDays": 46.0}
 {"date": "2026-08-21", "key": "子浪ⅴ", "cat": "subwave", "side": "sell", "price": 4493.94, "expDays": 57.0}
+{"date": "2026-08-24", "key": "卖① 保守兑现", "cat": "sellTarget", "side": "sell", "price": 4493.94, "expDays": 59.0}
+{"date": "2026-08-24", "key": "卖② 标准兑现", "cat": "sellTarget", "side": "sell", "price": 4725.81, "expDays": 77.0}
+{"date": "2026-08-24", "key": "卖③ 激进兑现", "cat": "sellTarget", "side": "sell", "price": 5334.35, "expDays": 143.0}
+{"date": "2026-08-24", "key": "浪⑤起", "cat": "subwave", "side": "buy", "price": 3741.11, "expDays": 10.0}
+{"date": "2026-08-24", "key": "子浪ⅰ", "cat": "subwave", "side": "hold", "price": 4040.94, "expDays": 10.0}
+{"date": "2026-08-24", "key": "子浪ⅱ", "cat": "subwave", "side": "buy", "price": 3870.18, "expDays": 19.0}
+{"date": "2026-08-24", "key": "子浪ⅲ", "cat": "subwave", "side": "sell", "price": 4355.3, "expDays": 38.0}
+{"date": "2026-08-24", "key": "子浪ⅳ", "cat": "subwave", "side": "buy", "price": 4194.11, "expDays": 48.0}
+{"date": "2026-08-24", "key": "子浪ⅴ", "cat": "subwave", "side": "sell", "price": 4493.94, "expDays": 59.0}
