@@ -1,30 +1,30 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-08-24T09:15:17Z",
-  "data_last_date": "2026-08-24 17:13:52",
+  "generated_at": "2026-08-25T09:09:46Z",
+  "data_last_date": "2026-08-25 17:08:27",
   "engine": {
-    "driftConf": 0.6,
-    "bandScale": 1.15,
+    "driftConf": 0.85,
+    "bandScale": 1.0,
     "resonance_breadth": 0.0,
     "calib_points": 10,
-    "last_close": 3882.01,
-    "vol_bucket": "高"
+    "last_close": 3889.44,
+    "vol_bucket": "中"
   },
   "oos_brier": {
     "production_brier5": null,
     "production_baseline": 0.2276,
     "production_delta_pct": null,
-    "bucket_brier": 0.08884,
+    "bucket_brier": 0.09237,
     "bucket_baseline": 0.089,
-    "bucket_delta_pct": -0.18,
+    "bucket_delta_pct": 3.79,
     "sample_cnt": 0,
     "status": "ok",
     "tolerance_pct": 5.0
   },
   "backtest": {
-    "total_logged": 126,
-    "total_evaluated": 59,
-    "total_pending": 67,
+    "total_logged": 135,
+    "total_evaluated": 62,
+    "total_pending": 73,
     "realized_hit_rate": 98.4,
     "cold_start": false,
     "overall_hit_rate": 100.0,
@@ -60,8 +60,8 @@
       {
         "cat": "subwave",
         "key": "子浪ⅱ",
-        "n": 13,
-        "hitRate": 93.3,
+        "n": 14,
+        "hitRate": 93.8,
         "avgDays": 1.0
       },
       {
@@ -74,8 +74,8 @@
       {
         "cat": "subwave",
         "key": "子浪ⅳ",
-        "n": 13,
-        "hitRate": 93.3,
+        "n": 14,
+        "hitRate": 93.8,
         "avgDays": 1.0
       },
       {
@@ -88,12 +88,12 @@
       {
         "cat": "subwave",
         "key": "浪⑤起",
-        "n": 11,
-        "hitRate": 92.3,
-        "avgDays": 2.6
+        "n": 12,
+        "hitRate": 92.9,
+        "avgDays": 2.5
       }
     ],
-    "note": "整体/已实现命中率偏乐观：仅统计「观察窗已闭合」的已解决目标，观察窗未闭合的 67 个目标暂不计入分母；随观察窗闭合（短窗约 1 个月、长窗 9~14 个月）逐步收敛到真实命中率。"
+    "note": "整体/已实现命中率偏乐观：仅统计「观察窗已闭合」的已解决目标，观察窗未闭合的 73 个目标暂不计入分母；随观察窗闭合（短窗约 1 个月、长窗 9~14 个月）逐步收敛到真实命中率。"
   },
   "accuracy_status": "WATCH",
   "sentiment": {
@@ -101,7 +101,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-08-24 17:13:52"
+    "asOf": "2026-08-25 17:08:27"
   },
   "error": null
 }
