@@ -2,8 +2,9 @@
 """多源回退 K 线取数（R271 海外可达改造）。
 
 背景：GitHub Actions 海外 runner 无法访问 eastmoney（取数失败），导致云端每日自动更新
-整轮失败。本模块提供「eastmoney(中国本地主源) -> yahoo(美国本土服务，海外可达) ->
-stooq(次回退)」的链式取数，归一化为与 read_kline_md 兼容的 6 列 markdown 表：
+整轮失败。本模块提供「eastmoney(中国本地主源) -> tencent(gtimg，海外可达，A 股返回完整
+历史) -> yahoo(美国本土服务，海外可达) -> stooq(次回退)」的链式取数，归一化为与
+read_kline_md 兼容的 6 列 markdown 表：
 
     | date | open | high | low | last | volume |
 
@@ -46,20 +47,22 @@ _EASTMONEY_HEADERS = {
     "Connection": "close",
 }
 
-# internal_key -> (eastmoney_secid, yahoo_symbol, stooq_symbol)
+# internal_key -> (eastmoney_secid, yahoo_symbol, stooq_symbol, tencent_secid)
+# tencent_secid：腾讯 gtimg 代码（sh/sz+6位，与 eastmoney 不同），海外 runner 可达，
+# 对 A 股指数/个股返回完整日K；HK/US 设为 None（腾讯无对应代码，跳过该源）。
 SYMBOLS = {
-    "sh000001": ("1.000001", "000001.SS", "000001.ss"),
-    "sh000300": ("1.000300", "000300.SS", "000300.ss"),
-    "sz399006": ("0.399006", "399006.SZ", "399006.sz"),
-    "sh000016": ("1.000016", "000016.SS", "000016.ss"),
-    "sh000905": ("1.000905", "000905.SS", "000905.ss"),
-    "sh000688": ("1.000688", "000688.SS", "000688.ss"),
-    "hkHSI":    ("100.HSI", "^HSI", "hsi"),
-    "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech"),
-    "usINX":    ("100.SPX", "^GSPC", "spx"),
+    "sh000001": ("1.000001", "000001.SS", "000001.ss", "sh000001"),
+    "sh000300": ("1.000300", "000300.SS", "000300.ss", "sh000300"),
+    "sz399006": ("0.399006", "399006.SZ", "399006.sz", "sz399006"),
+    "sh000016": ("1.000016", "000016.SS", "000016.ss", "sh000016"),
+    "sh000905": ("1.000905", "000905.SS", "000905.ss", "sh000905"),
+    "sh000688": ("1.000688", "000688.SS", "000688.ss", "sh000688"),
+    "hkHSI":    ("100.HSI", "^HSI", "hsi", None),
+    "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech", None),
+    "usINX":    ("100.SPX", "^GSPC", "spx", None),
     # 三源必须为同一指数：yahoo/stooq 的 ^IXIC/ixic = 纳斯达克综合指数(Nasdaq Composite)，
     # eastmoney 对应代码为 100.IXIC（100.NDX 是纳斯达克100，非同一标的，跨源回退会取错序列）。
-    "usIXIC":   ("100.IXIC", "^IXIC", "ixic"),
+    "usIXIC":   ("100.IXIC", "^IXIC", "ixic", None),
 }
 
 
@@ -129,6 +132,39 @@ def _eastmoney_rows(secid):
         return rows if rows else None
     except Exception as e:  # noqa: BLE001
         _debug("eastmoney secid=%s parse error: %s", secid, e)
+        return None
+
+
+def _tencent_rows(secid):
+    """腾讯 gtimg 日K（R279 海外可达回退）：对 A 股指数/个股返回完整日K（约 1300 根，2021 起）。
+    海外 runner 可达，弥补 yahoo/stooq 不含 A 股副指数代码的缺口，使副指数共振在 CI 复活。
+    返回格式 [date, open, close, high, low, volume] —— 注意 close 在第 3 位（eastmoney 在第 5 位），
+    须映射为 (date, open, high, low, close, volume) 以契合 read_kline_md 约定。"""
+    url = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=%s,day,,,1300,qfq") % secid
+    _debug("trying tencent secid=%s", secid)
+    raw = _http_get(url, {"User-Agent": UA, "Referer": "https://gu.qq.com/"},
+                   timeout=15, retries=1, tag="tencent")
+    if not raw:
+        _debug("tencent secid=%s -> no response", secid)
+        return None
+    try:
+        d = json.loads(raw)
+        node = (d.get("data") or {}).get(secid) or {}
+        # qfq 请求一般落在 "day"；个别情形为 "qfqday"，二者兼容
+        kl = node.get("day") or node.get("qfqday") or []
+        if not kl:
+            _debug("tencent secid=%s -> empty klines", secid)
+            return None
+        rows = []
+        for f in kl:
+            if len(f) < 6:
+                continue
+            # gtimg: [date, open, close, high, low, volume]
+            rows.append((f[0], f[1], f[3], f[4], f[2], f[5]))
+        _debug("tencent secid=%s -> %d rows", secid, len(rows))
+        return rows if rows else None
+    except Exception as e:  # noqa: BLE001
+        _debug("tencent secid=%s parse error: %s", secid, e)
         return None
 
 
@@ -233,14 +269,18 @@ def _stooq_rows(symbol):
 
 
 def fetch_rows(key):
-    """链式取数：eastmoney -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。"""
+    """链式取数：eastmoney -> tencent -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。"""
     if key not in SYMBOLS:
         _debug("fetch_rows unknown key=%s", key)
         return None
-    em, yh, st = SYMBOLS[key]
+    em, yh, st, tnt = SYMBOLS[key]
     rows = _eastmoney_rows(em)
     if rows:
         return rows
+    if tnt:
+        rows = _tencent_rows(tnt)
+        if rows:
+            return rows
     rows = _yahoo_rows(yh)
     if rows:
         return rows
