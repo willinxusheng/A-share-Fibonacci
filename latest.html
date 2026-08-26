@@ -32,7 +32,7 @@
      前端层兜底；如需 100% 即时生效需迁移 Actions 部署并设 Cache-Control: no-cache。 -->
 <script>
 (function(){
-  var BUILD_TS = "2026-08-26T12:50:00Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
+  var BUILD_TS = "2026-08-26T13:05:12Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
   try {
     var key = "ashare_index_build_ts";
     var prev = localStorage.getItem(key);
@@ -2178,11 +2178,11 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       var chart = echarts.init(chartEl);
       chart.setOption({
         backgroundColor: '#ffffff',
-        // R155：hover 十字光标 + 左轴(温度)数值 + 底部日期同步
-        axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } },
+        // R155：hover 竖线 + 左轴(温度)数值 + 底部日期同步（category 轴用 line 更稳）
+        axisPointer: { type: 'line', label: { backgroundColor: '#6a7985' } },
         grid: { left: 48, right: 16, top: 36, bottom: 64 },
         tooltip: {
-          trigger: 'axis', axisPointer: { type: 'cross' },
+          trigger: 'axis', axisPointer: { type: 'line' },
           backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
           formatter: function (ps) {
             if (!ps || !ps.length) return '';
@@ -2333,11 +2333,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               vsChart.setOption({
                 backgroundColor: '#ffffff',
                 // 标题由外部 HTML .sub-h 统一承载，避免 ECharts title 与 legend 在小屏/窄容器下重叠
-                // R155：hover 十字光标 + 左右双轴数值同步 + 底部日期同步
+                // R155：hover 竖线 + 左右双轴数值同步 + 底部日期同步（叠图为 category x + 双 value y，cross 光标易冲突，改用 line 更稳）
                 axisPointer: {
-                  type: 'cross',
+                  type: 'line',
                   label: { backgroundColor: '#6a7985' },
-                  crossStyle: { color: '#888', width: 1 },
                   lineStyle: { color: '#888', width: 1, type: 'dashed' }
                 },
                 grid: { left: 44, right: 56, top: 34, bottom: 26 },
