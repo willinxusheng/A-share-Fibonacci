@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-26T13:32:19Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-26T13:57:09Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -2341,10 +2341,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                       var xs = ps[0];
                       var date = (xs && (xs.axisValue != null ? xs.axisValue : (xs.value != null ? xs.value : '')));
                       var lines = [date != null ? String(date) : ''];
+                      var seen = {};
                       for (var _i = 0; _i < ps.length; _i++) {
                         var p = ps[_i];
                         if (!p) continue;
-                        var nm = p.seriesName || '', val = (p.value != null ? p.value : p.data);
+                        var nm = p.seriesName || '';
+                        if (seen[nm]) continue;
+                        seen[nm] = true;
+                        var val = (p.value != null ? p.value : p.data);
                         if (val == null) continue;
                         var v = (typeof val === 'number') ? val.toFixed(1) : String(val);
                         if (nm === '上证指数') lines.push('上证 <b>' + v + '</b>');
@@ -2369,11 +2373,11 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                     axisLine: { show: false }, axisLabel: { color: '#5a6675' },
                     splitLine: { lineStyle: { color: '#eef1f6' } },
                     // R155：左轴（温度）hover 数值同步
-                    axisPointer: { show: true, label: { show: true, backgroundColor: '#7b61c4', color: '#fff', fontWeight: 'bold', formatter: function (v) { return v.toFixed(0); } } } },
+                    axisPointer: { show: true, label: { show: true, backgroundColor: '#7b61c4', color: '#fff', fontWeight: 'bold', formatter: function (p) { var val = (p && typeof p.value === 'number') ? p.value : p; return (typeof val === 'number') ? val.toFixed(0) : String(val); } } } },
                   { type: 'value', scale: true, name: '上证', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
                     axisLine: { show: false }, axisLabel: { color: '#8a94a6' }, splitLine: { show: false },
                     // R155：右轴（上证点位）hover 数值同步
-                    axisPointer: { show: true, label: { show: true, backgroundColor: '#1f6fb2', color: '#fff', fontWeight: 'bold', formatter: function (v) { return v.toFixed(0); } } } }
+                    axisPointer: { show: true, label: { show: true, backgroundColor: '#1f6fb2', color: '#fff', fontWeight: 'bold', formatter: function (p) { var val = (p && typeof p.value === 'number') ? p.value : p; return (typeof val === 'number') ? val.toFixed(0) : String(val); } } } }
                 ],
                 series: [
                   { name: '情绪温度', type: 'line', data: vsSent, showSymbol: false, smooth: true,
