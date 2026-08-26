@@ -2,14 +2,14 @@
 <html lang="zh-CN">
 <head>
 <script>
-// 入口自版本化（R155 缓存实战 2026-08-26）：首次/参数不匹配时重定向到带当日日期的 URL，
-// 绕过浏览器/CDN 对 index.html 的 10 分钟缓存，确保用户每天至少一次最新、无需手动硬刷。
-// 配合 latest.html（零缓存镜像入口）可立即突破顽固缓存。
+// 入口自版本化（R155 缓存实战 2026-08-26）：BUILD_TS 每次改 index.html 必 bump，
+// 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
+// replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
+// 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
+var BUILD_TS = "2026-08-26T13:32:19Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
-    var d = new Date();
-    var day = d.getUTCFullYear() + ('0' + (d.getUTCMonth() + 1)).slice(-2) + ('0' + d.getUTCDate()).slice(-2);
-    var param = '?v=' + day;
+    var param = '?v=' + BUILD_TS;
     if (location.search !== param) { location.replace(location.pathname + param); }
   } catch (e) {}
 })();
@@ -26,21 +26,6 @@
 <script>document.write('<script src="data/quality_cert.js?v=' + Date.now() + '"><\/script>');</script>
 <!-- 市场情绪温度（gen_sentiment.py 生成；monitor_only，不参与概率/方向计算） -->
 <script>document.write('<script src="data/sentiment.js?v=' + Date.now() + '"><\/script>');</script>
-<!-- 入口版本哨兵（R-ENTRY-CACHE）：缩短 index.html 被 CDN 缓存的生效延迟。
-     部署新版本后，下次访问检测到 BUILD_TS 变化即强刷，避免旧入口长期滞留。
-     注意：branch 模式 Pages 的 HTML 响应头无法由本项目设置 no-cache，故此哨兵为
-     前端层兜底；如需 100% 即时生效需迁移 Actions 部署并设 Cache-Control: no-cache。 -->
-<script>
-(function(){
-  var BUILD_TS = "2026-08-26T13:05:12Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
-  try {
-    var key = "ashare_index_build_ts";
-    var prev = localStorage.getItem(key);
-    if (prev && prev !== BUILD_TS) { localStorage.setItem(key, BUILD_TS); location.reload(true); }
-    else { localStorage.setItem(key, BUILD_TS); }
-  } catch(e){}
-})();
-</script>
 <style>
   :root {
     --navy: #16213e; --navy2: #1f2d50; --gold: #c9a063; --red: #c23531; --green: #2f9e44;
@@ -2343,16 +2328,30 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                 tooltip: {
                   trigger: 'axis',
                   backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
+                  // R155：trigger:'axis' 时由 tooltip 接管轴指针；显式配 axisPointer(line 型)
+                  // 避免被顶层配置忽略，确保 category x + 双 value y 组合下竖线/数值/日期都渲染
+                  axisPointer: {
+                    type: 'line',
+                    label: { backgroundColor: '#6a7985' },
+                    lineStyle: { color: '#888', width: 1, type: 'dashed' }
+                  },
                   formatter: function (ps) {
-                    if (!ps || !ps.length) return '';
-                    var _s = ps[0].axisValue, lines = [_s];
-                    for (var _i = 0; _i < ps.length; _i++) {
-                      var _nm = ps[_i].seriesName, _v = ps[_i].data;
-                      if (_v == null) continue;
-                      if (_nm === '上证指数') lines.push('上证 <b>' + _v + '</b>');
-                      else lines.push(_nm.replace('情绪-', '情绪·') + ' <b>' + _v.toFixed(1) + '</b>');
-                    }
-                    return lines.join('<br/>');
+                    try {
+                      if (!ps || !ps.length) return '';
+                      var xs = ps[0];
+                      var date = (xs && (xs.axisValue != null ? xs.axisValue : (xs.value != null ? xs.value : '')));
+                      var lines = [date != null ? String(date) : ''];
+                      for (var _i = 0; _i < ps.length; _i++) {
+                        var p = ps[_i];
+                        if (!p) continue;
+                        var nm = p.seriesName || '', val = (p.value != null ? p.value : p.data);
+                        if (val == null) continue;
+                        var v = (typeof val === 'number') ? val.toFixed(1) : String(val);
+                        if (nm === '上证指数') lines.push('上证 <b>' + v + '</b>');
+                        else lines.push(nm + ' <b>' + v + '</b>');
+                      }
+                      return lines.join('<br/>');
+                    } catch (e) { return ''; }
                   }
                 },
                 legend: { data: ['情绪温度', '上证指数'], top: 4, left: 'center', itemGap: 18,
