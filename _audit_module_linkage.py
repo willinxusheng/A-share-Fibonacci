@@ -130,17 +130,30 @@ def main():
                     f_bad.append((nm, s["price"], round(expect, 2)))
     chk(not f_bad, "F: supports 浪3回撤 派生异常: %r" % f_bad[:3])
 
-    # ---------- G. weekly 与 kline 联动（当前周状态：close==末根、above==close>ma30w） ----------
+    # ---------- G. weekly 与 kline 联动（R286 修正：引擎剔除"当前不完整周"） ----------
+    # 引擎语义(build_data L428-435)：weekly 取"上一完整周"收盘，正常 ≠ kline 末根
+    # （仅当末根恰为周五时才相等）。正确断言：weekly.close == 上一个周五(或最后完整周结束日)收盘。
     wk = data.get("weekly") or {}
     wk_close = wk.get("close")
     wk_ma30 = wk.get("ma30w")
     wk_above = wk.get("above")
     if wk_close is not None and kc:
-        chk(abs(wk_close - kc[-1]) < 0.011, "G: weekly.close %s != kline 末根 %s" % (wk_close, kc[-1]))
+        import datetime as _dt
+        _last = _dt.datetime.strptime(kd[-1], "%Y-%m-%d").date()
+        _off = (_last.weekday() - 4) % 7  # 4=Friday → 距上一个周五的天数
+        _fri = (_last - _dt.timedelta(days=_off)).strftime("%Y-%m-%d")
+        _j = kset.get(_fri)
+        if _j is not None:
+            chk(abs(wk_close - kc[_j]) < 0.011,
+                "G: weekly.close %s != 上一完整周五(%s)收盘 %s" % (wk_close, _fri, kc[_j]))
+        else:
+            # 周五为休市假日等极端情形：退化为"weekly.close 须是近15根内真实 kline 收盘"
+            chk(any(abs(wk_close - c) < 0.011 for c in kc[-15:]),
+                "G: weekly.close %s 不是近15根内真实 kline 收盘（数据脱节）" % wk_close)
     if wk_close is not None and wk_ma30 is not None and wk_above is not None:
-        expect_above = wk_close > wk_ma30
-        chk(wk_above == expect_above, "G: weekly.above %s != (close>ma30w)=%s (close=%s ma30w=%s)"
-            % (wk_above, expect_above, wk_close, wk_ma30))
+        chk(wk_above == (wk_close > wk_ma30),
+            "G: weekly.above %s != (close>ma30w)=%s (close=%s ma30w=%s)"
+            % (wk_above, wk_close > wk_ma30, wk_close, wk_ma30))
 
     # ---------- H. spark 与 kline 联动 ----------
     sp = data.get("spark") or []
