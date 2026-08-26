@@ -32,7 +32,7 @@
      前端层兜底；如需 100% 即时生效需迁移 Actions 部署并设 Cache-Control: no-cache。 -->
 <script>
 (function(){
-  var BUILD_TS = "2026-08-26T12:27:25Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
+  var BUILD_TS = "2026-08-26T12:50:00Z"; // 每次改 index.html 或部署时手动 bump；CI 可 sed 注入
   try {
     var key = "ashare_index_build_ts";
     var prev = localStorage.getItem(key);
@@ -1225,19 +1225,21 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
   var c2 = echarts.init(document.getElementById('chart2'));
   c2.setOption({
     textStyle: { fontFamily: CHART_FONT, color: '#242a35' },
-    tooltip: { trigger: 'axis' },
+    // R155：双宫格 x 轴联动——hover 十字光标贯穿两格、底部日期同步，左右双轴数值同步
+    axisPointer: { type: 'cross', link: [{ xAxisIndex: [0, 1] }], label: { backgroundColor: '#6a7985' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
     legend: { type: 'scroll', top: 0, show: !MOB, textStyle: { fontSize: 12 } },
     grid: [
       { left: 80, right: 60, top: 44, bottom: '42%' },
       { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 46) }
     ],
     xAxis: [
-      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false } },
-      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 1, axisLabel: { fontSize: 11, margin: 6 }, splitLine: { show: false } }
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } } },
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 1, axisLabel: { fontSize: 11, margin: 6 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } }
     ],
     yAxis: [
-      { type: 'value', scale: true, min: _c2Min, max: _c2Max, gridIndex: 0, axisLabel: { fontSize: 12 } },
-      { type: 'value', scale: true, min: 0, max: 100, splitNumber: 2, gridIndex: 1, axisLabel: { fontSize: 11 } }
+      { type: 'value', scale: true, min: _c2Min, max: _c2Max, gridIndex: 0, axisLabel: { fontSize: 12 }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } },
+      { type: 'value', scale: true, min: 0, max: 100, splitNumber: 2, gridIndex: 1, axisLabel: { fontSize: 11 }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } }
     ],
     series: series,
     dataZoom: [
@@ -1494,11 +1496,22 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
         dbgEl.style.display = 'none';
       }
     }
-    // 子浪图统一开启时间轴缩放（与 chart1/chart2 交互一致），覆盖 strong/base/risk 三模式
+    // 子浪图统一开启时间轴缩放 + 悬浮联动（十字光标 + 双轴数值 + 底部日期），覆盖 strong/base/risk 三模式
     c._zoomX = [0, 1];
-    c.setOption({ dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, _sliderZoom(c._zoomX)] });
-    // R155：每次重绘（含情景切换）后重新统一悬浮联动，确保 axisPointer 不丢失
-    try { _enhanceAxisPointer(c); } catch (e2) {}
+    c.setOption({
+      // 双宫格 x 轴跨轴联动：hover 竖线贯穿价格/RSI 两格，底部日期随悬浮点同步
+      axisPointer: { type: 'cross', link: [{ xAxisIndex: [0, 1] }], label: { backgroundColor: '#6a7985' } },
+      tooltip: { axisPointer: { type: 'cross' } },
+      yAxis: [
+        { axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } },
+        { axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } }
+      ],
+      xAxis: [
+        { axisPointer: { show: true, label: { show: false } } },
+        { axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (v) { return (typeof _fmt === 'function') ? _fmt(v) : String(v); } } } }
+      ],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, _sliderZoom(c._zoomX)]
+    });
   }
 
   function renderSubFTable(mode) {
@@ -2165,9 +2178,11 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       var chart = echarts.init(chartEl);
       chart.setOption({
         backgroundColor: '#ffffff',
+        // R155：hover 十字光标 + 左轴(温度)数值 + 底部日期同步
+        axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } },
         grid: { left: 48, right: 16, top: 36, bottom: 64 },
         tooltip: {
-          trigger: 'axis',
+          trigger: 'axis', axisPointer: { type: 'cross' },
           backgroundColor: '#ffffff', borderColor: '#e3e8f0', textStyle: { color: '#2a3340' },
           formatter: function (ps) {
             if (!ps || !ps.length) return '';
@@ -2197,14 +2212,18 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           type: 'category', data: allDates, boundaryGap: false,
           axisLine: { lineStyle: { color: '#c8cfda' } },
           axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
-          axisTick: { show: false }
+          axisTick: { show: false },
+          // R155：底部日期随悬浮点同步
+          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } }
         },
         yAxis: {
           type: 'value', min: 0, max: 100, name: '温度',
           nameTextStyle: { color: '#8a94a6' },
           axisLine: { show: false },
           axisLabel: { color: '#5a6675' },
-          splitLine: { lineStyle: { color: '#eef1f6' } }
+          splitLine: { lineStyle: { color: '#eef1f6' } },
+          // R155：左轴(温度)数值随悬浮同步
+          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } }
         },
         dataZoom: [
           { type: 'inside', startValue: hist.length > 90 ? hd[hist.length - 90] : hd[0], end: 100 },
@@ -2454,56 +2473,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   }
 })();
 
-/* ---------- R155：所有图表悬浮联动统一增强（十字光标 + 左右双轴数值 + 底部日期同步） ---------- */
-function _apFmtDate(v) {
-  if (typeof v === 'number') {
-    var d = new Date(v);
-    var y = d.getFullYear(), m = d.getMonth() + 1, g = d.getDate();
-    return y + '-' + (m < 10 ? '0' + m : m) + '-' + (g < 10 ? '0' + g : g);
-  }
-  return (v == null) ? '' : String(v);
-}
-function _apFmtNum(v) {
-  if (v == null) return '';
-  if (typeof v === 'number') {
-    var a = Math.abs(v);
-    if (a >= 1000) return v.toFixed(0);
-    if (a >= 1) return v.toFixed(1);
-    return v.toFixed(2);
-  }
-  return String(v);
-}
-// 给单个图表补 axisPointer：多 grid 跨轴联动(link) + 各 Y 轴数值 + 底部 X 轴日期
-function _enhanceAxisPointer(ch) {
-  if (!ch || typeof ch.getOption !== 'function') return;
-  var opt = ch.getOption();
-  var xA = opt.xAxis || [], yA = opt.yAxis || [];
-  var xN = Array.isArray(xA) ? xA.length : (xA ? 1 : 0);
-  var yN = Array.isArray(yA) ? yA.length : (yA ? 1 : 0);
-  if (!xN) return;
-  // 已手工定制 axisPointer 的图（如 sentVsChart 双轴异色）跳过，避免覆盖
-  for (var s = 0; s < yN; s++) { if (yA[s] && yA[s].axisPointer) return; }
-  var idx = []; for (var k = 0; k < xN; k++) idx.push(k);
-  var ap = { label: { backgroundColor: '#6a7985' }, type: 'cross' };
-  if (xN > 1) ap.link = [{ xAxisIndex: idx }];
-  var upd = { axisPointer: ap };
-  upd.yAxis = [];
-  for (var yi = 0; yi < yN; yi++) {
-    upd.yAxis.push({ axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apFmtNum } } });
-  }
-  upd.xAxis = [];
-  var lastX = xN - 1;
-  for (var xi = 0; xi < xN; xi++) {
-    upd.xAxis.push({ axisPointer: { show: true, label: { show: (xi === lastX), backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apFmtDate } } });
-  }
-  ch.setOption(upd);
-}
-// 全图表初始增强（含主图/艾略特通道/子浪预测/今日结构；叠图 sentVsChart 已手工定制，自动跳过）
-(function () {
-  for (var i = 0; i < charts.length; i++) {
-    try { _enhanceAxisPointer(charts[i]); } catch (e) {}
-  }
-})();
+/* ---------- R155：悬浮联动改为各图直接注入 axisPointer（十字光标 + 双轴数值 + 底部日期同步） ---------- */
 </script>
 </body>
 </html>
