@@ -37,21 +37,22 @@ def is_a_share_trading_day(d):
         return False
     return True
 
-fib = load_js(DATA + "\\data.js")
+fib = load_js(os.path.join(DATA, "data.js"))
 kdates = fib["kline"]["dates"]
 last_k = kdates[-1]
 last_close = fib["lastClose"]
 print("== data.js ==  updated:%s lastClose:%s 点数:%d 末根:%s" % (fib.get("updated"), last_close, len(kdates), last_k))
 
-sent = load_json(DATA + "\\sentiment.json")
+sent = load_json(os.path.join(DATA, "sentiment.json"))
 print("\n== sentiment.json == schema:%s today:%s/%s history:%d forecast:%d" %
       (sent["schema"], sent["today"]["score"], sent["today"]["label"], len(sent["history"]), len(sent["forecast"])))
+chk(bool(sent["history"]), "sentiment.history 为空（无历史数据）")
 if sent["history"]:
     print("  history末点:", sent["history"][-1])
+    chk(sent["history"][-1]["date"] == last_k, "sentiment.history末点(%s) != data.js末根(%s)" % (sent["history"][-1]["date"], last_k))
+    chk(sent["today"]["score"] == sent["history"][-1]["score"], "today.score != history末点.score")
 if sent["forecast"]:
     print("  forecast首/末:", sent["forecast"][0]["date"], "/", sent["forecast"][-1]["date"])
-chk(sent["history"][-1]["date"] == last_k, "sentiment.history末点(%s) != data.js末根(%s)" % (sent["history"][-1]["date"], last_k))
-chk(sent["today"]["score"] == sent["history"][-1]["score"], "today.score != history末点.score")
 # forecast 不得含周末/法定假日
 bad_td = [x["date"] for x in sent["forecast"] if not is_a_share_trading_day(x["date"])]
 chk(not bad_td, "forecast含非交易日: %s" % bad_td[:8])
@@ -59,13 +60,13 @@ chk(not bad_td, "forecast含非交易日: %s" % bad_td[:8])
 fd = [x["date"] for x in sent["forecast"]]
 chk(fd == sorted(fd), "forecast日期未单调递增")
 
-cl = load_js(DATA + "\\chanlun_view.js")
+cl = load_js(os.path.join(DATA, "chanlun_view.js"))
 print("\n== chanlun_view.js == lastDate:%s lastClose:%s" % (cl.get("lastDate"), cl.get("lastClose")))
 chk(cl.get("lastDate") == last_k, "chanlun_view.lastDate(%s) != 末根(%s)" % (cl.get("lastDate"), last_k))
 chk(abs(cl.get("lastClose", 0) - last_close) < 0.01, "chanlun_view.lastClose 与 data.js 不一致")
 
 # backtest：hitRate 必须 = Laplace(hits+1)/(n+2)；cold 组必须为 None
-bt = load_json(DATA + "\\backtest.json")
+bt = load_json(os.path.join(DATA, "backtest.json"))
 print("\n== backtest.json == realizedHitRate:%s overallHitRate:%s" % (bt.get("realizedHitRate"), bt.get("overallHitRate")))
 bad_hr = []
 for s in bt.get("summary", []):
@@ -80,7 +81,7 @@ for s in bt.get("summary", []):
 chk(not bad_hr, "backtest hitRate 口径异常: %s" % bad_hr[:5])
 
 # QC vs backtest：realized 应一致；overall 不同是设计（原始pooled vs Laplace），仅打印
-qc = load_json(DATA + "\\quality_cert.json")
+qc = load_json(os.path.join(DATA, "quality_cert.json"))
 print("== quality_cert.json == oos.status:%s sample_cnt:%s bucket_delta:%s" % (
     qc["oos_brier"].get("status"), qc["oos_brier"].get("sample_cnt"), qc["oos_brier"].get("bucket_delta_pct")))
 print("  QC.overall_hit_rate=%s | backtest.overallHitRate=%s (设计口径不同：原始pooled vs 空)" % (
@@ -88,7 +89,7 @@ print("  QC.overall_hit_rate=%s | backtest.overallHitRate=%s (设计口径不同
 chk(abs((qc["backtest"].get("realized_hit_rate") or 0) - (bt.get("realizedHitRate") or 0)) < 0.01,
     "QC.realized 与 backtest.realizedHitRate 不一致")
 
-st = load_json(DATA + "\\structures.json")
+st = load_json(os.path.join(DATA, "structures.json"))
 sigs = st.get("signals", [])
 vals = sorted(set(s.get("signal") for s in sigs))
 sd = [s["date"] for s in sigs]
