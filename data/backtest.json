@@ -1,11 +1,11 @@
 {
-  "asOf": "2026-08-25",
+  "asOf": "2026-08-26",
   "horizon": 30,
   "minSample": 3,
-  "totalLogged": 135,
-  "totalEvaluated": 62,
-  "totalPending": 73,
-  "realizedHitRate": 98.4,
+  "totalLogged": 144,
+  "totalEvaluated": 67,
+  "totalPending": 77,
+  "realizedHitRate": 98.6,
   "coldStart": false,
   "summary": [
     {
@@ -38,18 +38,18 @@
     {
       "cat": "subwave",
       "key": "子浪ⅰ",
-      "n": 11,
-      "hits": 11,
-      "hitRate": 92.3,
-      "avgDays": 1.0,
+      "n": 14,
+      "hits": 14,
+      "hitRate": 93.8,
+      "avgDays": 1.4,
       "cold": false
     },
     {
       "cat": "subwave",
       "key": "子浪ⅱ",
-      "n": 14,
-      "hits": 14,
-      "hitRate": 93.8,
+      "n": 15,
+      "hits": 15,
+      "hitRate": 94.1,
       "avgDays": 1.0,
       "cold": false
     },
@@ -65,9 +65,9 @@
     {
       "cat": "subwave",
       "key": "子浪ⅳ",
-      "n": 14,
-      "hits": 14,
-      "hitRate": 93.8,
+      "n": 15,
+      "hits": 15,
+      "hitRate": 94.1,
       "avgDays": 1.0,
       "cold": false
     },
