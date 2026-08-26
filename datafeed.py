@@ -34,6 +34,13 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 # CI 自动输出详细诊断：GitHub Actions 默认设置 CI=true
 _CI_DEBUG = os.environ.get("CI") == "true" or os.environ.get("DATAFEED_DEBUG") in ("1", "true", "yes")
 
+# 取数完整性门槛：与 analyze.py 的 `len(rows) < 600` 硬闸一致。任一源回传行数低于此值
+# 视为「退化/残破」（如海外腾讯 gtimg 对副指数偶发只回 1 根），不入链终止、继续回退到
+# 下一源（yahoo/stooq 对 A 股副指数常含完整历史）。R283 修复：原 `if rows: return rows`
+# 在拿到任意非空（但可能极短）结果即返回，导致副指数海外只取到 1 行、共振 breadth 退化
+# （production_oos_brier cnt=0、indexCompare 副指数仅 1 点）。现要求「完整」才接受。
+_MIN_ROWS = 600
+
 
 def _debug(fmt, *args):
     if _CI_DEBUG:
@@ -269,25 +276,31 @@ def _stooq_rows(symbol):
 
 
 def fetch_rows(key):
-    """链式取数：eastmoney -> tencent -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。"""
+    """链式取数：eastmoney -> tencent -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。
+
+    R283 修复：任一源回传行数 < _MIN_ROWS 视为退化残破结果，不立即返回，继续回退到下一源，
+    使副指数海外（eastmoney 失效、腾讯偶发只回 1 行）能继续尝试 yahoo/stooq 拿完整历史，
+    复活副指数共振。仅当某源返回「完整」(>=_MIN_ROWS) 结果才沿线接受（保主源优先级）；
+    全部源均不足门槛则返回 None（副指数非致命、主指数将触发上层失败）。
+    """
     if key not in SYMBOLS:
         _debug("fetch_rows unknown key=%s", key)
         return None
     em, yh, st, tnt = SYMBOLS[key]
     rows = _eastmoney_rows(em)
-    if rows:
+    if rows and len(rows) >= _MIN_ROWS:
         return rows
     if tnt:
         rows = _tencent_rows(tnt)
-        if rows:
+        if rows and len(rows) >= _MIN_ROWS:
             return rows
     rows = _yahoo_rows(yh)
-    if rows:
+    if rows and len(rows) >= _MIN_ROWS:
         return rows
     rows = _stooq_rows(st)
-    if rows:
+    if rows and len(rows) >= _MIN_ROWS:
         return rows
-    _debug("fetch_rows key=%s -> all sources failed", key)
+    _debug("fetch_rows key=%s -> all sources failed or all below _MIN_ROWS(%d)", key, _MIN_ROWS)
     return None
 
 

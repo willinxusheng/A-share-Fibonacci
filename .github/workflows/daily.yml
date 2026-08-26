@@ -156,6 +156,15 @@ jobs:
             exit 1
           fi
 
+      # R283 回归守门：取数链 fall-through 行为（确定性、无网络）。
+      # 固化 datafeed.fetch_rows 的"短结果不终止、继续回退"契约——副指数海外
+      # (eastmoney 失效、腾讯偶发只回 1 行) 必须越过腾讯落到 yahoo/stooq 拿完整历史，
+      # 否则副指数共振 breadth 退化（production_oos_brier cnt=0、indexCompare 副指数仅 1 点）。
+      # 任一条断言失败即 exit 1，阻断当日部署（反假绿硬守门，与取数同等级）。
+      - name: Datafeed fallback regression (R283 gate)
+        if: steps.fresh.outputs.skip != 'true'
+        run: python selfcheck/test_datafeed_fallback.py
+
       - name: Preflight data sanity
         if: steps.fresh.outputs.skip != 'true'
         run: python preflight.py   # 主指数致命问题 -> exit 1，中止后续步骤
