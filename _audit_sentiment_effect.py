@@ -14,6 +14,7 @@ import os
 import random
 import re
 import statistics
+import sys
 
 REPO = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,10 +32,16 @@ def main():
     hist = sent["history"]
     hist_dates = [h["date"] for h in hist]
 
-    # 对齐：history 250 点 == kline 末 250 根（R113 已逐点验证）
+    # 对齐：history 点 == kline 末 len(hist) 根（位置对齐，下方有失效校验）
     base = len(kd) - len(hist)
     idx = [base + i for i in range(len(hist))]
     scores = [h["score"] for h in hist]
+
+    # 反假绿：位置对齐是全部相关性证据的地基，一旦失配则证据失真，终止而非输出误导结论
+    bad = [i for i in range(len(hist)) if i + base < len(kd) and hist_dates[i] != kd[base + i]]
+    if bad:
+        print("⚠ 对齐校验失败：%d 个 history 点与 kline 位置不匹配（证据不可信），终止。" % len(bad))
+        sys.exit(1)
 
     # 当日涨跌幅（前收）
     rets = []
@@ -104,16 +111,17 @@ def main():
               (name, len(s5), sum(s5) / len(s5) if s5 else 0, sum(s20) / len(s20) if s20 else 0))
 
     # 4) 方向命中率：score 上穿/下穿 50 后次日方向
+    #    注意：scores 按 history 索引，对应 kline 绝对位置 idx[i]，价格须用 kc[idx[i]] 而非 kc[i]
     print("\n4) score 穿越 50 后的次日方向命中（上穿=情绪转暖，下穿=转冷）")
     up_hit = up_tot = dn_hit = dn_tot = 0
     for i in range(1, len(idx)):
-        if scores[i - 1] <= 50 < scores[i] and i + 1 < len(kc):
+        if scores[i - 1] <= 50 < scores[i] and idx[i] + 1 < len(kc):
             up_tot += 1
-            if kc[i + 1] > kc[i]:
+            if kc[idx[i] + 1] > kc[idx[i]]:
                 up_hit += 1
-        if scores[i - 1] >= 50 > scores[i] and i + 1 < len(kc):
+        if scores[i - 1] >= 50 > scores[i] and idx[i] + 1 < len(kc):
             dn_tot += 1
-            if kc[i + 1] < kc[i]:
+            if kc[idx[i] + 1] < kc[idx[i]]:
                 dn_hit += 1
     print("   上穿50 次日上涨: %d/%d = %.0f%%" % (up_hit, up_tot, 100 * up_hit / up_tot if up_tot else 0))
     print("   下穿50 次日下跌: %d/%d = %.0f%%" % (dn_hit, dn_tot, 100 * dn_hit / dn_tot if dn_tot else 0))
