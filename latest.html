@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-26T14:10:56Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-26T22:18:48Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -714,6 +714,36 @@ function addBizDays(from, n) {
   return y + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
 }
 var _toTs = function (d) { return new Date(d + 'T00:00:00').getTime(); };
+// R156：axisPointer label formatter 统一适配器
+// ECharts 传给 formatter 的参数可能是对象 {value, axisValue, ...}，也可能是原始值；
+// category 轴常见为 {value:'2026-08-26'}（原始类目），偶尔也会是索引数字；
+// time/value 轴为 {value:timestamp}。统一适配，避免空串 / NaN-NaN-NaN。
+function _apCat(dataArr) {
+  return function (p) {
+    try {
+      var v = (p && typeof p === 'object' && 'axisValue' in p) ? p.axisValue
+            : (p && typeof p === 'object' && 'value' in p) ? p.value
+            : p;
+      if (typeof v === 'number') return (dataArr && dataArr[v]) || '';
+      if (typeof v === 'string') return v;
+      return '';
+    } catch (e) { return ''; }
+  };
+}
+function _apTime(fmt) {
+  fmt = fmt || function (ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + (String(d.getMonth() + 1).padStart(2, '0')) + '-' + (String(d.getDate()).padStart(2, '0'));
+  };
+  return function (p) {
+    try {
+      var v = (p && typeof p === 'object' && 'value' in p) ? p.value : p;
+      if (typeof v === 'number' && isFinite(v)) return fmt(v);
+      if (typeof v === 'string' && /^[0-9]/.test(v)) { var n = Number(v); if (!isNaN(n)) return fmt(n); }
+      return (v != null) ? String(v) : '';
+    } catch (e) { return ''; }
+  };
+}
 if (!D || typeof D !== 'object') {
   // 数据未生成（如自动化取数失败）时给出明确提示，避免白屏
   document.body.innerHTML = '<div style="padding:48px;font-family:sans-serif;color:#c23531;line-height:1.8">' +
@@ -1043,11 +1073,11 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     ],
     xAxis: [
       { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false },
-        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } },
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apCat(dates) } } },
       { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false },
-        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } },
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apCat(dates) } } },
       { type: 'category', data: dates, gridIndex: 2, axisLabel: { margin: 6, fontSize: 11 },
-        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } }
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apCat(dates) } } }
     ],
     yAxis: [
       { scale: false, min: _yMin, max: _yMax, gridIndex: 0, axisLabel: { fontSize: 12 } },
@@ -1222,8 +1252,8 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       { left: 80, right: 60, top: '60%', bottom: (MOB ? 30 : 46) }
     ],
     xAxis: [
-      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } } },
-      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 1, axisLabel: { fontSize: 11, margin: 6 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } }
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 0, axisLabel: { show: false }, splitLine: { show: false }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apTime() } } },
+      { type: 'time', min: _toTs('2024-09-01'), max: _toTs('2027-09-30'), gridIndex: 1, axisLabel: { fontSize: 11, margin: 6 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apTime() } } }
     ],
     yAxis: [
       { type: 'value', scale: true, min: _c2Min, max: _c2Max, gridIndex: 0, axisLabel: { fontSize: 12 }, axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } } },
@@ -1496,7 +1526,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       ],
       xAxis: [
         { axisPointer: { show: true, label: { show: false } } },
-        { axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (v) { return (typeof _fmt === 'function') ? _fmt(v) : String(v); } } } }
+        { axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apTime(_fmt) } } }
       ],
       dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, _sliderZoom(c._zoomX)]
     });
@@ -2201,8 +2231,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           axisLine: { lineStyle: { color: '#c8cfda' } },
           axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
           axisTick: { show: false },
-          // R155：底部日期随悬浮点同步（category 轴显式用 data 索引取日期，避免默认 formatter 把索引当时间戳解析成 NaN）
-          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return allDates[idx] || ''; } } }
+          // R156：底部日期随悬浮点同步（category 轴 formatter 统一适配字符串/索引）
+          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apCat(allDates) } }
         },
         yAxis: {
           type: 'value', min: 0, max: 100, name: '温度',
@@ -2368,8 +2398,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                   axisLine: { lineStyle: { color: '#c8cfda' } },
                   axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
                   axisTick: { show: false },
-                  // R155：hover 时底部日期同步显示（category 轴显式用 data 索引取日期，避免默认 formatter 把索引当时间戳解析成 NaN）
-                  axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return vsDates[idx] || ''; } } }
+                  // R156：hover 时底部日期同步显示（category 轴 formatter 统一适配字符串/索引）
+                  axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: _apCat(vsDates) } }
                 },
                 yAxis: [
                   { type: 'value', min: 0, max: 100, name: '温度', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
