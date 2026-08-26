@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-26T22:18:48Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-26T22:19:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -2207,6 +2207,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
             var x = ps[0].axisValue;
             var out = x;
             ps.forEach(function (p) {
+              // R280: 过滤 Y 轴 axisPointer 伪 param（axisValue 为数值而非日期字符串）
+              if (typeof p.axisValue !== 'string') return;
               if (p.seriesName === '预测情绪' || p.seriesName === '历史情绪') {
                 if (p.data != null) out += '<br/>' + p.marker + p.seriesName + '：<b>' + (+p.data).toFixed(1) + '</b>';
               }
@@ -2378,6 +2380,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                       for (var _i = 0; _i < ps.length; _i++) {
                         var p = ps[_i];
                         if (!p) continue;
+                        // R280: 过滤 Y 轴 axisPointer 伪 param（axisValue 为数值而非日期字符串）
+                        if (typeof p.axisValue !== 'string') continue;
                         var nm = p.seriesName || '';
                         if (seen[nm]) continue;
                         seen[nm] = true;
