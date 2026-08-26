@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-26T13:57:09Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-26T14:10:56Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1042,9 +1042,12 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
       { left: 80, right: 60, top: '71%', bottom: (MOB ? 30 : 55) }
     ],
     xAxis: [
-      { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false } },
-      { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false } },
-      { type: 'category', data: dates, gridIndex: 2, axisLabel: { margin: 6, fontSize: 11 } }
+      { type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false },
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } },
+      { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false },
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } },
+      { type: 'category', data: dates, gridIndex: 2, axisLabel: { margin: 6, fontSize: 11 },
+        axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return dates[idx] || ''; } } } }
     ],
     yAxis: [
       { scale: false, min: _yMin, max: _yMax, gridIndex: 0, axisLabel: { fontSize: 12 } },
@@ -2198,8 +2201,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
           axisLine: { lineStyle: { color: '#c8cfda' } },
           axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
           axisTick: { show: false },
-          // R155：底部日期随悬浮点同步
-          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } }
+          // R155：底部日期随悬浮点同步（category 轴显式用 data 索引取日期，避免默认 formatter 把索引当时间戳解析成 NaN）
+          axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return allDates[idx] || ''; } } }
         },
         yAxis: {
           type: 'value', min: 0, max: 100, name: '温度',
@@ -2365,8 +2368,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                   axisLine: { lineStyle: { color: '#c8cfda' } },
                   axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
                   axisTick: { show: false },
-                  // R155：hover 时底部日期同步显示
-                  axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } }
+                  // R155：hover 时底部日期同步显示（category 轴显式用 data 索引取日期，避免默认 formatter 把索引当时间戳解析成 NaN）
+                  axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold', formatter: function (p) { var idx = (p && typeof p.value === 'number') ? p.value : p; return vsDates[idx] || ''; } } }
                 },
                 yAxis: [
                   { type: 'value', min: 0, max: 100, name: '温度', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
