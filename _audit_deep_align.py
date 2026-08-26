@@ -268,6 +268,8 @@ def main():
     chk(all(b > a for a, b in zip(zz_dates, zz_dates[1:])), "zigzag 日期非严格递增")
     price_bad = []
     for z in zz:
+        if z["date"] not in kset:
+            continue  # 已被 L267 chk 记录，跳过避免 kd.index 抛 ValueError 崩溃
         i = kd.index(z["date"])
         if z["type"] == "L" and abs(z["price"] - klow[i]) > 0.011:
             price_bad.append((z["date"], "L", z["price"], klow[i]))
@@ -276,20 +278,24 @@ def main():
     chk(not price_bad, "zigzag 价格与 kline 当日 low/high 不吻合 %d 处: %r" % (len(price_bad), price_bad[:5]))
     # 末点语义：unconfirmed 运行极值，其日期不必等于末根；但末点之后不得出现
     #   反向突破 8% 阈值的价格（否则该极值早应确认翻转）。同时不得出现更极端价格。
-    z_last = zz[-1]
-    i_last = kd.index(z_last["date"])
-    seg_low = min(klow[i_last + 1:]) if i_last + 1 < len(klow) else None
-    seg_high = max(khigh[i_last + 1:]) if i_last + 1 < len(khigh) else None
-    if z_last["type"] == "L":
-        chk(seg_low is None or seg_low >= z_last["price"] - 0.011,
-            "zigzag L 末点 %s 之后出现更低 low %s" % (z_last["date"], seg_low))
-        chk(seg_high is None or seg_high < z_last["price"] * 1.08,
-            "zigzag L 末点 %s 之后反弹超 8%% 阈值(high=%s) 未确认翻转" % (z_last["date"], seg_high))
-    else:
-        chk(seg_high is None or seg_high <= z_last["price"] + 0.011,
-            "zigzag H 末点 %s 之后出现更高 high %s" % (z_last["date"], seg_high))
-        chk(seg_low is None or seg_low > z_last["price"] * 0.92,
-            "zigzag H 末点 %s 之后回落超 8%% 阈值(low=%s) 未确认翻转" % (z_last["date"], seg_low))
+    # 守卫(R285)：zz 为空(空 zigzag) 或末点日期非法(已被 L265/L267 chk 记录) 时整体跳过，
+    # 避免 kd.index(zz[-1]["date"]) 在非法日期上抛 ValueError / zz[-1] 在空列表上抛 IndexError，
+    # 否则崩溃会吞掉后续 E~H 段检查、掩盖其它真实缺陷。
+    if zz and zz[-1]["date"] in kset:
+        z_last = zz[-1]
+        i_last = kd.index(z_last["date"])
+        seg_low = min(klow[i_last + 1:]) if i_last + 1 < len(klow) else None
+        seg_high = max(khigh[i_last + 1:]) if i_last + 1 < len(khigh) else None
+        if z_last["type"] == "L":
+            chk(seg_low is None or seg_low >= z_last["price"] - 0.011,
+                "zigzag L 末点 %s 之后出现更低 low %s" % (z_last["date"], seg_low))
+            chk(seg_high is None or seg_high < z_last["price"] * 1.08,
+                "zigzag L 末点 %s 之后反弹超 8%% 阈值(high=%s) 未确认翻转" % (z_last["date"], seg_high))
+        else:
+            chk(seg_high is None or seg_high <= z_last["price"] + 0.011,
+                "zigzag H 末点 %s 之后出现更高 high %s" % (z_last["date"], seg_high))
+            chk(seg_low is None or seg_low > z_last["price"] * 0.92,
+                "zigzag H 末点 %s 之后回落超 8%% 阈值(low=%s) 未确认翻转" % (z_last["date"], seg_low))
 
     # ---------- E. chanlun_view 与 data.js 末根对齐 ----------
     chk(chanlun.get("lastDate") == klast, "chanlun_view.lastDate %s != kline 末根 %s" % (chanlun.get("lastDate"), klast))
