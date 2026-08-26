@@ -1035,6 +1035,8 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     animation: false,
     textStyle: { fontFamily: CHART_FONT, color: '#242a35' },
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    // R155：三宫格 x 轴联动——hover 竖线贯穿价格/量/RSI 三格，底部日期同步
+    axisPointer: { link: [{ xAxisIndex: [0, 1, 2] }], label: { backgroundColor: '#6a7985' } },
     legend: { data: ['日K', '成交量', 'MA20', 'MA60', 'MA120', 'MA250', 'Zigzag摆动', 'RSI(14)'], top: 0, type: (MOB ? 'scroll' : undefined), textStyle: { fontSize: 12 } },
     grid: [
       { left: 80, right: 60, top: 44, bottom: '44%' },
@@ -2297,6 +2299,13 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
               vsChart.setOption({
                 backgroundColor: '#ffffff',
                 // 标题由外部 HTML .sub-h 统一承载，避免 ECharts title 与 legend 在小屏/窄容器下重叠
+                // R155：hover 十字光标 + 左右双轴数值同步 + 底部日期同步
+                axisPointer: {
+                  type: 'cross',
+                  label: { backgroundColor: '#6a7985' },
+                  crossStyle: { color: '#888', width: 1 },
+                  lineStyle: { color: '#888', width: 1, type: 'dashed' }
+                },
                 grid: { left: 44, right: 56, top: 34, bottom: 26 },
                 tooltip: {
                   trigger: 'axis',
@@ -2319,14 +2328,20 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                   type: 'category', data: vsDates, boundaryGap: false,
                   axisLine: { lineStyle: { color: '#c8cfda' } },
                   axisLabel: { color: '#5a6675', fontSize: 11, hideOverlap: true },
-                  axisTick: { show: false }
+                  axisTick: { show: false },
+                  // R155：hover 时底部日期同步显示
+                  axisPointer: { show: true, label: { show: true, backgroundColor: '#6a7985', color: '#fff', fontWeight: 'bold' } }
                 },
                 yAxis: [
                   { type: 'value', min: 0, max: 100, name: '温度', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
                     axisLine: { show: false }, axisLabel: { color: '#5a6675' },
-                    splitLine: { lineStyle: { color: '#eef1f6' } } },
+                    splitLine: { lineStyle: { color: '#eef1f6' } },
+                    // R155：左轴（温度）hover 数值同步
+                    axisPointer: { show: true, label: { show: true, backgroundColor: '#7b61c4', color: '#fff', fontWeight: 'bold', formatter: function (v) { return v.toFixed(0); } } } },
                   { type: 'value', scale: true, name: '上证', nameTextStyle: { color: '#8a94a6', fontSize: 10 },
-                    axisLine: { show: false }, axisLabel: { color: '#8a94a6' }, splitLine: { show: false } }
+                    axisLine: { show: false }, axisLabel: { color: '#8a94a6' }, splitLine: { show: false },
+                    // R155：右轴（上证点位）hover 数值同步
+                    axisPointer: { show: true, label: { show: true, backgroundColor: '#1f6fb2', color: '#fff', fontWeight: 'bold', formatter: function (v) { return v.toFixed(0); } } } }
                 ],
                 series: [
                   { name: '情绪温度', type: 'line', data: vsSent, showSymbol: false, smooth: true,
