@@ -36,26 +36,42 @@ def _safe_idx(dates, ts):
 
 
 def extract_targets(data):
-    """从 FIB_DATA 提取当日预测目标，统一 schema。"""
+    """从 FIB_DATA 提取当日预测目标，统一 schema。
+
+    #779：携带 baseCase/conditional 标记（regime-aware 降级）；并读取独立防御基准目标
+    (data.defensiveScenario，side=buy 下行、cat=defensive、baseCase=True)。
+    """
     recs = []
     for t in data.get("tradePlan", {}).get("sellTargets", []):
         recs.append({"key": t["name"], "price": float(t["price"]),
                      "side": "sell", "cat": "sellTarget",
-                     "expDays": float(t.get("expDays", HORIZON))})
+                     "expDays": float(t.get("expDays", HORIZON)),
+                     "baseCase": t.get("baseCase", True),
+                     "conditional": t.get("conditional", False)})
     for p in data.get("subForecast", {}).get("points", []):
         recs.append({"key": p["label"], "price": float(p["price"]),
                      "side": p["side"], "cat": "subwave",
-                     "expDays": float(p.get("expDays", HORIZON))})
+                     "expDays": float(p.get("expDays", HORIZON)),
+                     "baseCase": p.get("baseCase", True),
+                     "conditional": p.get("conditional", False)})
+    # #779 独立防御基准目标：仅在 warn  regime 下由 build_data 注入
+    _ds = data.get("defensiveScenario")
+    if _ds and _ds.get("target") is not None:
+        recs.append({"key": "均值回归基准", "price": float(_ds["target"]),
+                     "side": "buy", "cat": "defensive",
+                     "expDays": float(_ds.get("expDays", HORIZON)),
+                     "baseCase": True, "conditional": False})
     return recs
 
 
 def archive(data):
-    """把当日目标追加进日志（去重）。返回新增条数。
+    """把当日目标追加进日志（去重 + UPDATE-aware 幂等）。返回新增+更新条数。
 
-    容错：读取历史日志时若遇半行/损坏行（如 CI 进程写一半被杀），
-    跳过且不崩溃、不纳入 seen；落地改用「读-重写-追加」模式，丢弃坏行、
-    按 (date,key,cat) 去重，避免半行与后续记录粘连引发连锁 JSON 失败，
-    也避免坏行被重复计数污染命中率。正常无坏行时与旧 "a" 追加模式等价。
+    容错：读取历史日志时若遇半行/损坏行（如 CI 进程写一半被杀），跳过且不崩溃、不纳入 seen；
+    落地改用「读-重写-追加」模式，丢弃坏行、按 (date,key,cat) 去重/更新，避免半行与后续记录
+    粘连引发连锁 JSON 失败，也避免坏行被重复计数污染命中率。正常无坏行时与旧模式等价。
+    #779：同日二次写（regime-aware 重跑）时，对已存在的 (date,key,cat) 行【就地更新】
+    price / baseCase / conditional（不新增行、不破坏历史命中率分母）。
     """
     pred_date = data.get("updated")
     if not pred_date:
@@ -74,23 +90,33 @@ def archive(data):
                     continue
     seen = {(e.get("date"), e.get("key"), e.get("cat")) for e in existing
             if e.get("date") and e.get("key") and e.get("cat")}
-    new = 0
     fresh = []
+    updated = 0
     for r in extract_targets(data):
         k = (pred_date, r["key"], r["cat"])
         if k in seen:
-            continue
-        rec = {"date": pred_date, "key": r["key"], "cat": r["cat"],
-               "side": r["side"], "price": r["price"],
-               "expDays": r.get("expDays", HORIZON)}
-        fresh.append(rec)
-        seen.add(k)
-        new += 1
-    if new:
-        # 先写历史有效行，再追加本次新增；丢弃坏行、按 (date,key,cat) 去重，
+            # UPDATE-aware：同日二次写仅就地更新价格/基准-条件标记（不新增行、不破坏分母）
+            for e in existing:
+                if (e.get("date"), e.get("key"), e.get("cat")) == k:
+                    e["price"] = r["price"]
+                    e["baseCase"] = r.get("baseCase", True)
+                    e["conditional"] = r.get("conditional", False)
+                    if "expDays" in r:
+                        e["expDays"] = r.get("expDays", HORIZON)
+                    updated += 1
+                    break
+        else:
+            rec = {"date": pred_date, "key": r["key"], "cat": r["cat"],
+                   "side": r["side"], "price": r["price"],
+                   "expDays": r.get("expDays", HORIZON),
+                   "baseCase": r.get("baseCase", True),
+                   "conditional": r.get("conditional", False)}
+            fresh.append(rec)
+            seen.add(k)
+    if fresh or updated:
+        # 先写历史有效行（含就地更新），再追加本次新增；丢弃坏行、按 (date,key,cat) 去重/更新，
         # 消除半行粘连后续记录导致的连锁 JSON 崩溃与重复计数。
-        # 原子写：写临时文件后 os.replace 整体替换，避免 CI 进程写一半被杀导致
-        # LOG_PATH 含半行/不完整内容（下次 archive 虽容忍坏行但会丢失该次原子性）。
+        # 原子写：写临时文件后 os.replace 整体替换，避免 CI 进程写一半被杀导致 LOG_PATH 含半行。
         _tmp = LOG_PATH + ".tmp"
         with open(_tmp, "w", encoding="utf-8") as f:
             for e in existing:
@@ -98,7 +124,7 @@ def archive(data):
             for rec in fresh:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         os.replace(_tmp, LOG_PATH)
-    return new
+    return updated + len(fresh)
 
 
 def evaluate(df):
@@ -279,13 +305,19 @@ def aggregate(recs):
                               {"cat": r["cat"], "key": r["key"],
                                "n": 0, "hit": 0, "ph": 0, "days": [],
                                "dirEval": 0, "dirHits": 0,
-                               "preciseEval": 0, "matured": 0})
+                               "preciseEval": 0, "matured": 0,
+                               "bcDirEval": 0, "bcDirHits": 0})
         # 方向准确率：统计全部有方向判定(非 None)的样本——含观察窗未闭合(仅累计数日)的目标，
         # 因方向是「早期即可判定」的最诚实信号(R291)。仅未来 K 线为空(末日记录)才无方向判定。
         if r.get("dirCorrect") is not None:
             g["dirEval"] += 1
             if r.get("dirCorrect"):
                 g["dirHits"] += 1
+        # #779 基准情形方向准确率：仅统计 baseCase=True（被系统当作基准发出的目标）的方向判定
+        if r.get("baseCase", True) and r.get("dirCorrect") is not None:
+            g["bcDirEval"] += 1
+            if r.get("dirCorrect"):
+                g["bcDirHits"] += 1
         # 窗口已闭合(成熟)计数：仅这些目标的精确命中率分母才是无偏的(命中与 miss 均已解出)。
         if r.get("matured"):
             g["matured"] += 1
@@ -324,6 +356,9 @@ def aggregate(recs):
             if (g["preciseEval"] >= MIN_SAMPLE and g["matured"] >= MIN_SAMPLE) else None
         # 方向准确率(早期信号)用同一 Laplace 收缩；样本不足(含仅 1~2 未来日)也标 None 不伪造高置信。
         dir_rate = round((g["dirHits"] + 1.0) / (g["dirEval"] + 2) * 100, 1) if g["dirEval"] >= MIN_SAMPLE else None
+        # #779 基准情形方向准确率(仅 baseCase=True 样本)：衡量"系统真正当作基准发出的目标"方向正确率；
+        # 样本不足同样标 None 不伪造高置信。
+        base_case_dir_rate = round((g["bcDirHits"] + 1.0) / (g["bcDirEval"] + 2) * 100, 1) if g["bcDirEval"] >= MIN_SAMPLE else None
         summary.append({
             "cat": cat, "key": key, "n": g["n"], "hits": g["hit"],
             "hitRate": hit_rate,
@@ -331,6 +366,8 @@ def aggregate(recs):
             "preciseEval": g["preciseEval"], "matured": g["matured"],
             "avgDays": avg_days, "cold": cold,
             "dirEval": g["dirEval"], "dirHits": g["dirHits"], "dirHitRate": dir_rate,
+            "baseCaseDirEval": g["bcDirEval"], "baseCaseDirHits": g["bcDirHits"],
+            "baseCaseDirRate": base_case_dir_rate,
         })
     summary.sort(key=lambda x: (x["cat"], x["key"]))
     return summary
@@ -368,6 +405,10 @@ def run_backtest(data, df):
         if (precise_eval >= MIN_SAMPLE and matured_count >= MIN_SAMPLE) else None
     # 方向准确率(整体，Laplace 收缩)：早期最诚实信号，独立于成熟门禁。
     dir_realized = round((total_dir_hits + 1.0) / (total_dir_eval + 2.0) * 100, 1) if total_dir_eval else None
+    # #779 基准情形方向准确率(整体)：仅统计 baseCase=True 样本，反映"系统真正当作基准发出的目标"方向正确率
+    total_bc_dir_eval = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect") is not None)
+    total_bc_dir_hits = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect"))
+    base_case_dir_realized = round((total_bc_dir_hits + 1.0) / (total_bc_dir_eval + 2.0) * 100, 1) if total_bc_dir_eval else None
     stats = {
         "asOf": data.get("updated"),
         "horizon": HORIZON,
@@ -381,6 +422,9 @@ def run_backtest(data, df):
         "totalDirEvaluated": total_dir_eval,
         "totalDirHits": total_dir_hits,
         "dirRealizedHitRate": dir_realized,
+        "baseCaseDirEvaluated": total_bc_dir_eval,
+        "baseCaseDirHits": total_bc_dir_hits,
+        "baseCaseDirRealizedHitRate": base_case_dir_realized,
         "realizedHitRate": realized_hit,
         "preciseRealizedHitRate": precise_realized,
         "coldStart": total_eval < MIN_SAMPLE,
@@ -401,12 +445,14 @@ if __name__ == "__main__":
     print("回测:", s["totalLogged"], "条存档 /", s["totalEvaluated"], "条已评估(band) /",
           s["maturedCount"], "条窗口已闭合(成熟) /", s["totalPending"], "条观察窗未闭合 / cold=", s["coldStart"])
     print("  方向准确率(早期信号·主指标)=%s%%" % s["dirRealizedHitRate"])
+    print("  基准情形方向准确率(#779·仅 baseCase=True)=%s%% (样本=%d)" % (s["baseCaseDirRealizedHitRate"], s["baseCaseDirEvaluated"]))
     print("  band 触达率(宽松)=%s%%   精确命中率(真实目标价位·需窗口闭合才出数)=%s%%" %
           (s["realizedHitRate"], s["preciseRealizedHitRate"]))
     print("  精确已解决样本=%d  其中提前精确触达(窗口未闭合)=%d" % (s.get("preciseEvaluated", 0), s.get("preciseEarlyHits", 0)))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
               "| 方向准确率=%s" % (r["dirHitRate"] if r["dirHitRate"] is not None else "样本不足"),
+              "| 基准方向准确率=%s" % (r["baseCaseDirRate"] if r["baseCaseDirRate"] is not None else "—"),
               "| band命中率=%s" % (r["hitRate"] if r["hitRate"] is not None else "样本不足"),
               "| 精确命中率=%s" % (r["preciseHitRate"] if r["preciseHitRate"] is not None else "待成熟"),
               "| 平均触达=%s天" % r["avgDays"])

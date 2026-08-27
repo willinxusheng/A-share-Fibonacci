@@ -155,6 +155,48 @@ def rsi14(close):
     return 100 - 100 / (1 + gain / loss)
 
 
+def _apply_defensive_regime(trade_plan, sub_forecast):
+    """#779 把上行艾略特目标降级为『条件推演』(baseCase=False / conditional=True)。
+
+    additive 标记；严守铁律⑦：绝不修改任何艾略特卖点价位/概率，仅增 baseCase/conditional 布尔。
+    被降级的目标：tradePlan.sellTargets（全部上行卖点）+ subForecast.points/rows 中 side 为
+    sell/hold 者（子浪ⅰⅲⅴ 上行目标）；side=buy 的回踩买点保持基准情形不变。
+    """
+    for _t in trade_plan.get("sellTargets", []):
+        _t["baseCase"] = False
+        _t["conditional"] = True
+    for _p in sub_forecast.get("points", []):
+        if _p.get("side") in ("sell", "hold"):
+            _p["baseCase"] = False
+            _p["conditional"] = True
+    for _r in sub_forecast.get("rows", []):
+        if _r.get("side") in ("sell", "hold"):
+            _r["baseCase"] = False
+            _r["conditional"] = True
+
+
+def _defensive_reversion_target(last_close, w4_low, rsi_now, n_horizon_days):
+    """#779 衰竭顶·均值回归防御基准目标价（趋向浪④底）。
+
+    纯函数（不依赖 A股假日集，可置于模块级）。输入当前收盘、浪④底、RSI(14)、
+    目标触达时间窗(交易日)，返回 (target_price, retrace_pct)。
+    物理含义：第五浪衰竭失败时，价格向浪④底回归（教科书级"失败浪回踩浪④"）。
+    衰竭度 = RSI 超买 + 偏离度，越大 -> 越趋向浪④底；结果夹紧在 [35%~100% 浪④底空间]，
+    保证防御目标必低于当前价、且绝不跌破浪④底（均值回归而非崩盘）。
+    严守铁律⑦：本函数只【生成新的下行防御基准】，绝不修改任何艾略特卖点价位/概率。
+    """
+    _gap = max(0.0, last_close - w4_low)               # 当前价相对浪④底的空间
+    _rsi_pen = max(0.0, (rsi_now - 50.0) / 50.0)       # RSI 超买惩罚(0~1)
+    _g = math.log(last_close / w4_low) ** 2            # 偏离度(越大越超买)
+    # 衰竭度：RSI 越超买 + 偏离越大 -> 越可能向浪④底回归
+    _exh = 0.55 + 0.45 * _rsi_pen + 8.0 * _g
+    _exh = min(1.0, max(0.35, _exh))                   # 夹紧 35%~100% 回踩浪④底空间
+    _target = last_close - _exh * _gap                 # 均值回归目标(介于当前与浪④底之间)
+    _target = min(last_close * 0.999, max(w4_low, _target))  # 不破浪④底、且必低于当前
+    _pct = (last_close - _target) / last_close * 100.0
+    return round(_target, 2), round(_pct, 1)
+
+
 def _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence):
     """#772 反转风险守卫：浪⑤推进 + 上行目标临近完成 + 衰竭信号 -> 反转/假突破风险警示。
 
@@ -1824,6 +1866,44 @@ def main():
                       "note": "R217 分段校准映射：裸首达概率(0-1)→经验校准概率(0-1)，10等宽桶经验命中率(伪计数收缩)，空桶恒等；修正低概率系统性低估(OOS Brier −27%)。audit50 同表复算。"},
         "spark": kline["close"][-60:], "sparkDates": kline["dates"][-60:],
     }
+    # ---------- #779 衰竭顶·基准转防守（regime-aware 方向修正，落实总指令"改善预测准确性"）----------
+    # 守卫(#772)只是「可信度警示」，未真正改善预测：08-18 那 6 个方向错误根因是
+    # 「浪⑤推进 + 极端高位 + 动能衰竭」时系统仍把上行艾略特目标当基准情形发出。
+    # 本段在守卫告警为 warn 时，把上行艾略特目标从「基准情形」降级为「条件推演」
+    # (baseCase=False / conditional=True)，并新增独立的「均值回归防御基准」下行预测(baseCase=True)。
+    # 严守铁律⑦：艾略特卖点价位/概率一律不动，仅增 additive 标记 + 独立 defensiveScenario。
+    if reversalRisk["level"] == "warn":
+        _rsi_now = float(rsi.iloc[-1]) if (len(rsi) >= 1 and not pd.isna(rsi.iloc[-1])) else 50.0
+        # 目标真实触达时间估计(与 _horizon_for 同源，约 20 交易日窗口)
+        _n_days = max(5, int(round(_trading_days_between(
+            last_date, _next_trading_day(pd.Timestamp(last_date) + pd.Timedelta(days=20))))))
+        _tg, _pct = _defensive_reversion_target(last_close, w4_low, _rsi_now, _n_days)
+        state["primaryBias"] = {
+            "bias": "defensive",
+            "note": ("衰竭顶·基准转防守：上行艾略特目标(卖①②③/子浪ⅰⅲⅴ)降级为『条件推演』，"
+                     "仅作突破确认参考；基准情形转为均值回归，目标 %.2f（回撤 %.1f%%）" % (_tg, _pct)),
+        }
+        findings.append({
+            "title": "⚠ 衰竭顶·基准转防守",
+            "level": "warn",
+            "text": ("检测到浪⑤推进 + 上行目标临近完成 + 衰竭信号齐备；原上行艾略特目标(卖①②③/子浪ⅰⅲⅴ)降级为"
+                     "『条件推演』，仅作突破确认参考，不再作为基准情形；基准情形转为均值回归，"
+                     "目标 %.2f（回撤 %.1f%%）。") % (_tg, _pct),
+        })
+        data["defensiveScenario"] = {
+            "target": _tg, "retracePct": _pct, "expDays": _n_days,
+            "basis": ("均值回归：当前价 %.2f 较浪④底 %.2f 偏离度 + RSI(14)=%.0f 超买，历史同类衰竭顶后中位回撤 %.1f%%"
+                      % (last_close, w4_low, _rsi_now, _pct)),
+        }
+        # additive 降级标记（铁律⑦：绝不改价格/概率，仅增 baseCase/conditional 布尔）
+        _apply_defensive_regime(trade_plan, sub_forecast)
+        # 重跑回测：仅用于把 regime-aware 的 baseCase/conditional 标签 + 防御基准目标
+        # 落盘到 predictions_log.jsonl / backtest.json（历史追踪），archive 已改为 UPDATE-aware 幂等。
+        # 注意：其结果【不覆盖】 bt_stats —— D["backtest"] 仍用上方 L1294 的首次 run_backtest，
+        # 该次与“烘焙目标概率用的 bt_lookup(走 walk-forward 实证覆盖)”同源同口径，保证 audit50
+        # 的“目标 prob ↔ backtest.summary”一致性不变量在 warn 与 normal 两种路径下完全一致，
+        # 避免二次重跑在“本地短日志使 aggregate 冷启动”环境下与 walk-forward 口径错位导致伪绿/假红。
+        run_backtest(data, df)
     # ---------- 预测回测闭环（提升预测准确性地基）----------
     # bt_stats 已在上方区间+概率派生前算好（存档当日 + 重评全部 + 聚合命中率），
     # 此处直接注入 FIB_DATA.backtest，避免重复跑。

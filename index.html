@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T01:19:16Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-27T06:10:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -843,6 +843,13 @@ if (D.state && D.state.reversalRisk && D.state.reversalRisk.level) {
   _rrBadge.className = 'badge ' + (_rr.level === 'warn' ? 'danger' : 'warn');
   _rrBadge.textContent = (_rr.level === 'warn' ? '⚠ 反转风险高' : '⚠ 反转风险关注');
   heroPrice.parentNode.insertBefore(_rrBadge, heroWave);
+}
+// #779 衰竭顶·基准转防守：在头部插入独立『基准·防守』徽章（additive，不覆盖浪型/反转风险徽章）
+if (D.state && D.state.primaryBias && D.state.primaryBias.bias === 'defensive') {
+  var _pb = document.createElement('span');
+  _pb.className = 'badge danger';
+  _pb.textContent = '⚠ 基准·防守';
+  heroPrice.parentNode.insertBefore(_pb, heroWave);
 }
 document.getElementById('heroVol').textContent = 'HV20 ' + fmt1(D.volatility.now) + '%（五年' + D.volatility.pctile + '分位·' + D.volRegime.bucket + '波动区）';
 (function () {
