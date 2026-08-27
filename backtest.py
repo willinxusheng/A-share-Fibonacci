@@ -151,12 +151,16 @@ def evaluate(df):
             # 固定 HORIZON=30 会让其观察期一到即被永久记 miss→命中率系统性失真。
             # 改用 max(HORIZON, 目标真实触达时间估计expDays)，与 _enrich 时间锚定同源。
             _hz = max(HORIZON, int(rec.get("expDays") or HORIZON))
-            # 观察期边界：真实触达日超出当前数据范围 → 观察期尚未结束，标记 unevaluated，
-            # 不判 miss。否则中长期目标在「剩余交易日 < expDays」时被 df.iloc 截断到数据末端、
-            # 提前记成永久 miss（即便最终会触及），命中率被系统性压低（每日自动化推进后必触发）。
-            # 边界精确：观察期覆盖下标 i0+1 .. i0+_hz（slice df.iloc[i0+1:i0+1+_hz] 取 i0+1..i0+_hz），
-            # 最后一个需要的下标是 i0+_hz；当其 > 数据末日下标(len(idx)-1) 时观察期超出数据范围→unevaluated。
-            # 注意：不是 i0+1+_hz > len-1（那样会在观察期末端恰好=末日时多标一天 unevaluated，偏保守且逻辑不精确）。
+            # R291 成熟门禁：观察窗是否闭合(已有足够未来交易日覆盖 max(HORIZON,expDays))。
+            # 闭合(matured)的目标方计入精确命中率分母；未闭合保持 unevaluated，不记精确 miss——
+            # 否则需数月/年的浪⑤目标在窗未闭合时会被记为永久精确 miss，污染精确命中率。
+            matured = (i0 + _hz) <= (len(idx) - 1)
+            # R291：方向准确率(最诚实的早期信号，与成熟门禁独立)——
+            # 预测价位相对【预测时刻指数位置 close0】的方向是否正确：
+            # 上行目标需未来 high 触及预测时 close 之上；下行目标需未来 low 跌破预测时 close。
+            # 方向在第 1 个未来交易日即可判定，无需等观察窗闭合，故作为早期主指标暴露给证书/面板。
+            _c0_raw = df["close"].iloc[i0]
+            close0 = float(_c0_raw) if (not pd.isna(_c0_raw) and _c0_raw is not None) else None
             px = rec["price"]
             _exp = rec.get("expDays") or HORIZON
             # R91：触达定义对齐模型 band-edge（与 build_data._enrich / calibrate 同源）。
@@ -177,7 +181,8 @@ def evaluate(df):
             if fut.empty:
                 rec.update({"evaluated": False, "hit": False, "hit_date": None,
                             "days_to_hit": None, "approach": None,
-                            "preciseHit": None, "approachTarget": None})
+                            "preciseHit": None, "approachTarget": None,
+                            "dirCorrect": None, "matured": False})
             elif rec["side"] == "buy":          # 下行目标：未来最低是否触及 band 上缘 px*(1+_frac)
                 lo = float(fut["low"].min())
                 hit = lo <= px * (1.0 + _frac)
@@ -186,27 +191,37 @@ def evaluate(df):
                 preciseHit = (lo <= px)
                 approachTarget = approach
                 best = lo
+                # 方向准确率：下行目标需未来 low 跌破预测时刻 close（方向向下，判对）
+                dirCorrect = (close0 is not None and lo <= close0)
                 if hit:
                     first_hit = fut["low"].le(px * (1.0 + _frac)).idxmax()
                     hd = first_hit.strftime("%Y-%m-%d")
                     rec.update({"evaluated": True, "hit": True, "hit_date": hd,
                                 "days_to_hit": int(dates.index(hd) - i0),
                                 "approach": round(approach, 4),
-                                "preciseHit": bool(preciseHit),
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                # R291 三态精确命中：已精确触达(hi>=px)=True；
+                                # 仅触达 band 但未精确且窗口未闭合=None(待观察,非 miss)；
+                                # 窗口已闭合仍未精确=False(真 miss)。避免把"未闭合窗口"误记精确 miss。
+                                "preciseHit": (True if preciseHit else (False if matured else None)),
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
                 elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
                     rec.update({"evaluated": False, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
-                                "preciseHit": False,
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                # R291：未闭合窗口精确命中未知→标 None(非 False)，
+                                # 避免被误读为"精确 miss"污染精确命中率分母。
+                                "preciseHit": None,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
                 else:                            # 观察窗已闭合且未命中→判 miss
                     rec.update({"evaluated": True, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
                                 "best": round(best, 2),
                                 "preciseHit": False,
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
             else:                              # 上行目标：未来最高是否触及 band 下缘 px*(1-_frac)
                 hi = float(fut["high"].max())
                 hit = hi >= px * (1.0 - _frac)
@@ -215,67 +230,107 @@ def evaluate(df):
                 preciseHit = (hi >= px)
                 approachTarget = approach
                 best = hi
+                # 方向准确率：上行目标需未来 high 高于预测时刻 close（方向向上，判对）
+                dirCorrect = (close0 is not None and hi >= close0)
                 if hit:
                     first_hit = fut["high"].ge(px * (1.0 - _frac)).idxmax()
                     hd = first_hit.strftime("%Y-%m-%d")
                     rec.update({"evaluated": True, "hit": True, "hit_date": hd,
                                 "days_to_hit": int(dates.index(hd) - i0),
                                 "approach": round(approach, 4),
-                                "preciseHit": bool(preciseHit),
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                # R291 三态精确命中：已精确触达(hi>=px)=True；
+                                # 仅触达 band 但未精确且窗口未闭合=None(待观察,非 miss)；
+                                # 窗口已闭合仍未精确=False(真 miss)。避免把"未闭合窗口"误记精确 miss。
+                                "preciseHit": (True if preciseHit else (False if matured else None)),
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
                 elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
                     rec.update({"evaluated": False, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
-                                "preciseHit": False,
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                # R291：未闭合窗口精确命中未知→标 None(非 False)
+                                "preciseHit": None,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
                 else:                            # 观察窗已闭合且未命中→判 miss
                     rec.update({"evaluated": True, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
                                 "best": round(best, 2),
                                 "preciseHit": False,
-                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None,
+                                "dirCorrect": bool(dirCorrect), "matured": matured})
             recs.append(rec)
     return recs
 
 
 def aggregate(recs):
-    """按 (cat,key) 聚合命中率，样本不足标 cold。"""
+    """按 (cat,key) 聚合命中率，样本不足标 cold。
+
+    R291 拆分两条诚实口径：
+    - 方向准确率(dirHitRate)：统计【全部有方向判定】的样本(含观察窗未闭合、仅累计数日者)，
+      因方向是「第 1 个未来交易日即可判定」的最诚实早期信号；仅未来 K 线为空(末日记录)才无判定。
+    - 精确命中率(preciseHitRate)：仅统计【已成熟/已解决】(evaluated)样本，观察窗未闭合目标
+      保持 unevaluated、不计入分母(成熟门禁)，避免把需数月/年的浪⑤目标在窗未闭合时记成精确 miss。
+    """
     groups = {}
     for r in recs:
-        if not r.get("evaluated"):
-            continue
         g = groups.setdefault((r["cat"], r["key"]),
                               {"cat": r["cat"], "key": r["key"],
-                               "n": 0, "hit": 0, "ph": 0, "days": []})
-        g["n"] += 1
-        if r.get("hit"):
-            g["hit"] += 1
-            if r.get("days_to_hit"):
-                g["days"].append(r["days_to_hit"])
-        # 精确命中(触及真实目标价位 px，非宽松 band 边)：诚实预测力口径
-        if r.get("preciseHit"):
-            g["ph"] += 1
+                               "n": 0, "hit": 0, "ph": 0, "days": [],
+                               "dirEval": 0, "dirHits": 0,
+                               "preciseEval": 0, "matured": 0})
+        # 方向准确率：统计全部有方向判定(非 None)的样本——含观察窗未闭合(仅累计数日)的目标，
+        # 因方向是「早期即可判定」的最诚实信号(R291)。仅未来 K 线为空(末日记录)才无方向判定。
+        if r.get("dirCorrect") is not None:
+            g["dirEval"] += 1
+            if r.get("dirCorrect"):
+                g["dirHits"] += 1
+        # 窗口已闭合(成熟)计数：仅这些目标的精确命中率分母才是无偏的(命中与 miss 均已解出)。
+        if r.get("matured"):
+            g["matured"] += 1
+        # band 触达：仅统计【已解决】(evaluated=早触达或窗口闭合)样本。
+        if r.get("evaluated"):
+            g["n"] += 1
+            if r.get("hit"):
+                g["hit"] += 1
+                if r.get("days_to_hit"):
+                    g["days"].append(r["days_to_hit"])
+        # 精确命中(真实目标价位 px，非宽松 band 边)：三态(命中/真miss/待观察)。
+        # 仅统计【已解决精确】(preciseHit 非 None：提前精确触达 或 窗口闭合后的真 miss)，
+        # 观察窗未闭合且尚未精确触达者保持 None(待观察)不计入分母(R291 成熟门禁)。
+        if r.get("preciseHit") is not None:
+            g["preciseEval"] += 1
+            if r.get("preciseHit"):
+                g["ph"] += 1
     summary = []
     for (cat, key), g in groups.items():
         avg_days = round(sum(g["days"]) / len(g["days"]), 1) if g["days"] else None
         cold = g["n"] < MIN_SAMPLE
         if cold:
             hit_rate = None
-            precise_rate = None
         else:
             # 贝叶斯收缩：小样本命中率跳动极大(0/3=0%, 3/3=100%)，向中性先验 0.5 收缩。
             # 用 Laplace 规则 (hits+1)/(n+2)：n→0 时收敛到 0.5(中性先验)，n 大时逼近真实比率。
             # 【R58 修复】旧式 (hits+0.5)/(n+2) 的 n→0 极限是 0.25(偏悲观、与"向0.5收缩"注释矛盾)，
             # 现改为标准 Laplace，使冷启动实证命中率围绕 0.5 收缩、口径与注释及下游融合先验一致。
             hit_rate = round((g["hit"] + 1.0) / (g["n"] + 2) * 100, 1)
-            precise_rate = round((g["ph"] + 1.0) / (g["n"] + 2) * 100, 1)
+        # 精确命中率：R291 反假绿铁律——仅在【足够窗口已闭合】时才展示数值。
+        # 否则"仅命中可早解、miss 须等窗口闭合"会造成严重向上偏差(假绿)：当前 144 目标
+        # 0 个窗口闭合，若对"已提前精确触达"样本直接算率会虚高到 ~97%，误导决策。
+        # 故要求 本组精确已解决样本>=MIN_SAMPLE 且 本组成熟(窗口闭合)样本>=MIN_SAMPLE 方出数；
+        # 未达则标 None(待成熟)，诚实标注"精确价位命中率暂不可判定"。
+        precise_rate = round((g["ph"] + 1.0) / (g["preciseEval"] + 2) * 100, 1) \
+            if (g["preciseEval"] >= MIN_SAMPLE and g["matured"] >= MIN_SAMPLE) else None
+        # 方向准确率(早期信号)用同一 Laplace 收缩；样本不足(含仅 1~2 未来日)也标 None 不伪造高置信。
+        dir_rate = round((g["dirHits"] + 1.0) / (g["dirEval"] + 2) * 100, 1) if g["dirEval"] >= MIN_SAMPLE else None
         summary.append({
             "cat": cat, "key": key, "n": g["n"], "hits": g["hit"],
             "hitRate": hit_rate,
             "preciseHits": g["ph"], "preciseHitRate": precise_rate,
+            "preciseEval": g["preciseEval"], "matured": g["matured"],
             "avgDays": avg_days, "cold": cold,
+            "dirEval": g["dirEval"], "dirHits": g["dirHits"], "dirHitRate": dir_rate,
         })
     summary.sort(key=lambda x: (x["cat"], x["key"]))
     return summary
@@ -289,13 +344,30 @@ def run_backtest(data, df):
     total_eval = sum(1 for r in recs if r.get("evaluated"))
     total_pending = sum(1 for r in recs if not r.get("evaluated"))
     total_hits = sum(1 for r in recs if r.get("evaluated") and r.get("hit"))
-    total_phits = sum(1 for r in recs if r.get("evaluated") and r.get("preciseHit"))
-    # 已实现(已平仓/已命中)命中率：用 Laplace (hits+1)/(eval+2) 收缩，口径与 aggregate 一致。
+    # R291 精确命中(真实目标价位)三态统计：
+    # preciseEval=已解决精确(preciseHit 非 None：提前精确触达 或 窗口闭合后的真 miss)；
+    # total_phits=其中真命中；precise_early=提前精确触达但窗口仍未闭合(鼓舞性但非最终结论)。
+    total_phits = sum(1 for r in recs if r.get("preciseHit") is True)
+    precise_eval = sum(1 for r in recs if r.get("preciseHit") is not None)
+    precise_early = sum(1 for r in recs if r.get("preciseHit") is True and not r.get("matured"))
+    # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
+    # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
+    total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
+    total_dir_hits = sum(1 for r in recs if r.get("dirCorrect"))
+    # R291 成熟门禁计数：观察窗已闭合(本机数据已有足够未来交易日覆盖)的目标方能计入精确命中率分母。
+    matured_count = sum(1 for r in recs if r.get("matured"))
+    # 已实现(已平仓/已命中)命中率【band 触达，宽松】：用 Laplace (hits+1)/(eval+2) 收缩，口径与 aggregate 一致。
     # 注意：仅统计【已解决】样本(命中 或 观察窗已闭合的 miss)；观察窗未闭合目标(totalPending)
     # 不计入分母——故早期该值偏乐观(未平仓的 miss 尚未计入)，随窗口闭合逐步收敛到真实命中率。
     realized_hit = round((total_hits + 1.0) / (total_eval + 2.0) * 100, 1) if total_eval else None
-    # 精确命中率(真实目标价位，非宽松 band 边)：诚实预测力口径；band 触达率偏乐观因 _frac 可达 0.235。
-    precise_realized = round((total_phits + 1.0) / (total_eval + 2.0) * 100, 1) if total_eval else None
+    # 精确命中率(真实目标价位，非宽松 band 边)：R291 反假绿铁律——仅在【足够窗口已闭合】时才展示数值。
+    # 否则"仅命中可早解、miss 须等窗口闭合"会造成严重向上偏差(假绿)：当前 144 目标 0 个窗口闭合，
+    # 若直接对"已提前精确触达"样本算率会虚高到 ~97%，误导决策。故要求
+    # 全局 精确已解决样本>=MIN_SAMPLE 且 成熟(窗口闭合)样本>=MIN_SAMPLE 方出数；未达则 None(待成熟)。
+    precise_realized = round((total_phits + 1.0) / (precise_eval + 2.0) * 100, 1) \
+        if (precise_eval >= MIN_SAMPLE and matured_count >= MIN_SAMPLE) else None
+    # 方向准确率(整体，Laplace 收缩)：早期最诚实信号，独立于成熟门禁。
+    dir_realized = round((total_dir_hits + 1.0) / (total_dir_eval + 2.0) * 100, 1) if total_dir_eval else None
     stats = {
         "asOf": data.get("updated"),
         "horizon": HORIZON,
@@ -303,6 +375,12 @@ def run_backtest(data, df):
         "totalLogged": len(recs),
         "totalEvaluated": total_eval,
         "totalPending": total_pending,
+        "maturedCount": matured_count,
+        "preciseEvaluated": precise_eval,
+        "preciseEarlyHits": precise_early,
+        "totalDirEvaluated": total_dir_eval,
+        "totalDirHits": total_dir_hits,
+        "dirRealizedHitRate": dir_realized,
         "realizedHitRate": realized_hit,
         "preciseRealizedHitRate": precise_realized,
         "coldStart": total_eval < MIN_SAMPLE,
@@ -320,12 +398,15 @@ if __name__ == "__main__":
                              re.S).group(1))
     _df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"), parse_dates=["date"]).set_index("date")
     s = run_backtest(d, _df)
-    print("回测:", s["totalLogged"], "条存档 /", s["totalEvaluated"], "条已评估 / cold=",
-          s["coldStart"])
-    print("  band 触达率(宽松)=%s%%  精确命中率(真实目标价位)=%s%%" %
+    print("回测:", s["totalLogged"], "条存档 /", s["totalEvaluated"], "条已评估(band) /",
+          s["maturedCount"], "条窗口已闭合(成熟) /", s["totalPending"], "条观察窗未闭合 / cold=", s["coldStart"])
+    print("  方向准确率(早期信号·主指标)=%s%%" % s["dirRealizedHitRate"])
+    print("  band 触达率(宽松)=%s%%   精确命中率(真实目标价位·需窗口闭合才出数)=%s%%" %
           (s["realizedHitRate"], s["preciseRealizedHitRate"]))
+    print("  精确已解决样本=%d  其中提前精确触达(窗口未闭合)=%d" % (s.get("preciseEvaluated", 0), s.get("preciseEarlyHits", 0)))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
+              "| 方向准确率=%s" % (r["dirHitRate"] if r["dirHitRate"] is not None else "样本不足"),
               "| band命中率=%s" % (r["hitRate"] if r["hitRate"] is not None else "样本不足"),
-              "| 精确命中率=%s" % (r["preciseHitRate"] if r["preciseHitRate"] is not None else "样本不足"),
+              "| 精确命中率=%s" % (r["preciseHitRate"] if r["preciseHitRate"] is not None else "待成熟"),
               "| 平均触达=%s天" % r["avgDays"])

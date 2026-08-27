@@ -118,6 +118,13 @@ def _main():
         pending = bt.get("totalPending", 0)
         realized = bt.get("realizedHitRate")
         precise_realized = bt.get("preciseRealizedHitRate")
+        # R291 方向准确率(最诚实早期信号)与成熟门禁计数：直接透传 run_backtest 的全局统计，
+        # 不重算(防公式漂移、反假绿)。方向准确率独立于成熟门禁，最早第1个未来交易日即可判定。
+        dir_realized = bt.get("dirRealizedHitRate")
+        matured_count = bt.get("maturedCount")
+        precise_eval = bt.get("preciseEvaluated")
+        total_dir_eval = bt.get("totalDirEvaluated")
+        total_dir_hits = bt.get("totalDirHits")
         # 诚实口径（修复 R90）：整体实证命中率 = 已解决目标的【原始】pooled 命中率，
         # 用「全部已评估分组」的原始 n/hits 求和——含 cold 起步组（其 hitRate=None，
         # 但 n/hits 仍有效），不再因命中率字段为 None 被漏计；同时不做
@@ -131,6 +138,11 @@ def _main():
             overall = round(h_sum / n_sum * 100.0, 1) if n_sum else None
             ph_sum = sum(s.get("preciseHits", 0) for s in allg)
             overall_precise = round(ph_sum / n_sum * 100.0, 1) if n_sum else None
+            # R291 整体方向准确率直接采用 run_backtest 的全局口径 dir_realized(=dirRealizedHitRate)：
+            # 该指标独立于成熟门禁、统计【全部有方向判定】样本(含观察窗未闭合但已有未来K线的目标)，
+            # 是诚实的早期信号。用全局值而非「仅 resolved 分组」pooled，避免把未成熟的 77 个目标
+            # 排除在外导致方向与面板10(读全局 dirRealizedHitRate)口径不一致、且丧失早期信号优势。
+            overall_dir = dir_realized
 
     # ---------- 综合 accuracy_status（capped，避免极端值误导）----------
     if cold or total_eval < 3:
@@ -144,7 +156,8 @@ def _main():
 
     targets = [
         {"cat": s["cat"], "key": s["key"], "n": s["n"],
-         "hitRate": s["hitRate"], "preciseHitRate": s.get("preciseHitRate"),
+         "hitRate": s["hitRate"], "dirHitRate": s.get("dirHitRate"),
+         "preciseHitRate": s.get("preciseHitRate"),
          "avgDays": s.get("avgDays")}
         for s in bt_summary
     ]
@@ -191,16 +204,31 @@ def _main():
             "total_logged": logged,
             "total_evaluated": total_eval,
             "total_pending": pending,
+            "matured_count": matured_count,
+            "precise_evaluated": precise_eval,
+            "total_dir_evaluated": total_dir_eval,
+            "total_dir_hits": total_dir_hits,
             "realized_hit_rate": realized,
+            "dir_realized_hit_rate": dir_realized,
             "precise_realized_hit_rate": precise_realized,
             "cold_start": cold,
             "overall_hit_rate": overall,
+            "overall_dir_hit_rate": overall_dir,
             "overall_precise_hit_rate": overall_precise,
             "targets": targets,
-            "note": ("整体/已实现命中率为 band 触达率(宽松, _frac 可达 23.5%%)：仅统计「观察窗已闭合」的已解决"
-                     "目标，观察窗未闭合的 %d 个目标暂不计入分母；随观察窗闭合逐步收敛。精确命中率(真实目标价位)"
-                     "见 precise_realized_hit_rate，二者差距大说明预测在方向/区间上靠谱、在精确价位上偏松。"
-                     % pending) if pending else None,
+            # R291 诚实化三口径说明：方向准确率(最早信号) / band 触达率(宽松偏乐观) /
+            # 精确命中率(仅窗口闭合方出数)。避免"精确未成熟即出数"造成的 ~97% 假绿。
+            "note": ("回测诚实化(R291)三口径：①<b>方向准确率</b>(最早诚实信号, 第1个未来交易日即可判定, "
+                     "独立于成熟门禁)=%s；②<b>band 触达率</b>(宽松, ±σ 可达 23.5%%, 偏乐观)=%s；"
+                     "③<b>精确命中率</b>(真实目标价位, 仅窗口闭合方出数)=%s。当前 %d 个目标观察窗未闭合、"
+                     "%d 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，"
+                     "过早出数会虚高到 ~97%%(假绿)故暂标 None。方向准 %s 证明艾略特框架方向有效，"
+                     "精确价位偏松属常态而非卖点算错。"
+                     % (dir_realized if dir_realized is not None else "样本不足",
+                        realized if realized is not None else "样本不足",
+                        precise_realized if precise_realized is not None else "待成熟",
+                        pending, matured_count or 0,
+                        dir_realized if dir_realized is not None else "—")),
         },
         "accuracy_status": accuracy_status,
         "sentiment": senti,
@@ -242,9 +270,10 @@ def main():
     print("OOS 裸公式Bucket   = %s (基线 %s, Δ=%s%%)"
           % (obr.get("bucket_brier"), obr.get("bucket_baseline"), obr.get("bucket_delta_pct")))
     bt = c["backtest"]
-    print("回测 band 触达率(整体, 原始pooled) = %s%%, 精确命中率(真实目标价位) = %s%%, 已评估 %d / 存档 %d, 冷启动=%s"
-          % (bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate"), bt.get("total_evaluated"),
-             bt.get("total_logged"), bt.get("cold_start")))
+    print("回测 方向准确率(早期最诚实信号) = %s%% ｜ band 触达率(整体, 原始pooled) = %s%% ｜ 精确命中率(真实目标价位) = %s%%"
+          " ｜ 已评估 %d / 存档 %d / 成熟(窗口闭合) %s / 冷启动=%s"
+          % (bt.get("overall_dir_hit_rate"), bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate"),
+             bt.get("total_evaluated"), bt.get("total_logged"), bt.get("matured_count"), bt.get("cold_start")))
     print("calibration_status = %s ; accuracy_status = %s" % (obr.get("status"), c.get("accuracy_status")))
     if c.get("error"):
         print("⚠️ %s" % c["error"])
