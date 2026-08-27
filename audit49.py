@@ -10,7 +10,24 @@
 ③回测语义(从 B日 推窗)。全程只读不写、不调 run_backtest，杜绝生产污染。
 """
 import re, json, os, sys
+import pandas as pd
 BASE = os.path.dirname(os.path.abspath(__file__))
+
+# R282 锁步副本：与 build_data.py _A_SHARE_HOLIDAYS_2026/_A_SHARE_MAKEUP_2026 同源
+# (上交所 上证公告〔2025〕45号；2027 安排待公布)。用于独立复刻 _trading_days_between，
+# 校验子浪ⅴ==卖① 的 expDays 口径不被 bdate_range(含假日)虚高污染。
+_A_SHARE_HOLIDAYS_2026 = set()
+for _hs, _he in [
+    ("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
+    ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
+    ("2026-06-19", "2026-06-21"), ("2026-09-25", "2026-09-27"),
+    ("2026-10-01", "2026-10-07"),
+]:
+    _hd = pd.Timestamp(_hs)
+    while _hd <= pd.Timestamp(_he):
+        _A_SHARE_HOLIDAYS_2026.add(_hd.strftime("%Y-%m-%d"))
+        _hd += pd.Timedelta(days=1)
+_A_SHARE_MAKEUP_2026 = {"2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10"}
 
 def _chk(cond, msg):
     print(("  [OK] " if cond else "  [FAIL] ") + msg)
@@ -22,11 +39,18 @@ def _load_fib():
     return json.loads(m.group(1))
 
 def _tdb(d0, d1):
-    import pandas as pd
     d0, d1 = pd.Timestamp(d0), pd.Timestamp(d1)
     if d1 <= d0:
         return 10          # 锚点落在过去(如浪⑤起)：兜底小正值
-    return len(pd.bdate_range(d0, d1)) - 1   # 真实差(与 build_data.py _trading_days_between 同步, R60)
+    # R282 同步：A股交易日历逐日计数(与 build_data.py _trading_days_between 同源，R60)
+    _n = 0
+    _d = d0
+    while _d <= d1:
+        _ds = _d.strftime("%Y-%m-%d")
+        if _ds in _A_SHARE_MAKEUP_2026 or (_d.dayofweek < 5 and _ds not in _A_SHARE_HOLIDAYS_2026):
+            _n += 1
+        _d += pd.Timedelta(days=1)
+    return max(1, _n - 1)
 
 ok = True
 print("=== R48 守门员：子浪 expDays 锚定基准 ===")

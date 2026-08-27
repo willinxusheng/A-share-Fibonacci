@@ -155,6 +155,53 @@ def rsi14(close):
     return 100 - 100 / (1 + gain / loss)
 
 
+def _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence):
+    """#772 反转风险守卫：浪⑤推进 + 上行目标临近完成 + 衰竭信号 -> 反转/假突破风险警示。
+
+    additive：绝不修改艾略特价位/概率，仅返回 {level,reasons} 供 state/findings 挂载。
+    触发条件：
+      A) 处于浪⑤推进态(last_close>=w4_low，与头部徽章 gold 同源判定，避免自相矛盾)
+      B) 上行目标临近完成(距卖①保守兑现<=3%，上攻空间基本耗尽)
+      C) 至少一项衰竭/见顶信号：RSI超买(>=70)/RSI回落/顶背离/局部顶停滞(≥2日未创新高且贴近近期高)
+    等级：双信号 或 顶背离(单信号即高危) -> warn；单普通信号 -> watch。
+    """
+    rr = {"level": None, "reasons": []}
+    _s1 = (trade_plan["sellTargets"][0]["price"]
+           if trade_plan.get("sellTargets") and trade_plan["sellTargets"][0].get("price") else None)
+    _in_w5 = last_close >= w4_low
+    _room_exhausted = (_s1 is not None) and (last_close >= _s1 * 0.97)
+    if _in_w5 and _room_exhausted:
+        _rsi_now = float(rsi.iloc[-1]) if (len(rsi) >= 1 and not pd.isna(rsi.iloc[-1])) else None
+        _rsi_5ago = float(rsi.iloc[-6]) if (len(rsi) >= 6 and not pd.isna(rsi.iloc[-6])) else None
+        _hi_seg = df["high"].iloc[-20:]
+        _recent_high = float(_hi_seg.max())
+        _hi_idx = int(_hi_seg.values.argmax())
+        _days_since_high = (len(_hi_seg) - 1) - _hi_idx
+        _near_recent_high = last_close >= _recent_high * 0.99
+        # 局部顶停滞：贴近近期高点但≥2交易日未创新高（滞涨/派发），且未有效突破该高
+        _local_top_stall = _near_recent_high and _days_since_high >= 2 and last_close <= _recent_high * 1.001
+        _rsi_ob = (_rsi_now is not None) and (_rsi_now >= 70)
+        _rsi_roll = (_rsi_now is not None and _rsi_5ago is not None) and (_rsi_now < _rsi_5ago)
+        _div = bool(divergence.get("rsi") or divergence.get("volume"))
+        if _rsi_ob:
+            rr["reasons"].append("RSI(14)=%.0f 已进入超买区(≥70)" % _rsi_now)
+        if _rsi_roll:
+            rr["reasons"].append("RSI 自 %.0f 回落至 %.0f，上行动量减速" % (_rsi_5ago, _rsi_now))
+        if _div:
+            rr["reasons"].append("存在" + divergence.get("detail", "顶背离"))
+        if _local_top_stall:
+            rr["reasons"].append("近 %d 交易日未创出新高，现价 %.2f 贴近近期高点 %.2f（滞涨/派发）"
+                                 % (_days_since_high, last_close, _recent_high))
+        _sig = sum([_rsi_ob, _rsi_roll, _div, _local_top_stall])
+        if _sig >= 2 or _div:
+            rr["level"] = "warn"
+        elif _sig == 1:
+            rr["level"] = "watch"
+    if rr["level"]:
+        rr["reasons"].insert(0, "浪⑤上行目标临近完成(卖① %.2f)，以下信号提示反转/假突破风险：" % _s1)
+    return rr
+
+
 def main():
     df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"), parse_dates=["date"]).set_index("date")
     # 成交量单位容错(R62)：每日管线追加的当日行偶发以不同单位(股 vs 手)写入，
@@ -789,10 +836,20 @@ def main():
         d0, d1 = pd.Timestamp(d0), pd.Timestamp(d1)
         if d1 <= d0:
             return 10          # 锚点落在过去(如浪⑤起)：兜底小正值，避免观察窗塌成 0
-        # 返回真实交易日差(不封底)：子浪近未来点(date 仅数日后)的 expDays 须与 _sf_date
-        # 真实比例一致，否则"触达日期"与"触达交易日数"自相矛盾(R60 修复)。_enrich 内部仍用
-        # max(10,...) 下限防带宽塌陷，expDays 字段仅作展示/回测归档，不影响概率计算。
-        return len(pd.bdate_range(d0, d1)) - 1
+        # R282 修复：原 pd.bdate_range 只排周末、不排 A股法定假日，expDays 虚高~4%/年
+        # (252 工作日 vs 242 A股真实交易日)，使长周期目标观察窗偏长、回测口径失真。
+        # 改用 A股交易日历逐日计数(复用下方 _A_SHARE_HOLIDAYS_2026/_A_SHARE_MAKEUP_2026，
+        # 与 _next_trading_day 同源口径)，expDays 反映真实交易日数；
+        # 仅 2026 官方休市已固化，2027 待公布(标注于 _A_SHARE_HOLIDAYS_2026 处)。
+        # 调用点(L1064)晚于假日集定义，闭包晚绑定安全；expDays 仍仅作展示/回测归档，不影响概率计算。
+        _n = 0
+        _d = d0
+        while _d <= d1:
+            _ds = _d.strftime("%Y-%m-%d")
+            if _ds in _A_SHARE_MAKEUP_2026 or (_d.dayofweek < 5 and _ds not in _A_SHARE_HOLIDAYS_2026):
+                _n += 1
+            _d += pd.Timedelta(days=1)
+        return max(1, _n - 1)
 
     def _horizon_for(price):
         # 【R59 修复】卖点触达时间改为「本指数 zigzag 历史摆动腿」幅度-时长关系独立派生，
@@ -1567,8 +1624,13 @@ def main():
         return {"lo": _lo, "hi": _hi, "bandPct": _band_pct,
                 "prob": _prob, "probSrc": _src, "expDays": exp}
 
+    # R48 铁律收口(R282 衍生)：卖①≡子浪ⅴ(同终点/同日)，expDays/带宽/概率须严格同源。
+    # _enrich 是最终写者，卖① 若传 _horizon_for(摆动腿估计=56) 会覆盖下方对齐，使 R48 三道门禁 FAIL；
+    # 故卖① 直接传 _sf_exp[5](子浪ⅴ 的 A股日历计数=52)。R282 修正 _trading_days_between 后，
+    # 子浪ⅴ 走 A股日历=52、卖① 走 _horizon_for=56，口径断裂；统一为 _sf_exp[5] 后二者完全自洽。
     for _s in sell_targets:
-        _s.update(_enrich("sellTarget", _s["name"], _s["price"], _horizon_for(_s["price"])))
+        _exp = _sf_exp[5] if _s["name"].startswith("卖①") else _horizon_for(_s["price"])
+        _s.update(_enrich("sellTarget", _s["name"], _s["price"], _exp))
     for k, _p in enumerate(sub_forecast["points"]):
         _p.update(_enrich("subwave", _p["label"], _p["price"], _sf_exp[k]))
     # 注意：points 含 [0]浪⑤起，而 rows 的首项是子浪ⅰ(对应 points[1])，故 rows[k]
@@ -1699,6 +1761,20 @@ def main():
                    % (_ma250_v, _sub1, _sub3))},
     ]
 
+    # ---------- 反转风险守卫（#772 落实 / 基于 #770 回测证据，additive 不碰艾略特价位）----------
+    # 回测证据(#770)：144 条历史预测方向准确率 94.9%，但 6 个方向错误 100% 集中在 2026-08-18
+    # 局部顶——当日 close=3990.30 为局部顶，其后 8 日最高 3961.14<3990.30，顶部上方所有上行
+    # 目标(卖①②③/子浪ⅰⅲⅴ)方向全错。根因：浪⑤推进框架下，指数已至极端高位且上行动能衰竭，
+    # 系统仍照发上行目标。本守卫为「可信度警示」(additive，绝不下调艾略特卖点/铁律⑦)：仅在
+    # 「上行目标临近完成 + 衰竭信号」齐备时给 state 注入反转风险等级与原因，供前端预警。
+    reversalRisk = _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence)
+    if reversalRisk["level"]:
+        findings.append({
+            "title": "⚠ 浪⑤终结·反转风险守卫",
+            "level": ("warn" if reversalRisk["level"] == "warn" else "ghost"),
+            "text": "；".join(reversalRisk["reasons"]),
+        })
+
     # ---------- 当前浪型状态（动态，驱动头部徽章）----------
     # 阈值从框架派生（铁律线=trade_plan，浪③顶=浪型常量 w3_hi），避免与 distances/买卖框架双份真值脱节
     _key_line = trade_plan["stopLine"]["price"]   # 3674.40 铁律线
@@ -1713,6 +1789,7 @@ def main():
         state = {"text": "浪④磨底中 · 子浪待激活", "cls": "ghost"}
     else:
         state = {"text": "浪⑤已启动 · 子浪推进", "cls": "gold"}
+    state["reversalRisk"] = reversalRisk  # #772 additive 反转风险守卫（不覆盖浪型状态 text/cls）
 
     # ---------- 图3(panel p3)注释：子浪幅度/回撤由 subWavePoints 派生（消除 +993/22%/4258.86 双份真值）----------
     _p3_amp = sub_wave_points[1]["price"] - sub_wave_points[0]["price"]
