@@ -176,47 +176,66 @@ def evaluate(df):
             fut = df.iloc[i0 + 1: len(idx)]
             if fut.empty:
                 rec.update({"evaluated": False, "hit": False, "hit_date": None,
-                            "days_to_hit": None, "approach": None})
+                            "days_to_hit": None, "approach": None,
+                            "preciseHit": None, "approachTarget": None})
             elif rec["side"] == "buy":          # 下行目标：未来最低是否触及 band 上缘 px*(1+_frac)
                 lo = float(fut["low"].min())
                 hit = lo <= px * (1.0 + _frac)
                 approach = px / lo if lo else None
+                # 精确命中：未来最低是否真正触及【目标价位 px 本身】(非宽松 band 边)——诚实预测力指标
+                preciseHit = (lo <= px)
+                approachTarget = approach
                 best = lo
                 if hit:
                     first_hit = fut["low"].le(px * (1.0 + _frac)).idxmax()
                     hd = first_hit.strftime("%Y-%m-%d")
                     rec.update({"evaluated": True, "hit": True, "hit_date": hd,
                                 "days_to_hit": int(dates.index(hd) - i0),
-                                "approach": round(approach, 4)})
+                                "approach": round(approach, 4),
+                                "preciseHit": bool(preciseHit),
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
                 elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
                     rec.update({"evaluated": False, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
-                                "approach": round(approach, 4) if approach else None})
+                                "approach": round(approach, 4) if approach else None,
+                                "preciseHit": False,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
                 else:                            # 观察窗已闭合且未命中→判 miss
                     rec.update({"evaluated": True, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
-                                "best": round(best, 2)})
+                                "best": round(best, 2),
+                                "preciseHit": False,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
             else:                              # 上行目标：未来最高是否触及 band 下缘 px*(1-_frac)
                 hi = float(fut["high"].max())
                 hit = hi >= px * (1.0 - _frac)
                 approach = hi / px if px else None
+                # 精确命中：未来最高是否真正触及【目标价位 px 本身】(非宽松 band 边)
+                preciseHit = (hi >= px)
+                approachTarget = approach
                 best = hi
                 if hit:
                     first_hit = fut["high"].ge(px * (1.0 - _frac)).idxmax()
                     hd = first_hit.strftime("%Y-%m-%d")
                     rec.update({"evaluated": True, "hit": True, "hit_date": hd,
                                 "days_to_hit": int(dates.index(hd) - i0),
-                                "approach": round(approach, 4)})
+                                "approach": round(approach, 4),
+                                "preciseHit": bool(preciseHit),
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
                 elif i0 + _hz > len(idx) - 1:    # 未命中且观察窗未闭合→保持 unevaluated(不判 miss)
                     rec.update({"evaluated": False, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
-                                "approach": round(approach, 4) if approach else None})
+                                "approach": round(approach, 4) if approach else None,
+                                "preciseHit": False,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
                 else:                            # 观察窗已闭合且未命中→判 miss
                     rec.update({"evaluated": True, "hit": False, "hit_date": None,
                                 "days_to_hit": None,
                                 "approach": round(approach, 4) if approach else None,
-                                "best": round(best, 2)})
+                                "best": round(best, 2),
+                                "preciseHit": False,
+                                "approachTarget": round(approachTarget, 4) if approachTarget else None})
             recs.append(rec)
     return recs
 
@@ -229,27 +248,33 @@ def aggregate(recs):
             continue
         g = groups.setdefault((r["cat"], r["key"]),
                               {"cat": r["cat"], "key": r["key"],
-                               "n": 0, "hit": 0, "days": []})
+                               "n": 0, "hit": 0, "ph": 0, "days": []})
         g["n"] += 1
         if r.get("hit"):
             g["hit"] += 1
             if r.get("days_to_hit"):
                 g["days"].append(r["days_to_hit"])
+        # 精确命中(触及真实目标价位 px，非宽松 band 边)：诚实预测力口径
+        if r.get("preciseHit"):
+            g["ph"] += 1
     summary = []
     for (cat, key), g in groups.items():
         avg_days = round(sum(g["days"]) / len(g["days"]), 1) if g["days"] else None
         cold = g["n"] < MIN_SAMPLE
         if cold:
             hit_rate = None
+            precise_rate = None
         else:
             # 贝叶斯收缩：小样本命中率跳动极大(0/3=0%, 3/3=100%)，向中性先验 0.5 收缩。
             # 用 Laplace 规则 (hits+1)/(n+2)：n→0 时收敛到 0.5(中性先验)，n 大时逼近真实比率。
             # 【R58 修复】旧式 (hits+0.5)/(n+2) 的 n→0 极限是 0.25(偏悲观、与"向0.5收缩"注释矛盾)，
             # 现改为标准 Laplace，使冷启动实证命中率围绕 0.5 收缩、口径与注释及下游融合先验一致。
             hit_rate = round((g["hit"] + 1.0) / (g["n"] + 2) * 100, 1)
+            precise_rate = round((g["ph"] + 1.0) / (g["n"] + 2) * 100, 1)
         summary.append({
             "cat": cat, "key": key, "n": g["n"], "hits": g["hit"],
             "hitRate": hit_rate,
+            "preciseHits": g["ph"], "preciseHitRate": precise_rate,
             "avgDays": avg_days, "cold": cold,
         })
     summary.sort(key=lambda x: (x["cat"], x["key"]))
@@ -264,10 +289,13 @@ def run_backtest(data, df):
     total_eval = sum(1 for r in recs if r.get("evaluated"))
     total_pending = sum(1 for r in recs if not r.get("evaluated"))
     total_hits = sum(1 for r in recs if r.get("evaluated") and r.get("hit"))
+    total_phits = sum(1 for r in recs if r.get("evaluated") and r.get("preciseHit"))
     # 已实现(已平仓/已命中)命中率：用 Laplace (hits+1)/(eval+2) 收缩，口径与 aggregate 一致。
     # 注意：仅统计【已解决】样本(命中 或 观察窗已闭合的 miss)；观察窗未闭合目标(totalPending)
     # 不计入分母——故早期该值偏乐观(未平仓的 miss 尚未计入)，随窗口闭合逐步收敛到真实命中率。
     realized_hit = round((total_hits + 1.0) / (total_eval + 2.0) * 100, 1) if total_eval else None
+    # 精确命中率(真实目标价位，非宽松 band 边)：诚实预测力口径；band 触达率偏乐观因 _frac 可达 0.235。
+    precise_realized = round((total_phits + 1.0) / (total_eval + 2.0) * 100, 1) if total_eval else None
     stats = {
         "asOf": data.get("updated"),
         "horizon": HORIZON,
@@ -276,6 +304,7 @@ def run_backtest(data, df):
         "totalEvaluated": total_eval,
         "totalPending": total_pending,
         "realizedHitRate": realized_hit,
+        "preciseRealizedHitRate": precise_realized,
         "coldStart": total_eval < MIN_SAMPLE,
         "summary": summary,
     }
@@ -293,7 +322,10 @@ if __name__ == "__main__":
     s = run_backtest(d, _df)
     print("回测:", s["totalLogged"], "条存档 /", s["totalEvaluated"], "条已评估 / cold=",
           s["coldStart"])
+    print("  band 触达率(宽松)=%s%%  精确命中率(真实目标价位)=%s%%" %
+          (s["realizedHitRate"], s["preciseRealizedHitRate"]))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
-              "| 命中率=%s" % (r["hitRate"] if r["hitRate"] is not None else "样本不足"),
+              "| band命中率=%s" % (r["hitRate"] if r["hitRate"] is not None else "样本不足"),
+              "| 精确命中率=%s" % (r["preciseHitRate"] if r["preciseHitRate"] is not None else "样本不足"),
               "| 平均触达=%s天" % r["avgDays"])

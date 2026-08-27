@@ -107,6 +107,7 @@ def _main():
     logged = 0
     cold = True
     overall = None
+    overall_precise = None
     if os.path.exists(BACKTEST_JSON):
         with open(BACKTEST_JSON, encoding="utf-8") as f:
             bt = json.load(f)
@@ -116,6 +117,7 @@ def _main():
         cold = bt.get("coldStart", True)
         pending = bt.get("totalPending", 0)
         realized = bt.get("realizedHitRate")
+        precise_realized = bt.get("preciseRealizedHitRate")
         # 诚实口径（修复 R90）：整体实证命中率 = 已解决目标的【原始】pooled 命中率，
         # 用「全部已评估分组」的原始 n/hits 求和——含 cold 起步组（其 hitRate=None，
         # 但 n/hits 仍有效），不再因命中率字段为 None 被漏计；同时不做
@@ -127,6 +129,8 @@ def _main():
             n_sum = sum(s["n"] for s in allg)
             h_sum = sum(s["hits"] for s in allg)
             overall = round(h_sum / n_sum * 100.0, 1) if n_sum else None
+            ph_sum = sum(s.get("preciseHits", 0) for s in allg)
+            overall_precise = round(ph_sum / n_sum * 100.0, 1) if n_sum else None
 
     # ---------- 综合 accuracy_status（capped，避免极端值误导）----------
     if cold or total_eval < 3:
@@ -140,7 +144,8 @@ def _main():
 
     targets = [
         {"cat": s["cat"], "key": s["key"], "n": s["n"],
-         "hitRate": s["hitRate"], "avgDays": s.get("avgDays")}
+         "hitRate": s["hitRate"], "preciseHitRate": s.get("preciseHitRate"),
+         "avgDays": s.get("avgDays")}
         for s in bt_summary
     ]
 
@@ -187,11 +192,14 @@ def _main():
             "total_evaluated": total_eval,
             "total_pending": pending,
             "realized_hit_rate": realized,
+            "precise_realized_hit_rate": precise_realized,
             "cold_start": cold,
             "overall_hit_rate": overall,
+            "overall_precise_hit_rate": overall_precise,
             "targets": targets,
-            "note": ("整体/已实现命中率偏乐观：仅统计「观察窗已闭合」的已解决目标，观察窗未闭合的 %d 个目标"
-                     "暂不计入分母；随观察窗闭合（短窗约 1 个月、长窗 9~14 个月）逐步收敛到真实命中率。"
+            "note": ("整体/已实现命中率为 band 触达率(宽松, _frac 可达 23.5%%)：仅统计「观察窗已闭合」的已解决"
+                     "目标，观察窗未闭合的 %d 个目标暂不计入分母；随观察窗闭合逐步收敛。精确命中率(真实目标价位)"
+                     "见 precise_realized_hit_rate，二者差距大说明预测在方向/区间上靠谱、在精确价位上偏松。"
                      % pending) if pending else None,
         },
         "accuracy_status": accuracy_status,
@@ -234,9 +242,9 @@ def main():
     print("OOS 裸公式Bucket   = %s (基线 %s, Δ=%s%%)"
           % (obr.get("bucket_brier"), obr.get("bucket_baseline"), obr.get("bucket_delta_pct")))
     bt = c["backtest"]
-    print("回测实证命中率(整体, 原始pooled) = %s%%, 已评估 %d / 存档 %d, 冷启动=%s"
-          % (bt.get("overall_hit_rate"), bt.get("total_evaluated"), bt.get("total_logged"),
-             bt.get("cold_start")))
+    print("回测 band 触达率(整体, 原始pooled) = %s%%, 精确命中率(真实目标价位) = %s%%, 已评估 %d / 存档 %d, 冷启动=%s"
+          % (bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate"), bt.get("total_evaluated"),
+             bt.get("total_logged"), bt.get("cold_start")))
     print("calibration_status = %s ; accuracy_status = %s" % (obr.get("status"), c.get("accuracy_status")))
     if c.get("error"):
         print("⚠️ %s" % c["error"])
