@@ -244,7 +244,54 @@ def _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence):
     return rr
 
 
+def _sync_sh_csv_from_raw():
+    """R805 根因修复：sh000001.csv 是主指数数据源，但 fetch_indices 只更新 *_raw.md，
+    导致 csv 长期停滞（#790 起停在 08-26），主数据无法随取数刷新（云端连续多日滞后）。
+    此处 build 前从 *_raw.md 重建 csv（last->close 列名映射），使主指数随取数同步更新。
+    仅在 raw.md 末日期比 csv 更新时才重写，避免无谓 mtime 变化与 diff 噪音；保留原 csv
+    起点以最小回归。"""
+    import csv as _csv
+    _raw = os.path.join(BASE, "data", "sh000001_raw.md")
+    _csvp = os.path.join(BASE, "data", "sh000001.csv")
+    if not os.path.exists(_raw) or not os.path.exists(_csvp):
+        return
+    _lines = [l for l in open(_raw, encoding="utf-8").read().splitlines() if l.strip().startswith("|")]
+    if len(_lines) < 3:
+        return
+    _hdr = [h.strip() for h in _lines[0].strip("|").split("|")]
+    def _ix(n):
+        return _hdr.index(n) if n in _hdr else -1
+    i_d, i_o, i_h, i_l, i_v = _ix("date"), _ix("open"), _ix("high"), _ix("low"), _ix("volume")
+    i_c = _ix("close") if _ix("close") >= 0 else _ix("last")
+    if -1 in (i_d, i_o, i_c, i_h, i_l, i_v):
+        return
+    _cur = [l for l in open(_csvp, encoding="utf-8").read().splitlines() if l.strip()]
+    _start = _cur[1].split(",")[0] if len(_cur) >= 2 else "2021-08-26"
+    _cur_last = _cur[-1].split(",")[0] if len(_cur) >= 2 else ""
+    _data, _raw_last = [], ""
+    for _ln in _lines[2:]:
+        _cells = [c.strip() for c in _ln.strip("|").split("|")]
+        if len(_cells) <= max(i_d, i_o, i_c, i_h, i_l, i_v):
+            continue
+        _d = _cells[i_d]
+        if _d < _start:
+            continue
+        try:
+            float(_cells[i_o]); float(_cells[i_c]); float(_cells[i_h]); float(_cells[i_l]); float(_cells[i_v])
+        except ValueError:
+            continue
+        _data.append([_cells[i_d], _cells[i_o], _cells[i_c], _cells[i_h], _cells[i_l], _cells[i_v]])
+        _raw_last = _cells[i_d]
+    if not _data or _raw_last <= _cur_last:
+        return  # 无更新则不动 csv，保持 mtime/fetchedAt 稳定
+    with open(_csvp, "w", newline="", encoding="utf-8") as _f:
+        _w = _csv.writer(_f)
+        _w.writerow(["date", "open", "close", "high", "low", "volume"])
+        _w.writerows(_data)
+
+
 def main():
+    _sync_sh_csv_from_raw()  # R805：build 前确保主指数 csv 已随 raw.md 更新
     df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"), parse_dates=["date"]).set_index("date")
     # 成交量单位容错(R62)：每日管线追加的当日行偶发以不同单位(股 vs 手)写入，
     # 造成单点 ~100x 突跳(实测 592M vs 滚动中位 ~5.8M)，会污染 vol_by_wave 均值 与
