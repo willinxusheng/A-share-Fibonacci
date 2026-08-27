@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T04:40:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#784)
+var BUILD_TS = "2026-08-27T05:14:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#786 诚实概率标签)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1571,7 +1571,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           var _modelCell = (r.wave === '子浪ⅱ')
             ? ('<td class="' + (isTop ? 'num-red' : '') + '"><b>' + fmt2(r.target) + '</b> <span style="color:#c8a03a;font-size:11px">(模型偏深)</span></td>')
             : ('<td class="' + (isTop ? 'num-red' : '') + '"><b>' + fmt2(r.target) + '</b></td>');
-          return '<tr><td><b>' + r.wave + '</b></td>' + _modelCell + refCell + '<td>' + fmt2(r.lo) + ' ~ ' + fmt2(r.hi) + ' <span style="color:#98a0ad">(±' + r.bandPct + '%)</span></td><td class="' + pcls + '"><b>' + r.prob + '%</b> <span style="color:#98a0ad;font-size:11px">' + r.probSrc + '</span></td><td class="c-l">' + r.basis + '</td><td class="' + (actCls[r.side] || '') + ' c-l"><b>' + r.action + '</b></td></tr>';
+          return '<tr><td><b>' + r.wave + '</b></td>' + _modelCell + refCell + '<td>' + fmt2(r.lo) + ' ~ ' + fmt2(r.hi) + ' <span style="color:#98a0ad">(±' + r.bandPct + '%)</span></td><td class="' + pcls + '"><b>' + r.prob + '%</b> <span style="color:#98a0ad;font-size:11px">' + (r.probSrc==='回测实证'?'回测band触达(宽±σ)':r.probSrc) + '</span></td><td class="c-l">' + r.basis + '</td><td class="' + (actCls[r.side] || '') + ' c-l"><b>' + r.action + '</b></td></tr>';
         }).join('')
         + '<tr style="background:#f4faf4"><td colspan="7" class="c-l" style="color:#2f7d2f;font-size:12px">📐 <b>真实锚定买② ' + (_realIi != null ? fmt2(_realIi) : '?') + '</b>：用唯一真实同浪级样本(浪③)实测子浪ⅱ回撤 ' + (rr.wave3Sub2Ret != null ? rr.wave3Sub2Ret : 22) + '% 重算，比模型(按 ' + (F.calib ? Math.round(F.calib.iiRet * 100) : 62) + '%' + (F.calib && F.calib.iiRet >= 0.6 ? '·当前高波动regime触顶' : '') + '→' + (_modelIi != null ? fmt2(_modelIi) : '?') + ') 浅约 ' + ((_modelIi != null && _realIi != null) ? fmt2(_modelIi - _realIi) : '?') + ' 点。仅 1 样本故不覆盖模型，作回踩加仓的更浅参考位。</td></tr>';
       var cb = F.calib || {}, cc = F.crossCheck || {};
@@ -1738,7 +1738,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       return '<tr><td><span class="tag tag-t">卖</span> ' + s.name + '</td>' +
         '<td class="num-red"><b>' + fmt2(s.price) + '</b></td>' +
         '<td>' + fmt2(s.lo) + ' ~ ' + fmt2(s.hi) + ' <span style="color:#98a0ad">(±' + fmt1(s.bandPct) + '%)</span></td>' +
-        '<td class="' + pcls + '"><b>' + fmt1(s.prob) + '%</b> <span style="color:#98a0ad;font-size:11px">' + s.probSrc + '</span></td>' +
+        '<td class="' + pcls + '"><b>' + fmt1(s.prob) + '%</b> <span style="color:#98a0ad;font-size:11px">' + (s.probSrc==='回测实证'?'回测band触达(宽±σ)':s.probSrc) + '</span></td>' +
         '<td class="c-l"><span class="tag-fire">触达即触发</span> ' + s.condition + '</td></tr>';
     }).join('');
 
@@ -1766,7 +1766,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '<div>• 距风控位 ' + keyPrice.toFixed(2) + ' ' + keyTxt + '。</div>' +
       '<div>• 浪⑤首目标 ' + tp.sellTargets[0].price.toFixed(2) + '（卖①）距现价 ' + s1Txt + '。</div>' +
       '<div style="margin-top:10px;padding:10px 12px;background:#f2f4f8;border-radius:8px;font-size:12px;color:#7c8494">' +
-      '用法：铁律线上方、价格进入绿色买点参考区时分批低吸；浪⑤推进至红色目标区时分批减仓；有效跌破 ' + keyPrice.toFixed(2) + ' 铁律线则数浪证伪、第一时间防御。子浪图与推演图已用 ▲/▼ 标出历史与推演买卖点供对照。卖出目标与子浪目标均给出「区间(±σ)」与「概率」：区间由近期波动率推导的触达带，概率在样本足够时切换为回测实证命中率。</div>' +
+      '用法：铁律线上方、价格进入绿色买点参考区时分批低吸；浪⑤推进至红色目标区时分批减仓；有效跌破 ' + keyPrice.toFixed(2) + ' 铁律线则数浪证伪、第一时间防御。子浪图与推演图已用 ▲/▼ 标出历史与推演买卖点供对照。卖出目标与子浪目标均给出「区间(±σ)」与「概率」：区间由近期波动率推导的触达带；概率列「回测实证」= 宽±σ band 触达率（价格落入目标±σ带的概率），<b>非"精确命中目标价位"</b>；精确命中率见回测面板（当前待观察窗闭合）。</div>' +
       '<div style="margin-top:10px;padding:10px 12px;background:#fdf6f0;border-radius:8px;font-size:12px;color:#7c8494">' +
       '<b style="color:#b8872a">机械化出场阶梯（移动止盈）</b><br>' +
       ((tp.trailingStop && tp.trailingStop.rules) || []).map(function (r) {
@@ -1870,15 +1870,16 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   // 一旦 coldStart=False（样本足够、回测实证命中率已填充）自动改为"回测实证命中率"，
   // 避免写死"冷启动"文案在状态切换后仍残留、与运行时不符（R31 修复）
   var probNote = bt.coldStart
-    ? ' 卖出目标与子浪目标的「概率」列当前为<b>波动率估算</b>（冷启动），待各目标已评估样本 ≥ ' + bt.minSample + ' 条后自动升级为<b>回测实证命中率</b>。'
-    : ' 卖出目标与子浪目标的「概率」列已切换为<b>回测实证命中率</b>（基于已评估样本；样本不足者仍显示波动率估算）。';
+    ? ' 卖出目标与子浪目标的「概率」列当前为<b>波动率估算</b>（冷启动），样本充足后切换为<b>回测band触达率</b>。'
+    : ' 卖出目标与子浪目标的「概率」列 = <b>回测band触达率</b>（基于已评估样本的<b>宽±σ带触达</b>，即价格落入目标±σ带的概率，<b>非精确命中目标价位</b>）；精确命中率见上方独立列（当前待观察窗闭合）。';
   var ov_p = bt.preciseRealizedHitRate != null ? bt.preciseRealizedHitRate + '%' : '待成熟(窗口未闭合)';
   var ov_b = bt.realizedHitRate != null ? bt.realizedHitRate + '%' : '样本不足';
   var ov_d = bt.dirRealizedHitRate != null ? bt.dirRealizedHitRate + '%' : '样本不足';
+  var ov_w = bt.levelPrecisionWithin5Pct != null ? bt.levelPrecisionWithin5Pct + '%' : '—';
   foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
-    ' ｜ <b>整体：方向准确率(最诚实信号) ' + ov_d + ' ｜ band 触达率 ' + ov_b + ' ｜ 精确命中率(真实目标价位) ' + ov_p + '</b>' +
-    '（精确命中需窗口闭合方出数；band 因 ±σ 触达带较宽而偏高）';
+    ' ｜ <b>整体：方向准确率(最诚实信号) ' + ov_d + ' ｜ band 触达率 ' + ov_b + ' ｜ 精确命中率(真实目标价位) ' + ov_p + ' ｜ 价位接近度(±5%达标) ' + ov_w + '</b>' +
+    '（精确命中需窗口闭合方出数；band 因 ±σ 触达带较宽而偏高；已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '，精确命中率仅计已闭合目标）';
 })();
 
 /* ---------- 预测质量自检证书渲染（R87 借鉴缠论 quality_cert.json） ---------- */
