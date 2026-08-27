@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T04:14:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#783)
+var BUILD_TS = "2026-08-27T04:40:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#784)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1991,8 +1991,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   });
   _det += '</table>';
   // 当前目标校准（来自 build_data 挂载的 calibPx，样本≥5 才生成）
+  // #784：数据源由历史 pivot 列表 D.subWavePoints 改为预测目标 D.subForecast.points，
+  // 使子浪ⅳ/浪⑤起 等真·预测目标也能显示校准位（#783 曾因挂错列表而漏显）。
   var _cal = [];
-  (D.subWavePoints || []).forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.label, m: p.price, c: p.calibPx, b: p.biasPct }); });
+  (D.subForecast ? D.subForecast.points : []).forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.label, m: p.price, c: p.calibPx, b: p.biasPct }); });
   if (D.tradePlan && D.tradePlan.sellTargets) D.tradePlan.sellTargets.forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.name, m: p.price, c: p.calibPx, b: p.biasPct }); });
   if (_cal.length) {
     _det += '<div style="margin-top:8px;font-weight:600;color:#555;">当前目标校准（模型位 → 校准位）：</div>';

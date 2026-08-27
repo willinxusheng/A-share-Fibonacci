@@ -1365,7 +1365,11 @@ def main():
             else:
                 _p["calibPx"] = round(_p["price"] / (1 + _pm), 2)
     _attach_calib(sell_targets, "sellTarget", lambda p: p["name"].split(" ")[0])
-    _attach_calib(sub_wave_points, "subwave", lambda p: p["label"].split("(")[0].strip())
+    # #784 修复 #783 回归：校准必须挂到【预测子浪目标】sub_forecast["points"]（标签=子浪ⅰ-ⅴ/浪⑤起，
+    # 与 backtest.summary 键同源），而非历史 pivot 列表 sub_wave_points（浪③起/ⅲ-1/ⅲ-2/子浪ⅲ顶(延长)/浪④? 等，
+    # 仅子浪ⅰ/ⅱ 标签碰巧重合才被命中，致子浪ⅳ/浪⑤起 等真·预测目标从未校准）。
+    # 历史 pivot 不应显示"校准≈"（其价格已发生，校准只服务于未来预测目标）。
+    _attach_calib(sub_forecast["points"], "subwave", lambda p: p["label"].split("(")[0].strip())
     _vol_windows = [20, 60, 120, 250]
     _vol_by_w = {w: float(ret.rolling(w).std().iloc[-1]) for w in _vol_windows}
     def _vol_for(exp):
