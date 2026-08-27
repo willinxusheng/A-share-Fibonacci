@@ -1342,6 +1342,10 @@ def main():
     #   sellTarget 全为上行高点目标；subwave 子浪ⅰ/ⅲ/ⅴ 为上行高点(实际高位=px×(1+bias))，
     #   子浪ⅱ/ⅳ/浪⑤起 为回踩低点(实际低位=px/(1+bias))。
     _bias_map = {(s["cat"], s["key"]): s for s in bt_stats["summary"]}
+    # #787 全局稳健偏差兜底：levelPrecisionMedianDev 是全部样本的中位偏差(稳健先验，无小样本过拟合)，
+    # 用于填充未成熟类别(卖①②③/子浪ⅲⅴ，n<5 拿不到逐类校准位)的更现实预期。
+    # 严守铁律⑦：仅附加 calibPx 辅助参考，Elliott 原始 px/baseCase 一字未动。
+    _gdev_all = bt_stats.get("levelPrecisionMedianDev")
     _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
     def _is_high(_cat, _key):
         if _cat == "sellTarget":
@@ -1353,13 +1357,22 @@ def main():
         for _p in _pts:
             _k = _keyfn(_p)
             _b = _bias_map.get((_cat, _k))
-            if not _b:
-                continue
-            _pm = _b.get("precDevMedian")
-            _n = _b.get("n")
-            if _pm is None or _n is None or _n < 5:
+            _pm = None
+            _conf = None
+            # 逐类校准(n>=5，稳健)：高置信，直接使用该类的带符号中位偏差。
+            if _b and _b.get("precDevMedian") is not None and _b.get("n", 0) >= 5:
+                _pm = _b["precDevMedian"]
+                _conf = "high"
+            # #787 全局兜底：未成熟/无逐类校准的目标用全局稳健偏差(低置信)。
+            # 与 #783「不拿小样本过拟合」不冲突——全局偏差来自全部样本，是稳健先验而非小样本噪声。
+            elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
+                _pm = _gdev_all
+                _conf = "global-low"
+            if _pm is None:
                 continue
             _p["biasPct"] = round(_pm * 100, 1)
+            if _conf == "global-low":
+                _p["calibConf"] = "global-low"
             if _is_high(_cat, _k):
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
