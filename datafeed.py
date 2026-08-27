@@ -55,8 +55,9 @@ _EASTMONEY_HEADERS = {
 }
 
 # internal_key -> (eastmoney_secid, yahoo_symbol, stooq_symbol, tencent_secid)
-# tencent_secid：腾讯 gtimg 代码（sh/sz+6位，与 eastmoney 不同），海外 runner 可达，
-# 对 A 股指数/个股返回完整日K；HK/US 设为 None（腾讯无对应代码，跳过该源）。
+# tencent_secid：腾讯 gtimg 代码（A股=sh/sz+6位；港股=hk+代码如 hkHSI/hkHSTECH），海外 runner 可达。
+# 实测：hkHSI/hkHSTECH 经腾讯返回完整日K（约1300根至当日），故启用为港股主回退；
+# 美股(usINX/usIXIC)腾讯仅回 1 日快照(<_MIN_ROWS)，不启用，仍走 yahoo（stooq 已失效）。
 SYMBOLS = {
     "sh000001": ("1.000001", "000001.SS", "000001.ss", "sh000001"),
     "sh000300": ("1.000300", "000300.SS", "000300.ss", "sh000300"),
@@ -64,8 +65,8 @@ SYMBOLS = {
     "sh000016": ("1.000016", "000016.SS", "000016.ss", "sh000016"),
     "sh000905": ("1.000905", "000905.SS", "000905.ss", "sh000905"),
     "sh000688": ("1.000688", "000688.SS", "000688.ss", "sh000688"),
-    "hkHSI":    ("100.HSI", "^HSI", "hsi", None),
-    "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech", None),
+    "hkHSI":    ("100.HSI", "^HSI", "hsi", "hkHSI"),
+    "hkHSTECH": ("100.HSTECH", "^HSTECH", "hstech", "hkHSTECH"),
     "usINX":    ("100.SPX", "^GSPC", "spx", None),
     # 三源必须为同一指数：yahoo/stooq 的 ^IXIC/ixic = 纳斯达克综合指数(Nasdaq Composite)，
     # eastmoney 对应代码为 100.IXIC（100.NDX 是纳斯达克100，非同一标的，跨源回退会取错序列）。
