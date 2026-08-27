@@ -51,7 +51,13 @@ on:
     - cron: "30 10 * * *"
     - cron: "30 13 * * *"
     - cron: "30 14 * * *"
-  workflow_dispatch: {}   # 允许在 Actions 页面手动触发，便于首跑实测与排错
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制重建：忽略新鲜度门卫，即使判定今日已更新也重新抓取并构建。用于自动定时更新失败时的手动刷新。'
+        type: boolean
+        default: false
+    # 允许在 Actions 页面手动触发，便于首跑实测、排错，以及自动更新失败时的强制刷新（配合 force 输入）。
 
 # 允许工作流把最新 data/ 提交回本仓库 main 分支（Pages 随后自动重新部署），并允许就失败开 issue 告警。
 permissions:
@@ -79,6 +85,13 @@ jobs:
       - name: Freshness gate (skip if updated today / weekend / manual intraday)
         id: fresh
         run: |
+          # R804：force 输入为 true 时忽略一切门卫，强制重建（自动定时更新失败时的逃生舱）。
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
+            echo "::notice::检测到 force=true，忽略新鲜度门卫，强制重新抓取并构建。"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # R49 修复：手动触发落在盘中交易时段时，优雅跳过而非红失败。
           # 根因：workflow_dispatch 在 09:30–15:00（北京）触发会抓到盘中快照，
           # validate.py #11 会阻断部署；此守卫提前跳过，避免误发 ci-alert issue。
