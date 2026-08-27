@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T03:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-27T04:14:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#783)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1952,7 +1952,59 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     note = '<div style="margin-top:8px;color:#b8872a;">⚠️ 命中率偏离常态区间，建议关注。' + gap + '</div>';
   }
   else note = '<div style="margin-top:8px;color:#2f9e44;">✅ 预测质量自检通过（软门禁，不阻断部署）。</div>';
-  bodyEl.innerHTML = html + note;
+  // #783 回测精度明细（分类可靠性）+ 当前目标校准：把 #782 暴露的系统性偏差变成可用洞察
+  var _f2 = (typeof fmt2 === 'function') ? fmt2 : function (x) { return Math.round(x * 100) / 100; };
+  // 分类方向：sellTarget 全为上行高点目标；subwave 子浪ⅰ/ⅲ/ⅴ 为上行高点，子浪ⅱ/ⅳ/浪⑤起 为回踩低点
+  function _sideOf(cat, key) {
+    if (cat === 'sellTarget') return 'sell';
+    if (cat === 'subwave') {
+      if (key === '子浪ⅰ' || key === '子浪ⅲ' || key === '子浪ⅴ') return 'sell';
+      return 'buy';
+    }
+    return 'sell';
+  }
+  function _reli(n) { return (n >= 8) ? '可靠' : (n >= 3 ? '参考' : '未成熟'); }
+  var _tgt = bt.targets || [];
+  var _det = '<div style="margin-top:14px;"><div style="font-weight:700;margin-bottom:6px;">📊 回测精度明细（分类可靠性 · #783）</div>';
+  _det += '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">' +
+    '<tr style="color:#8a94a6;"><th style="text-align:left;padding:3px 6px;">分类</th>' +
+    '<th style="text-align:right;padding:3px 6px;">样本n</th>' +
+    '<th style="text-align:right;padding:3px 6px;">中位偏差</th>' +
+    '<th style="text-align:right;padding:3px 6px;">实际/目标</th>' +
+    '<th style="text-align:right;padding:3px 6px;">可靠性</th></tr>';
+  _tgt.forEach(function (t) {
+    var pm = t.precDevMedian;
+    if (pm == null) {
+      _det += '<tr><td style="padding:3px 6px;border-top:1px solid #eef2f7;">' + t.cat + ' ' + t.key + '</td>' +
+        '<td style="text-align:right;padding:3px 6px;">' + (t.n || 0) + '</td>' +
+        '<td colspan="3" style="text-align:right;padding:3px 6px;color:#8a94a6;">样本不足</td></td></tr>';
+      return;
+    }
+    var arrow = pm > 0 ? '↑' : '↓';
+    var col = Math.abs(pm) >= 0.05 ? '#c23531' : (Math.abs(pm) >= 0.02 ? '#b8872a' : '#2f9e44');
+    var ratio = (_sideOf(t.cat, t.key) === 'buy') ? (1 / (1 + pm)) : (1 + pm);
+    _det += '<tr><td style="padding:3px 6px;border-top:1px solid #eef2f7;">' + t.cat + ' ' + t.key + '</td>' +
+      '<td style="text-align:right;padding:3px 6px;">' + (t.n || 0) + '</td>' +
+      '<td style="text-align:right;padding:3px 6px;color:' + col + ';font-weight:600;">' + arrow + (Math.abs(pm) * 100).toFixed(1) + '%</td>' +
+      '<td style="text-align:right;padding:3px 6px;color:' + col + ';">' + (ratio * 100).toFixed(1) + '%</td>' +
+      '<td style="text-align:right;padding:3px 6px;color:#8a94a6;">' + _reli(t.n) + '</td></tr>';
+  });
+  _det += '</table>';
+  // 当前目标校准（来自 build_data 挂载的 calibPx，样本≥5 才生成）
+  var _cal = [];
+  (D.subWavePoints || []).forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.label, m: p.price, c: p.calibPx, b: p.biasPct }); });
+  if (D.tradePlan && D.tradePlan.sellTargets) D.tradePlan.sellTargets.forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.name, m: p.price, c: p.calibPx, b: p.biasPct }); });
+  if (_cal.length) {
+    _det += '<div style="margin-top:8px;font-weight:600;color:#555;">当前目标校准（模型位 → 校准位）：</div>';
+    _det += '<div style="font-size:12.5px;color:#444;line-height:1.7;">';
+    _cal.forEach(function (x) {
+      _det += '· ' + x.name + '：' + _f2(x.m) + ' → <b style="color:#2f7d2f;">校准≈' + _f2(x.c) + '</b> <span style="color:#8a94a6;">(历史实际' + (x.b >= 0 ? '高/深' : '低/浅') + '约 ' + Math.abs(x.b) + '%)</span><br>';
+    });
+    _det += '</div>';
+  }
+  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于该分类历史回测偏差对 Elliott 模型位的修正预期（样本≥5 才显示），<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。卖①②③ 当前 n=2 未成熟，暂不校准。</div>';
+  _det += '</div>';
+  bodyEl.innerHTML = html + note + _det;
 })();
 
 /* ---------- 市场情绪温度渲染（R87 · monitor_only，不参与概率/方向计算） ---------- */

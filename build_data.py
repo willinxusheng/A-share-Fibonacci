@@ -1335,6 +1335,37 @@ def main():
                    "tradePlan": trade_plan, "subForecast": sub_forecast}
     bt_stats = run_backtest(_bt_partial, df)
     bt_lookup = {(s["cat"], s["key"]): (s["hitRate"], s["n"]) for s in bt_stats["summary"]}
+    # #783 回测精度校准挂载：用 backtest.summary 的带符号中位偏差(precDevMedian)给各目标附加
+    # 「校准目标」(calibPx) 与偏差百分比(biasPct)。仅对样本充足(n>=5)的分类生效，避免小样本噪声误导；
+    # Elliott 原始 px / baseCase 一字未动(严守铁律⑦)，calibPx 仅是「基于历史偏差的更现实预期」辅助参考。
+    # 方向以(分类,键)确定性映射，不依赖各点 side 字段(sub_wave_points 多为全局浪型点、常缺 side)：
+    #   sellTarget 全为上行高点目标；subwave 子浪ⅰ/ⅲ/ⅴ 为上行高点(实际高位=px×(1+bias))，
+    #   子浪ⅱ/ⅳ/浪⑤起 为回踩低点(实际低位=px/(1+bias))。
+    _bias_map = {(s["cat"], s["key"]): s for s in bt_stats["summary"]}
+    _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
+    def _is_high(_cat, _key):
+        if _cat == "sellTarget":
+            return True
+        if _cat == "subwave":
+            return _key in _SUB_HIGH
+        return True
+    def _attach_calib(_pts, _cat, _keyfn):
+        for _p in _pts:
+            _k = _keyfn(_p)
+            _b = _bias_map.get((_cat, _k))
+            if not _b:
+                continue
+            _pm = _b.get("precDevMedian")
+            _n = _b.get("n")
+            if _pm is None or _n is None or _n < 5:
+                continue
+            _p["biasPct"] = round(_pm * 100, 1)
+            if _is_high(_cat, _k):
+                _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
+            else:
+                _p["calibPx"] = round(_p["price"] / (1 + _pm), 2)
+    _attach_calib(sell_targets, "sellTarget", lambda p: p["name"].split(" ")[0])
+    _attach_calib(sub_wave_points, "subwave", lambda p: p["label"].split("(")[0].strip())
     _vol_windows = [20, 60, 120, 250]
     _vol_by_w = {w: float(ret.rolling(w).std().iloc[-1]) for w in _vol_windows}
     def _vol_for(exp):
