@@ -1,0 +1,115 @@
+# -*- coding: utf-8 -*-
+# freshness-watch.yml — A股斐波那契看板「自愈看门狗」（R806 ①）
+# ================================================================================
+# 作用：与 daily.yml 的 crons 互相独立调度（北京 23:30 = UTC 15:30），
+#       作为"最后兜底"，专门捕获「daily.yml 当天所有触发都被 GitHub 静默跳过 / 全部失败」
+#       导致主数据 + 情绪双双停更、且 22:30 健康检查也因同样原因没跑出来的极端情形。
+#
+# 判据（单一真源，与 daily.yml 共用 expected_trading_day.py）：
+#   EXPECTED = 预期最后交易日（语义级，已收盘且为交易日取当日，否则取前一交易日；节假日/周末由脚本统一处理）
+#   UPDATED  = data/data.js 的 `updated` 字段（本快照覆盖的交易日）
+#   - UPDATED == EXPECTED  → 健康：若此前有陈旧告警 issue 则自动关闭。
+#   - UPDATED != EXPECTED  → 陈旧：自动 `gh workflow run daily.yml -f force=true` 强制重触发，
+#                            并开/更新告警 issue（label=ci-alert），把"静默漏更"变成可见红标。
+#
+# 设计要点：
+#   · 看门狗不依赖任何常开客户端，纯 GitHub 云端 runner 执行，本地电脑关机无妨。
+#   · 与 daily.yml 的 cron 物理隔离：GitHub 偶发跳过某次调度时，两工作流被同批跳过的概率极低。
+#   · 不跳过周末：周末时 EXPECTED==UPDATED（均为上周五），自然判健康、不触发重建、并关闭残留告警。
+#   · 长假期中同理：EXPECTED=假前最后交易日，UPDATED 同为假前，判健康，无噪音。
+#   · 看门狗触发 daily.yml 用 force=true（逃生舱），忽略新鲜度门卫强制重建，确保补到当日数据。
+# ================================================================================
+
+name: Freshness watch (A-share Fibonacci)
+
+on:
+  # 北京时间 23:30 = UTC 15:30。在 daily.yml 全部 cron（最晚北京 22:30）之后，作为最终兜底。
+  schedule:
+    - cron: "30 15 * * *"
+  # 允许在 Actions 页面手动触发，便于排错与即时验证看门狗逻辑。
+  workflow_dispatch:
+
+# 看门狗需要：触发 daily.yml 的 workflow_dispatch（actions: write） + 管理告警 issue（issues: write）。
+# 看门狗自身不 push 代码，无需 contents: write。
+permissions:
+  actions: write
+  issues: write
+
+concurrency:
+  group: a-share-fib-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # ── 新鲜度判定（单一真源：expected_trading_day.py）────────────────────────
+      # 任何解析/执行异常一律按"陈旧"处理并告警，宁可误报也不漏报（漏报=静默漏更复发）。
+      - name: Compute EXPECTED vs data.js updated
+        id: check
+        continue-on-error: true
+        run: |
+          set +e
+          EXPECTED=$(python3 expected_trading_day.py 2>/dev/null) || EXPECTED=""
+          UPDATED=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}') || UPDATED=""
+          echo "expected=[$EXPECTED] updated=[$UPDATED]"
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "updated=$UPDATED" >> "$GITHUB_OUTPUT"
+          if [ -z "$EXPECTED" ] || [ -z "$UPDATED" ]; then
+            echo "::error::无法判定新鲜度（expected=$EXPECTED / updated=$UPDATED），按陈旧处理并告警。"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          elif [ "$UPDATED" = "$EXPECTED" ]; then
+            echo "healthy: updated=$UPDATED == expected=$EXPECTED"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale: updated=$UPDATED != expected=$EXPECTED"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 陈旧时自动强制重触发 daily.yml（逃生舱 force=true）──────────────────────
+      - name: Trigger force rebuild of daily.yml
+        if: steps.check.outputs.stale == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "数据陈旧（updated=${{ steps.check.outputs.updated }} != expected=${{ steps.check.outputs.expected }}），强制重触发 daily.yml ..."
+          gh workflow run daily.yml -f force=true
+          echo "已提交 workflow_dispatch(force=true)，等待 daily.yml 自行抓取 + 构建 + 推送。"
+
+      # ── 告警 issue 管理（陈旧则开/更新，健康则关闭）────────────────────────────
+      - name: Manage alert issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const stale = '${{ steps.check.outputs.stale }}' === 'true';
+            const expected = '${{ steps.check.outputs.expected }}' || '(unknown)';
+            const updated = '${{ steps.check.outputs.updated }}' || '(unknown)';
+            const TITLE = '⚠️ A股斐波那契看板今日数据未更新';
+            const { owner, repo } = context.repo;
+            const ts = new Date().toISOString();
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
+            const found = existing.data.find(i => i.title === TITLE);
+            if (stale) {
+              const body = `自愈看门狗（freshness-watch）于 ${ts} 检测到数据陈旧：\n` +
+                `- 预期最后交易日(expected) = ${expected}\n` +
+                `- 数据覆盖日(updated) = ${updated}\n\n` +
+                `已自动触发 daily.yml 强制重建（force=true），运行日志：${runUrl}\n` +
+                `若重建后仍陈旧，说明取数源异常或当日数据未就绪，请检查取数链路与 Actions 运行记录。`;
+              if (found) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `看门狗再次触发重建 @ ${ts}\n${runUrl}` });
+              } else {
+                await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] });
+              }
+            } else {
+              if (found) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `✅ 看门狗确认数据已更新（updated=${updated} == expected=${expected}），自动关闭本告警 @ ${ts}` });
+                await github.rest.issues.update({ owner, repo, issue_number: found.number, state: 'closed' });
+              }
+              console.log('healthy: 无陈旧告警需要处理');
+            }

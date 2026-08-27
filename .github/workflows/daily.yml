@@ -39,6 +39,18 @@
 #     ④ 新鲜度自检：每轮先判"今天是否已更新 / 是否周末"，已更新或周末直接跳过；
 #        提交前再校验 data.js fetchedAt==今天，防"回退旧值当新数据"的假更新。
 #        22:30 健康检查专门兜底"全天所有触发都被跳过"的极端情形并告警。
+#
+# R806 自愈闭环（①+②+③，针对"cron 被 GitHub 跳过 → 主数据+情绪双双停更"系统性弱点）：
+#   ① 独立看门狗 freshness-watch.yml（北京 23:30 单独调度，与本工作流 crons 互相独立不被同批跳过）：
+#      读 EXPECTED(预期最后交易日) vs data.js `updated`(本快照覆盖的交易日) 比对；
+#      陈旧则 `gh workflow run daily.yml -f force=true` 自动重触发 + 开/更新 issue；健康则关闭陈旧 issue。
+#   ② 陈旧硬失败断言（见下方「Commit & push」步骤）：build 后再次语义比对，
+#      EXPECTED != BUILT(本次构建后 `updated`) 即 `::error::` + exit 1，把"跑了但数据仍陈旧"变响亮失败，
+#      既阻断当日部署（不污染线上旧数据），又被 ci-alert / 看门狗捕获触发重跑。
+#   ③ 语义级新鲜度判据（取代脆弱的"fetchedAt 小时>=15"启发式）：
+#      由共享脚本 expected_trading_day.py（含 2026 上交所休市表）统一算出预期最后交易日，
+#      与 data.js `updated` 比对；节假日/周末由脚本统一处理，不再依赖魔法小时常量，杜绝同类假绿。
+#      （freshness-watch.yml 与 daily.yml 共用同一脚本、同一判据，单一真源。）
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Daily A-share Fibonacci update
@@ -121,16 +133,19 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          FH=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{2}$')
-          echo "fetchedAt date=$F hour=${FH:-NA}"
-          # R802 修复：盘中(15:00 前)快照虽日期为今日，但未含当日收盘，不能视为"已更新"，
-          # 否则会屏蔽当天所有收盘后 cron，使当日收盘数据永久缺失（云端滞后一天）。
-          # 仅当 fetchedAt 日期==今日 且 小时>=15(收盘后北京) 才跳过；否则强制重抓。
-          if [ "$F" = "$TODAY" ] && [ "${FH:-0}" -ge 15 ]; then
-            echo "already refreshed today after close ($F ${FH}:xx) -> skip"
+          # R806 语义级新鲜度判据（替代脆弱的"fetchedAt 小时>=15"启发式）：
+          # 用 expected_trading_day.py 算出「当前预期最后交易日」EXPECTED，
+          # 与 data.js 的 `updated`（=本快照覆盖的交易日，来自 K线真实末行日期）比对；
+          # 相等=已更新(跳过)，不等=需重抓。节假日/周末由脚本统一处理，不再依赖魔法小时常量。
+          # （ubuntu-latest 自带 python3，且脚本零第三方依赖，门卫阶段即可直接调用。）
+          EXPECTED=$(python3 expected_trading_day.py)
+          UPDATED=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          echo "expected last trading day=$EXPECTED ; data updated=$UPDATED"
+          if [ "$UPDATED" = "$EXPECTED" ]; then
+            echo "already up to date ($UPDATED == $EXPECTED) -> skip"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
+            echo "stale ($UPDATED != $EXPECTED) -> force re-fetch & rebuild"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -362,10 +377,14 @@ jobs:
       - name: Commit & push data back to main
         if: steps.fresh.outputs.skip != 'true'
         run: |
-          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
-          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          if [ "$F" != "$TODAY" ]; then
-            echo "::error::取数未拿到本日($TODAY)数据，fetchedAt=$F —— 疑似全源回退旧值，放弃提交以免假更新"
+          # R806 陈旧硬失败断言（②）：构建后再次语义比对，把"跑了但数据仍陈旧"变响亮失败。
+          # EXPECTED=当前预期最后交易日；BUILT=data.js 的 `updated`（本次构建后覆盖的交易日）。
+          # 二者不符 -> 取数可能全源回退旧值 / 当日数据尚未就绪 -> ::error:: 红失败 + exit 1，
+          # 既阻断当日部署（不污染线上旧数据），又被 ci-alert / 看门狗捕获触发重跑。
+          EXPECTED=$(python3 expected_trading_day.py)
+          BUILT=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          if [ "$BUILT" != "$EXPECTED" ]; then
+            echo "::error::构建后数据覆盖日=$BUILT 与预期最后交易日=$EXPECTED 不符 —— 疑似取数全源回退旧值或当日数据尚未就绪，放弃提交以免假更新"
             exit 1
           fi
           git config user.name  "github-actions[bot]"
@@ -436,21 +455,19 @@ jobs:
         id: hc
         if: github.event.schedule == '30 14 * * *'
         run: |
-          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
-          DOW=$(TZ=Asia/Shanghai date +%u)
-          F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          FH=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{2}$')
-          echo "health-check: today=$TODAY dow=$DOW fetchedAt=$F hour=${FH:-NA}"
-          if [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; then
-            echo "weekend, no update expected -> no alert"
-            echo "alert=false" >> "$GITHUB_OUTPUT"
-          # R802 硬化：仅当日 fetchedAt 为收盘后(>=15)才视为"已更新"；
-          # 否则盘中快照残留也算 today -> 静默不告警，与新鲜度门卫同类假绿，必须堵住。
-          elif [ "$F" = "$TODAY" ] && [ "${FH:-0}" -ge 15 ]; then
-            echo "today already updated after close ($F ${FH}:xx) -> no alert"
+          # R806 语义级健康检查（替代"fetchedAt 小时>=15"启发式）：
+          # 仅比对 EXPECTED(预期最后交易日) 与 data.js `updated`(本快照覆盖的交易日)。
+          # 相等=健康(已更新)不告警；不等=今日未更新，开/更新告警 issue。
+          # 节假日(如国庆/劳动节长假期中)与周末由 expected_trading_day.py 统一处理，
+          # 不再误报（假期中 data 本就该停在假前最后交易日）。
+          EXPECTED=$(python3 expected_trading_day.py)
+          UPDATED=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          echo "health-check: expected=$EXPECTED ; data updated=$UPDATED"
+          if [ "$UPDATED" = "$EXPECTED" ]; then
+            echo "today already updated ($UPDATED == $EXPECTED) -> no alert"
             echo "alert=false" >> "$GITHUB_OUTPUT"
           else
-            echo "NOT updated today (fetchedAt=$F, today=$TODAY) -> alert"
+            echo "NOT updated as expected (updated=$UPDATED, expected=$EXPECTED) -> alert"
             echo "alert=true" >> "$GITHUB_OUTPUT"
           fi
 
