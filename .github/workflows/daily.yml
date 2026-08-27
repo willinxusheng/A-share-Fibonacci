@@ -109,9 +109,13 @@ jobs:
             exit 0
           fi
           F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          echo "fetchedAt date=$F"
-          if [ "$F" = "$TODAY" ]; then
-            echo "already refreshed today ($F) -> skip"
+          FH=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{2}$')
+          echo "fetchedAt date=$F hour=${FH:-NA}"
+          # R802 修复：盘中(15:00 前)快照虽日期为今日，但未含当日收盘，不能视为"已更新"，
+          # 否则会屏蔽当天所有收盘后 cron，使当日收盘数据永久缺失（云端滞后一天）。
+          # 仅当 fetchedAt 日期==今日 且 小时>=15(收盘后北京) 才跳过；否则强制重抓。
+          if [ "$F" = "$TODAY" ] && [ "${FH:-0}" -ge 15 ]; then
+            echo "already refreshed today after close ($F ${FH}:xx) -> skip"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -422,12 +426,15 @@ jobs:
           TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
           DOW=$(TZ=Asia/Shanghai date +%u)
           F=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          echo "health-check: today=$TODAY dow=$DOW fetchedAt=$F"
+          FH=$(grep -oE '"fetchedAt": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}' data/data.js | head -1 | grep -oE '[0-9]{2}$')
+          echo "health-check: today=$TODAY dow=$DOW fetchedAt=$F hour=${FH:-NA}"
           if [ "$DOW" = "6" ] || [ "$DOW" = "7" ]; then
             echo "weekend, no update expected -> no alert"
             echo "alert=false" >> "$GITHUB_OUTPUT"
-          elif [ "$F" = "$TODAY" ]; then
-            echo "today already updated -> no alert"
+          # R802 硬化：仅当日 fetchedAt 为收盘后(>=15)才视为"已更新"；
+          # 否则盘中快照残留也算 today -> 静默不告警，与新鲜度门卫同类假绿，必须堵住。
+          elif [ "$F" = "$TODAY" ] && [ "${FH:-0}" -ge 15 ]; then
+            echo "today already updated after close ($F ${FH}:xx) -> no alert"
             echo "alert=false" >> "$GITHUB_OUTPUT"
           else
             echo "NOT updated today (fetchedAt=$F, today=$TODAY) -> alert"
