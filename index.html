@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T06:30:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#789 校准不确定带·同侧16~84分位落点区间)
+var BUILD_TS = "2026-08-27T06:38:08Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#790 目标实时追踪·open目标进度面板)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -671,6 +671,7 @@ var BUILD_TS = "2026-08-27T06:30:00Z"; // R-ENTRY: 每次改 index.html 必同�
 
     <table id="btTable"></table>
       <div class="note" id="btFoot" style="margin-top:10px"></div>
+      <div id="btTrack" style="margin-top:14px;"></div>
   </div>
   </div><!-- /.panels -->
 
@@ -1880,6 +1881,34 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
     ' ｜ <b>整体：方向准确率(最诚实信号) ' + ov_d + ' ｜ band 触达率 ' + ov_b + ' ｜ 精确命中率(真实目标价位) ' + ov_p + ' ｜ 价位接近度(±5%达标) ' + ov_w + '</b>' +
     '（精确命中需窗口闭合方出数；band 因 ±σ 触达带较宽而偏高；已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '，精确命中率仅计已闭合目标）';
+  // #790 目标实时追踪：open(pending)目标进度一览，辅助买卖时机判断（不依赖观察窗闭合，可立即查看）
+  var trackEl = document.getElementById('btTrack');
+  if (trackEl && bt.realizationSummary && bt.realizationSummary.byCat) {
+    var _rs = bt.realizationSummary;
+    var _open = _rs.byCat.filter(function (r) { return r.open > 0; });
+    if (_open.length) {
+      var _rows = _open.map(function (r) {
+        var _e = r.openElapsedMed, _x = r.openExpMed, _b = r.openBestMed;
+        var _tp = (_e != null && _x) ? Math.round(_e / _x * 100) + '%' : '—';
+        var _bm = (_b != null) ? (_b > 0 ? '+' : '') + _b.toFixed(2) + '%' : '—';
+        var _el = (_e != null && _x != null) ? (Math.round(_e) + '/' + Math.round(_x) + '日') : '—';
+        var _col = (r.status === '已临界') ? '#2f9e44' : (r.status === '偏慢' ? '#c23531' : (r.status === '推进中' ? '#1f6fb2' : '#8a94a6'));
+        return '<tr><td><b>' + (catName[r.cat] || r.cat) + '</b> · ' + r.key + '</td>' +
+          '<td style="text-align:center;">' + r.open + '</td><td style="text-align:center;">' + _tp + '</td>' +
+          '<td style="text-align:center;">' + _el + '</td><td style="text-align:center;">' + _bm + '</td>' +
+          '<td style="text-align:center;color:' + _col + ';font-weight:600;">' + r.status + '</td></tr>';
+      }).join('');
+      trackEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px;color:#2a3340;">🎯 目标实时追踪（观察中目标 · 共 ' + _rs.totalOpen + ' 个）</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+        '<tr style="color:#8a94a6;"><th style="text-align:left;padding:3px 8px;">目标</th>' +
+        '<th style="padding:3px 8px;">观察中</th><th style="padding:3px 8px;">已过时长</th>' +
+        '<th style="padding:3px 8px;">中位(已过/预期)</th><th style="padding:3px 8px;">最佳接近</th><th style="padding:3px 8px;">状态</th></tr>' +
+        _rows + '</table>' +
+        '<div style="margin-top:6px;color:#8a94a6;font-size:12px;">「最佳接近」= 价格相对目标的最佳接近度（负值=尚差这么多够到目标）；「已临界」= 价格已逼近目标±5%，随时可能触达。不依赖观察窗闭合即可查看进度。</div>';
+    } else {
+      trackEl.innerHTML = '<div style="color:#8a94a6;font-size:13px;">🎯 目标实时追踪：当前无观察中目标（全部已解/已触达）。</div>';
+    }
+  }
 })();
 
 /* ---------- 预测质量自检证书渲染（R87 借鉴缠论 quality_cert.json） ---------- */

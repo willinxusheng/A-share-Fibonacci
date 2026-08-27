@@ -23,6 +23,93 @@
     "buy": 0.0028,
     "defensive": null
   },
+  "realizationSummary": {
+    "totalOpen": 77,
+    "totalPending": 77,
+    "byCat": [
+      {
+        "cat": "sellTarget",
+        "key": "卖① 保守兑现",
+        "open": 14,
+        "openElapsedMed": 7.5,
+        "openExpMed": 54.0,
+        "openBestMed": -11.12,
+        "status": "早期"
+      },
+      {
+        "cat": "sellTarget",
+        "key": "卖② 标准兑现",
+        "open": 14,
+        "openElapsedMed": 7.5,
+        "openExpMed": 72.0,
+        "openBestMed": -15.48,
+        "status": "早期"
+      },
+      {
+        "cat": "sellTarget",
+        "key": "卖③ 激进兑现",
+        "open": 14,
+        "openElapsedMed": 7.5,
+        "openExpMed": 138.0,
+        "openBestMed": -25.12,
+        "status": "早期"
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅰ",
+        "open": 2,
+        "openElapsedMed": 0.5,
+        "openExpMed": 8.5,
+        "openBestMed": -2.68,
+        "status": "已临界"
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅱ",
+        "open": 1,
+        "openElapsedMed": 0.0,
+        "openExpMed": 18.0,
+        "openBestMed": null,
+        "status": "早期"
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅲ",
+        "open": 13,
+        "openElapsedMed": 7.0,
+        "openExpMed": 36.0,
+        "openBestMed": -8.64,
+        "status": "早期"
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅳ",
+        "open": 1,
+        "openElapsedMed": 0.0,
+        "openExpMed": 42.0,
+        "openBestMed": null,
+        "status": "早期"
+      },
+      {
+        "cat": "subwave",
+        "key": "子浪ⅴ",
+        "open": 14,
+        "openElapsedMed": 7.5,
+        "openExpMed": 54.0,
+        "openBestMed": -11.12,
+        "status": "早期"
+      },
+      {
+        "cat": "subwave",
+        "key": "浪⑤起",
+        "open": 4,
+        "openElapsedMed": 3.5,
+        "openExpMed": 10.0,
+        "openBestMed": -2.85,
+        "status": "已临界"
+      }
+    ]
+  },
   "levelPrecisionP16BySide": {
     "sell": -0.2512,
     "buy": -0.0285,
@@ -53,7 +140,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.1112
+      "precDevMedian": -0.1112,
+      "open": 14,
+      "openElapsedMed": 7.5,
+      "openExpMed": 54.0,
+      "openBestMed": -11.12,
+      "openStatus": "早期"
     },
     {
       "cat": "sellTarget",
@@ -73,7 +165,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.1548
+      "precDevMedian": -0.1548,
+      "open": 14,
+      "openElapsedMed": 7.5,
+      "openExpMed": 72.0,
+      "openBestMed": -15.48,
+      "openStatus": "早期"
     },
     {
       "cat": "sellTarget",
@@ -93,7 +190,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.2512
+      "precDevMedian": -0.2512,
+      "open": 14,
+      "openElapsedMed": 7.5,
+      "openExpMed": 138.0,
+      "openBestMed": -25.12,
+      "openStatus": "早期"
     },
     {
       "cat": "subwave",
@@ -113,7 +215,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.0154
+      "precDevMedian": -0.0154,
+      "open": 2,
+      "openElapsedMed": 0.5,
+      "openExpMed": 8.5,
+      "openBestMed": -2.68,
+      "openStatus": "已临界"
     },
     {
       "cat": "subwave",
@@ -133,7 +240,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 15,
       "baseCaseDirRate": 94.1,
-      "precDevMedian": 0.0028
+      "precDevMedian": 0.0028,
+      "open": 1,
+      "openElapsedMed": 0.0,
+      "openExpMed": 18.0,
+      "openBestMed": null,
+      "openStatus": "早期"
     },
     {
       "cat": "subwave",
@@ -153,7 +265,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.0864
+      "precDevMedian": -0.0864,
+      "open": 13,
+      "openElapsedMed": 7.0,
+      "openExpMed": 36.0,
+      "openBestMed": -8.64,
+      "openStatus": "早期"
     },
     {
       "cat": "subwave",
@@ -173,7 +290,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 15,
       "baseCaseDirRate": 94.1,
-      "precDevMedian": 0.0851
+      "precDevMedian": 0.0851,
+      "open": 1,
+      "openElapsedMed": 0.0,
+      "openExpMed": 42.0,
+      "openBestMed": null,
+      "openStatus": "早期"
     },
     {
       "cat": "subwave",
@@ -193,7 +315,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 14,
       "baseCaseDirRate": 88.2,
-      "precDevMedian": -0.1112
+      "precDevMedian": -0.1112,
+      "open": 14,
+      "openElapsedMed": 7.5,
+      "openExpMed": 54.0,
+      "openBestMed": -11.12,
+      "openStatus": "早期"
     },
     {
       "cat": "subwave",
@@ -213,7 +340,12 @@
       "baseCaseDirEval": 15,
       "baseCaseDirHits": 15,
       "baseCaseDirRate": 94.1,
-      "precDevMedian": -0.0285
+      "precDevMedian": -0.0285,
+      "open": 4,
+      "openElapsedMed": 3.5,
+      "openExpMed": 10.0,
+      "openBestMed": -2.85,
+      "openStatus": "已临界"
     }
   ]
 }

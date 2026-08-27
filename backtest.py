@@ -35,6 +35,30 @@ def _safe_idx(dates, ts):
         return cand[0] if cand else len(dates) - 1
 
 
+def _open_status(open_n, elapsed, exp, best):
+    """#790 目标实时追踪状态：基于 open(pending)目标的中位时间进度与最佳接近度分类。
+
+    仅用【已观测】信号（无需观察窗闭合），故可立即暴露"长期目标早期正常 /
+    中期目标偏慢 / 价格已临界目标"等时效信号，辅助买卖时机判断。
+    - 全部已解：本组无 pending 目标
+    - 已临界：最佳接近度中位 |precDev|<=5%（价格已非常接近目标，随时可能触达）
+    - 偏慢：  时间进度>=60% 但最佳接近度仍远(|precDev|>15%)，相对预期偏慢
+    - 推进中：时间进度>=30%
+    - 早期：  其余（刚启动）
+    """
+    if not open_n:
+        return "全部已解"
+    _tp = (float(np.median(elapsed)) / float(np.median(exp))) if (elapsed and exp) else 0.0
+    _bm = float(np.median(best)) if best else None
+    if _bm is not None and abs(_bm) <= 0.05:
+        return "已临界"
+    if _tp >= 0.6 and _bm is not None and abs(_bm) > 0.15:
+        return "偏慢"
+    if _tp >= 0.3:
+        return "推进中"
+    return "早期"
+
+
 def extract_targets(data):
     """从 FIB_DATA 提取当日预测目标，统一 schema。
 
@@ -292,6 +316,8 @@ def evaluate(df):
             # =0=精确命中；中位保留符号方能揭示系统性偏差方向。approachTarget：buy=px/lo、sell=hi/px。
             _at = rec.get("approachTarget")
             rec["precDev"] = round(_at - 1, 4) if _at is not None else None
+            # #790 目标实时追踪：记录「自预测日起已过的交易日数」，供 open 目标进度判定
+            rec["elapsedDays"] = int((len(idx) - 1) - i0)
             recs.append(rec)
     return recs
 
@@ -313,7 +339,9 @@ def aggregate(recs):
                                "dirEval": 0, "dirHits": 0,
                                "preciseEval": 0, "matured": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
-                               "precDevs": []})
+                               "precDevs": [],
+                               # #790 目标实时追踪：open(pending=未触达且窗未闭)目标的时间/接近度累计
+                               "open": 0, "openElapsed": [], "openExp": [], "openBest": []})
         # 方向准确率：统计全部有方向判定(非 None)的样本——含观察窗未闭合(仅累计数日)的目标，
         # 因方向是「早期即可判定」的最诚实信号(R291)。仅未来 K 线为空(末日记录)才无方向判定。
         if r.get("dirCorrect") is not None:
@@ -347,6 +375,16 @@ def aggregate(recs):
         # 揭示系统性 overshoot(中位>0)/undershoot(中位<0)，为预测准确性提供窗口闭合前的真实信号。
         if r.get("approachTarget") is not None and r.get("precDev") is not None:
             g["precDevs"].append(r["precDev"])
+        # #790 目标实时追踪：对【观察窗未闭合且尚未触达】(pending, evaluated=False)目标，
+        # 累计其时间进度(已过时/预期时)与最佳接近度(precDev 中位)，供状态分类与面板展示。
+        if not r.get("evaluated"):
+            g["open"] += 1
+            if r.get("elapsedDays") is not None:
+                g["openElapsed"].append(r["elapsedDays"])
+            if r.get("expDays") is not None:
+                g["openExp"].append(int(r["expDays"]))
+            if r.get("precDev") is not None:
+                g["openBest"].append(r["precDev"])
     summary = []
     for (cat, key), g in groups.items():
         avg_days = round(sum(g["days"]) / len(g["days"]), 1) if g["days"] else None
@@ -383,6 +421,12 @@ def aggregate(recs):
             # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，
             # <0=系统性 undershoot(价格够不到目标)；绝对值越大精度越差。样本不足标 None。
             "precDevMedian": round(float(np.median(g["precDevs"])), 4) if g["precDevs"] else None,
+            # #790 目标实时追踪：open(pending)目标的时间进度与最佳接近度(可立即观测，无需窗闭合)
+            "open": g["open"],
+            "openElapsedMed": round(float(np.median(g["openElapsed"])), 1) if g["openElapsed"] else None,
+            "openExpMed": round(float(np.median(g["openExp"])), 1) if g["openExp"] else None,
+            "openBestMed": round(float(np.median(g["openBest"])) * 100, 2) if g["openBest"] else None,
+            "openStatus": _open_status(g["open"], g["openElapsed"], g["openExp"], g["openBest"]),
         })
     summary.sort(key=lambda x: (x["cat"], x["key"]))
     return summary
@@ -452,6 +496,23 @@ def run_backtest(data, df):
     total_bc_dir_eval = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect") is not None)
     total_bc_dir_hits = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect"))
     base_case_dir_realized = round((total_bc_dir_hits + 1.0) / (total_bc_dir_eval + 2.0) * 100, 1) if total_bc_dir_eval else None
+    # #790 目标实时追踪汇总：供前端「目标实时追踪」面板；仅用【已观测】信号(open 目标进度)，
+    # 不依赖观察窗闭合即可暴露"长期目标早期正常 / 中期目标偏慢 / 价格已临界"等时效信号，辅助买卖时机。
+    _by_cat = []
+    for r in summary:
+        _by_cat.append({
+            "cat": r["cat"], "key": r["key"],
+            "open": r.get("open", 0),
+            "openElapsedMed": r.get("openElapsedMed"),
+            "openExpMed": r.get("openExpMed"),
+            "openBestMed": r.get("openBestMed"),
+            "status": r.get("openStatus"),
+        })
+    realization_summary = {
+        "totalOpen": sum(r.get("open", 0) for r in summary),
+        "totalPending": total_pending,
+        "byCat": _by_cat,
+    }
     stats = {
         "asOf": data.get("updated"),
         "horizon": HORIZON,
@@ -476,6 +537,8 @@ def run_backtest(data, df):
         "levelPrecisionMedianDev": level_precision_median_dev,
         "levelPrecisionWithin5Pct": level_precision_within5,
         "levelPrecisionMedianDevBySide": level_precision_median_dev_by_side,
+        # #790 目标实时追踪：open(pending)目标进度汇总，辅助买卖时机判断
+        "realizationSummary": realization_summary,
         "levelPrecisionP16BySide": level_precision_p16_by_side,
         "levelPrecisionP84BySide": level_precision_p84_by_side,
         "coldStart": total_eval < MIN_SAMPLE,
@@ -536,3 +599,18 @@ if __name__ == "__main__":
                               "↑" if r["precDevMedian"] > 0 else ("↓" if r["precDevMedian"] < 0 else "")))
                if r.get("precDevMedian") is not None else "样本不足"),
               "| 平均触达=%s天" % r["avgDays"])
+    # #790 目标实时追踪：open(pending)目标进度一览，辅助买卖时机判断
+    _rs = s.get("realizationSummary") or {}
+    if _rs.get("byCat"):
+        print("  --- #790 目标实时追踪(open=观察窗未闭合且未触达) ---")
+        print("  全局: open(观察中)目标=%d / pending=%d" % (_rs.get("totalOpen", 0), _rs.get("totalPending", 0)))
+        for r in _rs["byCat"]:
+            if not r.get("open"):
+                continue
+            _e = r.get("openElapsedMed"); _x = r.get("openExpMed"); _b = r.get("openBestMed")
+            _tp = ("%.0f%%" % (_e / _x * 100)) if (_e is not None and _x) else "—"
+            _bm = ("%.2f%%" % _b) if _b is not None else "—"
+            print("    %-10s %-16s open=%d 已过时长=%s(中位%d/%d日) 最佳接近=%s 状态=%s" %
+                  (r["cat"], r["key"], r["open"], _tp,
+                   int(_e) if _e is not None else 0, int(_x) if _x is not None else 0,
+                   _bm, r.get("status")))
