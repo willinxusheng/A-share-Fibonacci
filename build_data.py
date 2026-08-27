@@ -1349,6 +1349,10 @@ def main():
     # #788 分侧稳健偏差：卖点(上行)系统性 undershoot(中位 −12.6%)、买点(下行)近乎精确(中位 +0.3%)。
     # 未成熟类别兜底改用【同侧】稳健偏差，比单一全局偏差(−8.6%)更诚实——全局值既低估卖点、又高估买点。
     _gdev_by_side = bt_stats.get("levelPrecisionMedianDevBySide") or {}
+    # #789 分侧历史离散度(校准不确定带)：16/84 分位 precDev，刻画各侧历史落点分布宽度，
+    # 用于给校准位附加「历史实际落点区间」[calibLo, calibHi]，揭示单一 calibPx 点估计掩盖的精度风险。
+    _p16_by_side = bt_stats.get("levelPrecisionP16BySide") or {}
+    _p84_by_side = bt_stats.get("levelPrecisionP84BySide") or {}
     _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
     def _is_high(_cat, _key):
         if _cat == "sellTarget":
@@ -1387,6 +1391,22 @@ def main():
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
                 _p["calibPx"] = round(_p["price"] / (1 + _pm), 2)
+            # #789 校准不确定带：用同侧历史 16/84 分位 precDev 给校准位附「历史实际落点区间」。
+            # 严守铁律⑦：仅附加辅助参考区间，Elliott 原始 px/baseCase 一字未动。
+            # 上行目标(卖/子浪ⅰⅲⅴ)：precDev 多为负(undershoot)，p16 更负=更低、p84 较近=更高 →
+            #   lo=px*(1+p16)(更可能够不到), hi=px*(1+p84)(较可能够到)。
+            # 下行目标(子浪ⅱⅳ/浪⑤起/防御)：precDev≈0 或正(overshoot=跌更深)，p84 更正=跌更深=更低 →
+            #   lo=px/(1+p84)(更深), hi=px/(1+p16)(较浅)。
+            _sd = "sell" if _is_high(_cat, _k) else "buy"
+            _p16 = _p16_by_side.get(_sd)
+            _p84 = _p84_by_side.get(_sd)
+            if _p16 is not None and _p84 is not None:
+                if _is_high(_cat, _k):
+                    _p["calibLo"] = round(_p["price"] * (1 + _p16), 2)
+                    _p["calibHi"] = round(_p["price"] * (1 + _p84), 2)
+                else:
+                    _p["calibLo"] = round(_p["price"] / (1 + _p84), 2)
+                    _p["calibHi"] = round(_p["price"] / (1 + _p16), 2)
     # #785 修复 #783 卖点校准键名错配：原 keyfn 用 p["name"].split(" ")[0] 取「卖①」，
     # 但 backtest.summary 键(extract_targets 用 t["name"])是全称「卖① 保守兑现」，二者永不匹配
     # → 卖①②③ 在任何样本量下都拿不到校准位。改为用全称 p["name"] 对齐 backtest 键。

@@ -415,11 +415,21 @@ def run_backtest(data, df):
     def _side_med(_sd):
         _vs = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
         return round(float(np.median(_vs)), 4) if _vs else None
+    def _side_pct(_sd, _q):
+        _vs = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
+        return round(float(np.percentile(_vs, _q)), 4) if _vs else None
     level_precision_median_dev_by_side = {
         "sell": _side_med("sell"),
         "buy": _side_med("buy"),
         "defensive": _side_med("defensive"),
     }
+    # #789 分侧历史离散度(校准不确定带)：用 16/84 分位刻画各侧 precDev 分布宽度，
+    # 供 build_data 给校准位附加「历史实际落点区间」——单一 calibPx 点估计会掩盖精度风险
+    # （如卖点侧 IQR 约 −25%~−10%，点估计 −12.6% 看似精确实则散布极宽）。与 #788 同口径、单源派生。
+    level_precision_p16_by_side = {
+        "sell": _side_pct("sell", 16), "buy": _side_pct("buy", 16), "defensive": _side_pct("defensive", 16)}
+    level_precision_p84_by_side = {
+        "sell": _side_pct("sell", 84), "buy": _side_pct("buy", 84), "defensive": _side_pct("defensive", 84)}
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -466,6 +476,8 @@ def run_backtest(data, df):
         "levelPrecisionMedianDev": level_precision_median_dev,
         "levelPrecisionWithin5Pct": level_precision_within5,
         "levelPrecisionMedianDevBySide": level_precision_median_dev_by_side,
+        "levelPrecisionP16BySide": level_precision_p16_by_side,
+        "levelPrecisionP84BySide": level_precision_p84_by_side,
         "coldStart": total_eval < MIN_SAMPLE,
         "summary": summary,
     }
@@ -505,6 +517,14 @@ if __name__ == "__main__":
     print("  分侧稳健偏差(#788) sell(上行)=%s  buy(下行)=%s  defensive=%s  | 全局(旧)=%s" %
           (_pct_or_na("sell"), _pct_or_na("buy"), _pct_or_na("defensive"),
            (_mdev_str if _mdev is not None else "样本不足")))
+    _p16 = s.get("levelPrecisionP16BySide") or {}
+    _p84 = s.get("levelPrecisionP84BySide") or {}
+    def _iqr_or_na(_sd):
+        if _sd in _p16 and _p16[_sd] is not None and _sd in _p84 and _p84[_sd] is not None:
+            return "%.2f%%~%.2f%%" % (_p16[_sd] * 100, _p84[_sd] * 100)
+        return "样本不足"
+    print("  分侧校准不确定带(#789, 历史16~84分位) sell(上行)=%s  buy(下行)=%s  defensive=%s" %
+          (_iqr_or_na("sell"), _iqr_or_na("buy"), _iqr_or_na("defensive")))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
               "| 方向准确率=%s" % (r["dirHitRate"] if r["dirHitRate"] is not None else "样本不足"),

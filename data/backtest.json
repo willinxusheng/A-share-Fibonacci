@@ -5,7 +5,34 @@
   "totalLogged": 144,
   "totalEvaluated": 67,
   "totalPending": 77,
+  "maturedCount": 0,
+  "preciseEvaluated": 29,
+  "preciseEarlyHits": 29,
+  "totalDirEvaluated": 135,
+  "totalDirHits": 129,
+  "dirRealizedHitRate": 94.9,
+  "baseCaseDirEvaluated": 135,
+  "baseCaseDirHits": 129,
+  "baseCaseDirRealizedHitRate": 94.9,
   "realizedHitRate": 98.6,
+  "preciseRealizedHitRate": null,
+  "levelPrecisionMedianDev": -0.0864,
+  "levelPrecisionWithin5Pct": 88.9,
+  "levelPrecisionMedianDevBySide": {
+    "sell": -0.1263,
+    "buy": 0.0028,
+    "defensive": null
+  },
+  "levelPrecisionP16BySide": {
+    "sell": -0.2512,
+    "buy": -0.0285,
+    "defensive": null
+  },
+  "levelPrecisionP84BySide": {
+    "sell": -0.0983,
+    "buy": 0.0851,
+    "defensive": null
+  },
   "coldStart": false,
   "summary": [
     {
@@ -14,8 +41,19 @@
       "n": 2,
       "hits": 2,
       "hitRate": null,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 1.0,
-      "cold": true
+      "cold": true,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.1112
     },
     {
       "cat": "sellTarget",
@@ -23,8 +61,19 @@
       "n": 2,
       "hits": 2,
       "hitRate": null,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 1.0,
-      "cold": true
+      "cold": true,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.1548
     },
     {
       "cat": "sellTarget",
@@ -32,8 +81,19 @@
       "n": 2,
       "hits": 2,
       "hitRate": null,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 1.5,
-      "cold": true
+      "cold": true,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.2512
     },
     {
       "cat": "subwave",
@@ -41,8 +101,19 @@
       "n": 14,
       "hits": 14,
       "hitRate": 93.8,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 1.4,
-      "cold": false
+      "cold": false,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.0154
     },
     {
       "cat": "subwave",
@@ -50,8 +121,19 @@
       "n": 15,
       "hits": 15,
       "hitRate": 94.1,
+      "preciseHits": 14,
+      "preciseHitRate": null,
+      "preciseEval": 14,
+      "matured": 0,
       "avgDays": 1.0,
-      "cold": false
+      "cold": false,
+      "dirEval": 15,
+      "dirHits": 15,
+      "dirHitRate": 94.1,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 15,
+      "baseCaseDirRate": 94.1,
+      "precDevMedian": 0.0028
     },
     {
       "cat": "subwave",
@@ -59,8 +141,19 @@
       "n": 3,
       "hits": 3,
       "hitRate": 80.0,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 3.3,
-      "cold": false
+      "cold": false,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.0864
     },
     {
       "cat": "subwave",
@@ -68,8 +161,19 @@
       "n": 15,
       "hits": 15,
       "hitRate": 94.1,
+      "preciseHits": 15,
+      "preciseHitRate": null,
+      "preciseEval": 15,
+      "matured": 0,
       "avgDays": 1.0,
-      "cold": false
+      "cold": false,
+      "dirEval": 15,
+      "dirHits": 15,
+      "dirHitRate": 94.1,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 15,
+      "baseCaseDirRate": 94.1,
+      "precDevMedian": 0.0851
     },
     {
       "cat": "subwave",
@@ -77,8 +181,19 @@
       "n": 2,
       "hits": 2,
       "hitRate": null,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 1.0,
-      "cold": true
+      "cold": true,
+      "dirEval": 15,
+      "dirHits": 14,
+      "dirHitRate": 88.2,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 14,
+      "baseCaseDirRate": 88.2,
+      "precDevMedian": -0.1112
     },
     {
       "cat": "subwave",
@@ -86,8 +201,19 @@
       "n": 12,
       "hits": 12,
       "hitRate": 92.9,
+      "preciseHits": 0,
+      "preciseHitRate": null,
+      "preciseEval": 0,
+      "matured": 0,
       "avgDays": 2.5,
-      "cold": false
+      "cold": false,
+      "dirEval": 15,
+      "dirHits": 15,
+      "dirHitRate": 94.1,
+      "baseCaseDirEval": 15,
+      "baseCaseDirHits": 15,
+      "baseCaseDirRate": 94.1,
+      "precDevMedian": -0.0285
     }
   ]
 }
