@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T13:35:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#787 未成熟类别全局偏差兜底)
+var BUILD_TS = "2026-08-27T05:45:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#788 未成熟类别分侧稳健偏差兜底)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -2001,13 +2001,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     _det += '<div style="margin-top:8px;font-weight:600;color:#555;">当前目标校准（模型位 → 校准位）：</div>';
     _det += '<div style="font-size:12.5px;color:#444;line-height:1.7;">';
     _cal.forEach(function (x) {
-      var _ctag = (x.conf === 'global-low') ? ' <span style="color:#b8872a;font-size:11px;">(全局期望·低置信)</span>' : '';
+      var _ctag = (x.conf === 'global-low') ? ' <span style="color:#b8872a;font-size:11px;">(同侧期望·低置信)</span>' : '';
       _det += '· ' + x.name + '：' + _f2(x.m) + ' → <b style="color:#2f7d2f;">校准≈' + _f2(x.c) + '</b> <span style="color:#8a94a6;">(历史实际' + (x.b >= 0 ? '高/深' : '低/浅') + '约 ' + Math.abs(x.b) + '%)</span>' + _ctag + '<br>';
     });
     _det += '</div>';
   }
-  var _gdev = (bt && bt.levelPrecisionMedianDev != null) ? (bt.levelPrecisionMedianDev * 100).toFixed(1) : '?';
-  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类样本≥5 取该类稳健偏差(高置信)；未成熟类别(卖①②③/子浪ⅲⅴ，n<5) 用<b>全局稳健偏差 ' + _gdev + '%</b> 作低置信兜底——卖点实际常 undershoot 更多(−11%~−25%)，该兜底偏乐观，仅作方向性参考。</div>';
+  var _gdevSell = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.sell != null) ? (bt.levelPrecisionMedianDevBySide.sell * 100).toFixed(1) : '?';
+  var _gdevBuy = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.buy != null) ? (bt.levelPrecisionMedianDevBySide.buy * 100).toFixed(1) : '?';
+  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类样本≥5 取该类稳健偏差(高置信)；未成熟类别(卖①②③/子浪ⅲⅴ，n<5) 用<b>同侧稳健偏差</b>作低置信兜底——上行目标(卖点/子浪ⅰⅲⅴ)历史系统性 undershoot(中位 ' + _gdevSell + '%)，下行目标(子浪ⅱⅳ/浪⑤起)近乎精确(中位 ' + _gdevBuy + '%)，故卖点校准位更保守、买点校准位近乎原模型位。该兜底仅作方向性参考。</div>';
   _det += '</div>';
   bodyEl.innerHTML = html + note + _det;
 })();

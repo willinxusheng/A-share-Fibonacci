@@ -409,6 +409,17 @@ def run_backtest(data, df):
     # 已观测窗口内价格落入目标 ±5% 的比例(早期精度达标率)：偏差<=0.05 视为"够近"，与面板诚实化口径一致。
     level_precision_within5 = round(sum(1 for d in all_prec_dev if d <= 0.05) / len(all_prec_dev) * 100, 1) \
         if all_prec_dev else None
+    # #788 分侧稳健偏差：上行(sell)目标与下行(buy)目标的历史偏差方向截然不同
+    # （卖点系统性 undershoot 约 −12.6%、买点近乎精确约 +0.3%）。供 build_data #787 兜底按侧取先验，
+    # 避免单一全局偏差(−8.6%)同时低估卖点、高估买点。defensive 侧样本极少，多为 None。
+    def _side_med(_sd):
+        _vs = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
+        return round(float(np.median(_vs)), 4) if _vs else None
+    level_precision_median_dev_by_side = {
+        "sell": _side_med("sell"),
+        "buy": _side_med("buy"),
+        "defensive": _side_med("defensive"),
+    }
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -454,6 +465,7 @@ def run_backtest(data, df):
         # levelPrecisionWithin5Pct=已观测价格落入目标 ±5% 的比例(早期精度达标率)。
         "levelPrecisionMedianDev": level_precision_median_dev,
         "levelPrecisionWithin5Pct": level_precision_within5,
+        "levelPrecisionMedianDevBySide": level_precision_median_dev_by_side,
         "coldStart": total_eval < MIN_SAMPLE,
         "summary": summary,
     }
@@ -487,6 +499,12 @@ if __name__ == "__main__":
     print("  精确价位精度(#782·早期可观测) 中位偏差=%s%s  ±5%%达标率=%s%%" %
           (_mdev_str, _mdev_dir,
            s.get("levelPrecisionWithin5Pct") if s.get("levelPrecisionWithin5Pct") is not None else "样本不足"))
+    _bys = s.get("levelPrecisionMedianDevBySide") or {}
+    def _pct_or_na(_k):
+        return ("%.2f%%" % (_bys[_k] * 100)) if (_k in _bys and _bys[_k] is not None) else "样本不足"
+    print("  分侧稳健偏差(#788) sell(上行)=%s  buy(下行)=%s  defensive=%s  | 全局(旧)=%s" %
+          (_pct_or_na("sell"), _pct_or_na("buy"), _pct_or_na("defensive"),
+           (_mdev_str if _mdev is not None else "样本不足")))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
               "| 方向准确率=%s" % (r["dirHitRate"] if r["dirHitRate"] is not None else "样本不足"),

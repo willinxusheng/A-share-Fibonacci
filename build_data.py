@@ -1346,6 +1346,9 @@ def main():
     # 用于填充未成熟类别(卖①②③/子浪ⅲⅴ，n<5 拿不到逐类校准位)的更现实预期。
     # 严守铁律⑦：仅附加 calibPx 辅助参考，Elliott 原始 px/baseCase 一字未动。
     _gdev_all = bt_stats.get("levelPrecisionMedianDev")
+    # #788 分侧稳健偏差：卖点(上行)系统性 undershoot(中位 −12.6%)、买点(下行)近乎精确(中位 +0.3%)。
+    # 未成熟类别兜底改用【同侧】稳健偏差，比单一全局偏差(−8.6%)更诚实——全局值既低估卖点、又高估买点。
+    _gdev_by_side = bt_stats.get("levelPrecisionMedianDevBySide") or {}
     _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
     def _is_high(_cat, _key):
         if _cat == "sellTarget":
@@ -1363,11 +1366,18 @@ def main():
             if _b and _b.get("precDevMedian") is not None and _b.get("n", 0) >= 5:
                 _pm = _b["precDevMedian"]
                 _conf = "high"
-            # #787 全局兜底：未成熟/无逐类校准的目标用全局稳健偏差(低置信)。
-            # 与 #783「不拿小样本过拟合」不冲突——全局偏差来自全部样本，是稳健先验而非小样本噪声。
-            elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
-                _pm = _gdev_all
-                _conf = "global-low"
+            # #788 分侧稳健兜底：未成熟/无逐类校准的目标，优先用【同侧】稳健偏差(低置信)——
+            # 上行目标(sell/子浪ⅰⅲⅴ)取 sell 侧(−12.6%)，下行目标(子浪ⅱⅳ/浪⑤起/防御)取 buy 侧(+0.3%)。
+            # 同侧缺失时回退 #787 全局稳健偏差。严守铁律⑦：仅附加 calibPx 辅助参考，Elliott 价位一字未动。
+            else:
+                _side = "sell" if _is_high(_cat, _k) else "buy"
+                _gs = _gdev_by_side.get(_side)
+                if _gs is not None and abs(_gs) >= 0.005:
+                    _pm = _gs
+                    _conf = "global-low"
+                elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
+                    _pm = _gdev_all
+                    _conf = "global-low"
             if _pm is None:
                 continue
             _p["biasPct"] = round(_pm * 100, 1)
