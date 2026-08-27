@@ -286,6 +286,12 @@ def evaluate(df):
                                 "preciseHit": False,
                                 "approachTarget": round(approachTarget, 4) if approachTarget else None,
                                 "dirCorrect": bool(dirCorrect), "matured": matured})
+            # #782 精确价位偏差(早期可观测精度信号)：基于最接近点 approachTarget 推导，
+            # 取全部已有前视数据里的最接近点(不依赖观察窗闭合)——故即便目标窗口未闭合，
+            # 亦可观测"价格离目标差多少"。带符号：>0=overshoot(价格冲过目标)、<0=undershoot(够不到)、
+            # =0=精确命中；中位保留符号方能揭示系统性偏差方向。approachTarget：buy=px/lo、sell=hi/px。
+            _at = rec.get("approachTarget")
+            rec["precDev"] = round(_at - 1, 4) if _at is not None else None
             recs.append(rec)
     return recs
 
@@ -306,7 +312,8 @@ def aggregate(recs):
                                "n": 0, "hit": 0, "ph": 0, "days": [],
                                "dirEval": 0, "dirHits": 0,
                                "preciseEval": 0, "matured": 0,
-                               "bcDirEval": 0, "bcDirHits": 0})
+                               "bcDirEval": 0, "bcDirHits": 0,
+                               "precDevs": []})
         # 方向准确率：统计全部有方向判定(非 None)的样本——含观察窗未闭合(仅累计数日)的目标，
         # 因方向是「早期即可判定」的最诚实信号(R291)。仅未来 K 线为空(末日记录)才无方向判定。
         if r.get("dirCorrect") is not None:
@@ -335,6 +342,11 @@ def aggregate(recs):
             g["preciseEval"] += 1
             if r.get("preciseHit"):
                 g["ph"] += 1
+        # #782 精确价位偏差(早期可观测精度信号)：所有已计算 approachTarget(非 None)的样本均纳入，
+        # 不依赖观察窗闭合/是否命中——即便目标窗口未到、尚未判定命中，也能观测"价格离目标差多少"，
+        # 揭示系统性 overshoot(中位>0)/undershoot(中位<0)，为预测准确性提供窗口闭合前的真实信号。
+        if r.get("approachTarget") is not None and r.get("precDev") is not None:
+            g["precDevs"].append(r["precDev"])
     summary = []
     for (cat, key), g in groups.items():
         avg_days = round(sum(g["days"]) / len(g["days"]), 1) if g["days"] else None
@@ -368,6 +380,9 @@ def aggregate(recs):
             "dirEval": g["dirEval"], "dirHits": g["dirHits"], "dirHitRate": dir_rate,
             "baseCaseDirEval": g["bcDirEval"], "baseCaseDirHits": g["bcDirHits"],
             "baseCaseDirRate": base_case_dir_rate,
+            # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，
+            # <0=系统性 undershoot(价格够不到目标)；绝对值越大精度越差。样本不足标 None。
+            "precDevMedian": round(float(np.median(g["precDevs"])), 4) if g["precDevs"] else None,
         })
     summary.sort(key=lambda x: (x["cat"], x["key"]))
     return summary
@@ -387,6 +402,13 @@ def run_backtest(data, df):
     total_phits = sum(1 for r in recs if r.get("preciseHit") is True)
     precise_eval = sum(1 for r in recs if r.get("preciseHit") is not None)
     precise_early = sum(1 for r in recs if r.get("preciseHit") is True and not r.get("matured"))
+    # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：全局统计所有已观测 approachTarget 样本的偏差，
+    # 即便目标窗口未闭合也能贡献"价格离目标差多少"的真实信号，弥补精确命中率需窗口闭合才出数的盲区。
+    all_prec_dev = [r["precDev"] for r in recs if r.get("precDev") is not None]
+    level_precision_median_dev = round(float(np.median(all_prec_dev)), 4) if all_prec_dev else None
+    # 已观测窗口内价格落入目标 ±5% 的比例(早期精度达标率)：偏差<=0.05 视为"够近"，与面板诚实化口径一致。
+    level_precision_within5 = round(sum(1 for d in all_prec_dev if d <= 0.05) / len(all_prec_dev) * 100, 1) \
+        if all_prec_dev else None
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -427,6 +449,11 @@ def run_backtest(data, df):
         "baseCaseDirRealizedHitRate": base_case_dir_realized,
         "realizedHitRate": realized_hit,
         "preciseRealizedHitRate": precise_realized,
+        # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：
+        # levelPrecisionMedianDev=已观测偏差中位(|approachTarget-1|)；>0 系统性 overshoot，<0 undershoot。
+        # levelPrecisionWithin5Pct=已观测价格落入目标 ±5% 的比例(早期精度达标率)。
+        "levelPrecisionMedianDev": level_precision_median_dev,
+        "levelPrecisionWithin5Pct": level_precision_within5,
         "coldStart": total_eval < MIN_SAMPLE,
         "summary": summary,
     }
@@ -449,10 +476,25 @@ if __name__ == "__main__":
     print("  band 触达率(宽松)=%s%%   精确命中率(真实目标价位·需窗口闭合才出数)=%s%%" %
           (s["realizedHitRate"], s["preciseRealizedHitRate"]))
     print("  精确已解决样本=%d  其中提前精确触达(窗口未闭合)=%d" % (s.get("preciseEvaluated", 0), s.get("preciseEarlyHits", 0)))
+    # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：带符号中位偏差——↑overshoot(价格冲过目标)、
+    # ↓undershoot(够不到)；全局 ±5% 达标率揭示"价格够近目标"的比例，补足精确命中率需窗口闭合才出数的盲区。
+    _mdev = s.get("levelPrecisionMedianDev")
+    if _mdev is not None:
+        _mdev_str = "%.2f%%" % (_mdev * 100)
+        _mdev_dir = " (↑overshoot)" if _mdev > 0 else (" (↓undershoot)" if _mdev < 0 else " (精确)")
+    else:
+        _mdev_str, _mdev_dir = "样本不足", ""
+    print("  精确价位精度(#782·早期可观测) 中位偏差=%s%s  ±5%%达标率=%s%%" %
+          (_mdev_str, _mdev_dir,
+           s.get("levelPrecisionWithin5Pct") if s.get("levelPrecisionWithin5Pct") is not None else "样本不足"))
     for r in s["summary"]:
         print("  ", r["cat"], r["key"], "| n=%d" % r["n"],
               "| 方向准确率=%s" % (r["dirHitRate"] if r["dirHitRate"] is not None else "样本不足"),
               "| 基准方向准确率=%s" % (r["baseCaseDirRate"] if r["baseCaseDirRate"] is not None else "—"),
               "| band命中率=%s" % (r["hitRate"] if r["hitRate"] is not None else "样本不足"),
               "| 精确命中率=%s" % (r["preciseHitRate"] if r["preciseHitRate"] is not None else "待成熟"),
+              "| 精确价位偏差中位(#782)=%s" %
+              (("%.2f%%%s" % (r["precDevMedian"] * 100,
+                              "↑" if r["precDevMedian"] > 0 else ("↓" if r["precDevMedian"] < 0 else "")))
+               if r.get("precDevMedian") is not None else "样本不足"),
               "| 平均触达=%s天" % r["avgDays"])

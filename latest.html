@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T00:34:52Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-27T03:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -836,6 +836,21 @@ heroPrice.parentNode.insertBefore(_chgBadge, document.getElementById('heroWave')
 var heroWave = document.getElementById('heroWave');
 heroWave.textContent = (D.state && D.state.text) ? D.state.text : '浪④回调中';
 heroWave.className = 'badge ' + ((D.state && D.state.cls) ? D.state.cls : 'ghost');
+// #772 反转风险守卫：在头部插入独立预警徽章（additive，不覆盖浪型状态徽章）
+if (D.state && D.state.reversalRisk && D.state.reversalRisk.level) {
+  var _rr = D.state.reversalRisk;
+  var _rrBadge = document.createElement('span');
+  _rrBadge.className = 'badge ' + (_rr.level === 'warn' ? 'danger' : 'warn');
+  _rrBadge.textContent = (_rr.level === 'warn' ? '⚠ 反转风险高' : '⚠ 反转风险关注');
+  heroPrice.parentNode.insertBefore(_rrBadge, heroWave);
+}
+// #779 衰竭顶·基准转防守：在头部插入独立『基准·防守』徽章（additive，不覆盖浪型/反转风险徽章）
+if (D.state && D.state.primaryBias && D.state.primaryBias.bias === 'defensive') {
+  var _pb = document.createElement('span');
+  _pb.className = 'badge danger';
+  _pb.textContent = '⚠ 基准·防守';
+  heroPrice.parentNode.insertBefore(_pb, heroWave);
+}
 document.getElementById('heroVol').textContent = 'HV20 ' + fmt1(D.volatility.now) + '%（五年' + D.volatility.pctile + '分位·' + D.volRegime.bucket + '波动区）';
 (function () {
   var pts = D.spark || [], w = 220, h = 64, pad = 4;
@@ -1895,12 +1910,20 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '基线 ' + (ob.bucket_baseline != null ? ob.bucket_baseline.toFixed(4) : '—') +
       ' · Δ ' + (ob.bucket_delta_pct != null ? ob.bucket_delta_pct + '%' : '—')],
     ['样本量（OOS 测试对）', ob.sample_cnt != null ? ob.sample_cnt : '—', '相对容差 ±' + (ob.tolerance_pct != null ? ob.tolerance_pct : 5) + '%'],
-    ['回测 band 触达率（整体）', bt.overall_hit_rate != null ? bt.overall_hit_rate + '%' : '样本不足',
-      '已评估 ' + (bt.total_evaluated || 0) + ' / 存档 ' + (bt.total_logged || 0) + '（宽松触达带）'],
-    ['回测精确命中率（真实目标价位）', bt.overall_precise_hit_rate != null ? bt.overall_precise_hit_rate + '%' : '样本不足',
-      '价格真正触及目标价位，方为真实预测力'],
-    ['回测方向准确率（早期最诚实信号）', bt.overall_dir_hit_rate != null ? bt.overall_dir_hit_rate + '%' : '样本不足',
+    ['回测 band 触达率（整体）', bt.realized_hit_rate != null ? bt.realized_hit_rate + '%' : '样本不足',
+      '已评估 ' + (bt.total_evaluated || 0) + ' / 存档 ' + (bt.total_logged || 0) + '（宽松触达带, Laplace 收缩）'],
+    ['回测精确命中率（真实目标价位）', bt.precise_realized_hit_rate != null ? bt.precise_realized_hit_rate + '%' : '待成熟(窗口未闭合)',
+      '价格真正触及目标价位方为真实预测力；需观察窗闭合才出数，防虚高'],
+    ['回测方向准确率（早期最诚实信号）', bt.dir_realized_hit_rate != null ? bt.dir_realized_hit_rate + '%' : '样本不足',
       '第1个未来交易日即可判定方向，最抗观窗偏差'],
+    ['回测价位精度（#782·早期可观测）', (function () {
+        var d = bt.level_precision_median_dev;
+        if (d == null) return '样本不足';
+        var pct = (d * 100).toFixed(2) + '%';
+        return pct + (d > 0 ? ' ↑overshoot' : (d < 0 ? ' ↓undershoot' : ''));
+      })(),
+      '±5%达标率 ' + (bt.level_precision_within5_pct != null ? bt.level_precision_within5_pct + '%' : '—') +
+      '；不依赖窗口闭合即可观测目标定价松紧，揭示系统性偏差方向'],
     ['回测窗口闭合占比（成熟门禁）', (bt.matured_count != null && bt.total_logged) ? Math.round(bt.matured_count / bt.total_logged * 100) + '%' : '—',
       '已闭合 ' + (bt.matured_count || 0) + ' / 存档 ' + (bt.total_logged || 0) + '；精确命中率仅计已成熟目标'],
     ['波动 regime 桶', eng.vol_bucket || '—', 'driftConf=' + (eng.driftConf != null ? eng.driftConf : '—') +
@@ -1921,10 +1944,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   else if (acc === 'COLD') note = '<div style="margin-top:8px;color:#8a94a6;">样本量仍处冷启动，命中率暂不评级；OOS Brier 已稳定对照基线。</div>';
   else if (acc === 'REVIEW') note = '<div style="margin-top:8px;color:#c23531;">⚠️ OOS Brier 退化超容差——当日已软告警，请复核概率引擎改动（R85）。</div>';
   else if (acc === 'WATCH') {
-    var gap = (bt.overall_hit_rate != null && bt.overall_precise_hit_rate != null)
-      ? '（band 触达率 ' + bt.overall_hit_rate + '% vs 精确命中率 ' + bt.overall_precise_hit_rate +
+    var gap = (bt.realized_hit_rate != null && bt.precise_realized_hit_rate != null)
+      ? '（band 触达率 ' + bt.realized_hit_rate + '% vs 精确命中率 ' + bt.precise_realized_hit_rate +
         '%：预测在方向/区间上靠谱、精确价位偏松，回测指标整体偏乐观）'
-      : (bt.overall_dir_hit_rate != null ? '（方向准确率 ' + bt.overall_dir_hit_rate +
+      : (bt.dir_realized_hit_rate != null ? '（方向准确率 ' + bt.dir_realized_hit_rate +
         '%：方向判断可靠，精确价位仍需等观察窗闭合）' : '');
     note = '<div style="margin-top:8px;color:#b8872a;">⚠️ 命中率偏离常态区间，建议关注。' + gap + '</div>';
   }

@@ -125,6 +125,10 @@ def _main():
         precise_eval = bt.get("preciseEvaluated")
         total_dir_eval = bt.get("totalDirEvaluated")
         total_dir_hits = bt.get("totalDirHits")
+        # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：带符号中位偏差(↑overshoot/↓undershoot)
+        # 与 ±5% 达标率，直接透传 run_backtest 全局统计，不重算(防公式漂移、反假绿)。
+        level_precision_median_dev = bt.get("levelPrecisionMedianDev")
+        level_precision_within5 = bt.get("levelPrecisionWithin5Pct")
         # 诚实口径（修复 R90）：整体实证命中率 = 已解决目标的【原始】pooled 命中率，
         # 用「全部已评估分组」的原始 n/hits 求和——含 cold 起步组（其 hitRate=None，
         # 但 n/hits 仍有效），不再因命中率字段为 None 被漏计；同时不做
@@ -158,7 +162,9 @@ def _main():
         {"cat": s["cat"], "key": s["key"], "n": s["n"],
          "hitRate": s["hitRate"], "dirHitRate": s.get("dirHitRate"),
          "preciseHitRate": s.get("preciseHitRate"),
-         "avgDays": s.get("avgDays")}
+         "avgDays": s.get("avgDays"),
+         # #782 精确价位偏差中位(窗口闭合前即可观测)：带符号，↑overshoot/↓undershoot。
+         "precDevMedian": s.get("precDevMedian")}
         for s in bt_summary
     ]
 
@@ -211,6 +217,10 @@ def _main():
             "realized_hit_rate": realized,
             "dir_realized_hit_rate": dir_realized,
             "precise_realized_hit_rate": precise_realized,
+            # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：带符号中位偏差(↑overshoot/↓undershoot)
+            # 与 ±5% 达标率，补足精确命中率需窗口闭合才出数的盲区，揭示系统性偏差方向。
+            "level_precision_median_dev": level_precision_median_dev,
+            "level_precision_within5_pct": level_precision_within5,
             "cold_start": cold,
             "overall_hit_rate": overall,
             "overall_dir_hit_rate": overall_dir,
@@ -224,11 +234,16 @@ def _main():
                      "%d 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，"
                      "过早出数会虚高到 ~97%%(假绿)故暂标 None。方向准 %s 证明艾略特框架方向有效，"
                      "精确价位偏松属常态而非卖点算错。"
+                     "④<b>精确价位精度(#782·早期可观测)</b>：中位偏差 %s(↑overshoot 价格冲过目标 / ↓undershoot 够不到)，"
+                     "±5%%达标率 %s——不依赖观察窗闭合即可观测目标定价松紧、揭示系统性偏差方向，"
+                     "补足③需窗口闭合才出数的盲区。"
                      % (dir_realized if dir_realized is not None else "样本不足",
                         realized if realized is not None else "样本不足",
                         precise_realized if precise_realized is not None else "待成熟",
                         pending, matured_count or 0,
-                        dir_realized if dir_realized is not None else "—")),
+                        dir_realized if dir_realized is not None else "—",
+                        ("%.2f%%" % (level_precision_median_dev * 100)) if level_precision_median_dev is not None else "样本不足",
+                        level_precision_within5 if level_precision_within5 is not None else "样本不足")),
         },
         "accuracy_status": accuracy_status,
         "sentiment": senti,
@@ -274,6 +289,12 @@ def main():
           " ｜ 已评估 %d / 存档 %d / 成熟(窗口闭合) %s / 冷启动=%s"
           % (bt.get("overall_dir_hit_rate"), bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate"),
              bt.get("total_evaluated"), bt.get("total_logged"), bt.get("matured_count"), bt.get("cold_start")))
+    # #782 精确价位精度(早期可观测，不依赖观察窗闭合)
+    _mdev = bt.get("level_precision_median_dev")
+    _mdev_str = ("%.2f%%" % (_mdev * 100)) if _mdev is not None else "样本不足"
+    _mdev_dir = " (↑overshoot)" if (_mdev is not None and _mdev > 0) else (" (↓undershoot)" if (_mdev is not None and _mdev < 0) else "")
+    print("回测 精确价位精度(#782·早期可观测) 中位偏差=%s%s ｜ ±5%%达标率=%s%%"
+          % (_mdev_str, _mdev_dir, bt.get("level_precision_within5_pct") if bt.get("level_precision_within5_pct") is not None else "样本不足"))
     print("calibration_status = %s ; accuracy_status = %s" % (obr.get("status"), c.get("accuracy_status")))
     if c.get("error"):
         print("⚠️ %s" % c["error"])

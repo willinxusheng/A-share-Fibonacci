@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T06:10:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
+var BUILD_TS = "2026-08-27T03:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1916,6 +1916,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       '价格真正触及目标价位方为真实预测力；需观察窗闭合才出数，防虚高'],
     ['回测方向准确率（早期最诚实信号）', bt.dir_realized_hit_rate != null ? bt.dir_realized_hit_rate + '%' : '样本不足',
       '第1个未来交易日即可判定方向，最抗观窗偏差'],
+    ['回测价位精度（#782·早期可观测）', (function () {
+        var d = bt.level_precision_median_dev;
+        if (d == null) return '样本不足';
+        var pct = (d * 100).toFixed(2) + '%';
+        return pct + (d > 0 ? ' ↑overshoot' : (d < 0 ? ' ↓undershoot' : ''));
+      })(),
+      '±5%达标率 ' + (bt.level_precision_within5_pct != null ? bt.level_precision_within5_pct + '%' : '—') +
+      '；不依赖窗口闭合即可观测目标定价松紧，揭示系统性偏差方向'],
     ['回测窗口闭合占比（成熟门禁）', (bt.matured_count != null && bt.total_logged) ? Math.round(bt.matured_count / bt.total_logged * 100) + '%' : '—',
       '已闭合 ' + (bt.matured_count || 0) + ' / 存档 ' + (bt.total_logged || 0) + '；精确命中率仅计已成熟目标'],
     ['波动 regime 桶', eng.vol_bucket || '—', 'driftConf=' + (eng.driftConf != null ? eng.driftConf : '—') +
