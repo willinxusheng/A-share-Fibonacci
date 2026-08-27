@@ -1364,7 +1364,12 @@ def main():
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
                 _p["calibPx"] = round(_p["price"] / (1 + _pm), 2)
-    _attach_calib(sell_targets, "sellTarget", lambda p: p["name"].split(" ")[0])
+    # #785 修复 #783 卖点校准键名错配：原 keyfn 用 p["name"].split(" ")[0] 取「卖①」，
+    # 但 backtest.summary 键(extract_targets 用 t["name"])是全称「卖① 保守兑现」，二者永不匹配
+    # → 卖①②③ 在任何样本量下都拿不到校准位。改为用全称 p["name"] 对齐 backtest 键。
+    # 卖点是用户真正的离场目标，其历史中位偏差 −11%~−25%(系统性 undershoot)，校准后
+    # calibPx=price×(1+bias) 提供更现实的离场预期；样本≥5 后自动显现(面板10 已支持)。
+    _attach_calib(sell_targets, "sellTarget", lambda p: p["name"])
     # #784 修复 #783 回归：校准必须挂到【预测子浪目标】sub_forecast["points"]（标签=子浪ⅰ-ⅴ/浪⑤起，
     # 与 backtest.summary 键同源），而非历史 pivot 列表 sub_wave_points（浪③起/ⅲ-1/ⅲ-2/子浪ⅲ顶(延长)/浪④? 等，
     # 仅子浪ⅰ/ⅱ 标签碰巧重合才被命中，致子浪ⅳ/浪⑤起 等真·预测目标从未校准）。
