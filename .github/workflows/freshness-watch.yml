@@ -56,17 +56,20 @@ jobs:
           set +e
           EXPECTED=$(python3 expected_trading_day.py 2>/dev/null) || EXPECTED=""
           UPDATED=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}') || UPDATED=""
-          echo "expected=[$EXPECTED] updated=[$UPDATED]"
+          SENT_DATE=$(python3 -c "import json; d=json.load(open('data/sentiment.json',encoding='utf-8')); print(d['history'][-1]['date'])" 2>/dev/null || echo "")
+          echo "expected=[$EXPECTED] updated=[$UPDATED] sentiment=[$SENT_DATE]"
           echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
           echo "updated=$UPDATED" >> "$GITHUB_OUTPUT"
-          if [ -z "$EXPECTED" ] || [ -z "$UPDATED" ]; then
-            echo "::error::无法判定新鲜度（expected=$EXPECTED / updated=$UPDATED），按陈旧处理并告警。"
+          echo "sentiment=$SENT_DATE" >> "$GITHUB_OUTPUT"
+          # R810：data 与 sentiment 任一陈旧即判陈旧（二者解耦独立保障，避免情绪死锁假绿）。
+          if [ -z "$EXPECTED" ] || [ -z "$UPDATED" ] || [ -z "$SENT_DATE" ]; then
+            echo "::error::无法判定新鲜度（expected=$EXPECTED / updated=$UPDATED / sentiment=$SENT_DATE），按陈旧处理并告警。"
             echo "stale=true" >> "$GITHUB_OUTPUT"
-          elif [ "$UPDATED" = "$EXPECTED" ]; then
-            echo "healthy: updated=$UPDATED == expected=$EXPECTED"
+          elif [ "$UPDATED" = "$EXPECTED" ] && [ "$SENT_DATE" = "$EXPECTED" ]; then
+            echo "healthy: updated=$UPDATED == expected=$EXPECTED && sentiment=$SENT_DATE == expected=$EXPECTED"
             echo "stale=false" >> "$GITHUB_OUTPUT"
           else
-            echo "stale: updated=$UPDATED != expected=$EXPECTED"
+            echo "stale: updated=$UPDATED (sent=$SENT_DATE) != expected=$EXPECTED"
             echo "stale=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -89,16 +92,18 @@ jobs:
             const stale = '${{ steps.check.outputs.stale }}' === 'true';
             const expected = '${{ steps.check.outputs.expected }}' || '(unknown)';
             const updated = '${{ steps.check.outputs.updated }}' || '(unknown)';
-            const TITLE = '⚠️ A股斐波那契看板今日数据未更新';
+            const sentiment = '${{ steps.check.outputs.sentiment }}' || '(unknown)';
+            const TITLE = '⚠️ A股斐波那契看板今日数据/情绪未更新';
             const { owner, repo } = context.repo;
             const ts = new Date().toISOString();
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
             const found = existing.data.find(i => i.title === TITLE);
             if (stale) {
-              const body = `自愈看门狗（freshness-watch）于 ${ts} 检测到数据陈旧：\n` +
+              const body = `自愈看门狗（freshness-watch）于 ${ts} 检测到数据/情绪陈旧：\n` +
                 `- 预期最后交易日(expected) = ${expected}\n` +
-                `- 数据覆盖日(updated) = ${updated}\n\n` +
+                `- 数据覆盖日(updated) = ${updated}\n` +
+                `- 情绪覆盖日(sentiment) = ${sentiment}\n\n` +
                 `已自动触发 daily.yml 强制重建（force=true），运行日志：${runUrl}\n` +
                 `若重建后仍陈旧，说明取数源异常或当日数据未就绪，请检查取数链路与 Actions 运行记录。`;
               if (found) {
@@ -108,7 +113,7 @@ jobs:
               }
             } else {
               if (found) {
-                await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `✅ 看门狗确认数据已更新（updated=${updated} == expected=${expected}），自动关闭本告警 @ ${ts}` });
+                await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `✅ 看门狗确认数据/情绪已更新（updated=${updated} == expected=${expected}, sentiment=${sentiment}），自动关闭本告警 @ ${ts}` });
                 await github.rest.issues.update({ owner, repo, issue_number: found.number, state: 'closed' });
               }
               console.log('healthy: 无陈旧告警需要处理');

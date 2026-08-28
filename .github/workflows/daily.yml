@@ -149,21 +149,43 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # R810 情绪新鲜度门卫：计算「情绪覆盖的交易日」(sentiment.json history 末条 date)
+      # 与 EXPECTED 比对。数据已最新(skip=true)但情绪陈旧时置 stale=true——解耦情绪重算与
+      # 数据更新，避免「某天 gen_sentiment 偶发失败→次日 data 更新成功→fresh 永久 skip=true→
+      # 情绪被锁死永不重算」的死锁（#806 同构但 cron 正常也会发生）。看门狗/22:30 检查也已加
+      # sentiment 维度双重兜底。本步骤用裸 python3(零依赖,无需 setup-python)，与数据门卫解耦。
+      - name: Sentiment freshness gate
+        id: sentfresh
+        run: |
+          EXPECTED=$(python3 expected_trading_day.py)
+          SENT_DATE=$(python3 -c "import json,sys; d=json.load(open('data/sentiment.json',encoding='utf-8')); print(d['history'][-1]['date'])" 2>/dev/null || echo "")
+          echo "expected=$EXPECTED sentiment-covers=$SENT_DATE"
+          if [ -z "$SENT_DATE" ]; then
+            echo "sentiment missing/parse-fail -> must rebuild"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          elif [ "$SENT_DATE" = "$EXPECTED" ]; then
+            echo "sentiment up to date ($SENT_DATE == $EXPECTED)"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "sentiment stale ($SENT_DATE != $EXPECTED) -> rebuild"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
 
       - name: Install Python deps
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Set up Node
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: "22"   # audit52 的 node 沙箱运行时依赖 PATH 中的 node
@@ -299,9 +321,48 @@ jobs:
       # 注意：须在 quality_cert 之前运行，让证书读到当天最新的 sentiment（避免延迟一天）。
       - name: Generate market sentiment temperature (6th borrowing from chanlun, monitor_only)
         id: sentiment
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         continue-on-error: true
         run: python gen_sentiment.py
+
+      # R810 情绪产物校验（去假绿）：gen_sentiment 为 continue-on-error 软步骤，即便脚本抛异常
+      # CI 仍绿、sentiment.json 保留旧值 → 假绿。这里直接校验「产物」：重算后情绪覆盖日
+      # (history 末条 date) 是否 == EXPECTED。不等则判定脚本失败/产出陈旧，开 ci-alert issue 暴露。
+      - name: Verify sentiment actually refreshed (anti-false-green)
+        id: sentverify
+        if: always()
+        continue-on-error: true
+        run: |
+          EXPECTED=$(python3 expected_trading_day.py)
+          SENT_DATE=$(python3 -c "import json,sys; d=json.load(open('data/sentiment.json',encoding='utf-8')); print(d['history'][-1]['date'])" 2>/dev/null || echo "")
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "covered=$SENT_DATE" >> "$GITHUB_OUTPUT"
+          echo "verify: expected=$EXPECTED sentiment-covers=$SENT_DATE"
+          if [ "$SENT_DATE" = "$EXPECTED" ]; then
+            echo "sentiment refreshed OK ($SENT_DATE == $EXPECTED)"
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::情绪重算后覆盖日=$SENT_DATE 仍 != 预期=$EXPECTED，gen_sentiment.py 可能失败或产出陈旧"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 情绪产物校验失败 → 开/更新 ci-alert issue（让静默失败可见，避免假绿长期冻住情绪）
+      - name: Sentiment false-green alert
+        if: always() && steps.sentverify.outputs.ok == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const expected = '${{ steps.sentverify.outputs.expected }}';
+            const covered = '${{ steps.sentverify.outputs.covered }}';
+            const { owner, repo } = context.repo;
+            const ts = new Date().toISOString();
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const TITLE = '⚠️ 情绪看板重算失败（产物校验未通过）';
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
+            const found = existing.data.find(i => i.title === TITLE);
+            const body = `gen_sentiment.py 重算后情绪覆盖日未达预期（expected=${expected}, covered=${covered}），疑似脚本失败或产出陈旧。\n运行日志：${runUrl}\n请检查 gen_sentiment.py 是否在 CI 抛异常（continue-on-error 已吞错，需看完整日志）。`;
+            if (found) { await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `再次检测到 @ ${ts}\n${runUrl}` }); }
+            else { await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] }); }
 
       # 情绪契约实证门禁（R122 接入）：校验 sentiment v3 契约——
       # today/history/forecast 的 label 与动态分位标尺(scale.bounds)一致、forecast 全为交易日
@@ -309,19 +370,19 @@ jobs:
       # 注：审计脚本 REPO 已改为 os.path.dirname(__file__) 可移植，CI(Linux) 与本地(Windows) 同跑。
       - name: Sentiment contract audit (R122 gate)
         id: sentchk
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         continue-on-error: true
         run: python _audit_sentiment_check.py
 
       # 情绪契约深核（R122 接入）：contra 单一真值 + forecast 插值一致性 + 动态标尺 label 一致。
       - name: Sentiment deep-contract audit (R122 gate)
         id: sentdeep
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         continue-on-error: true
         run: python _audit_sentiment_contract.py
 
       - name: Generate prediction quality cert (4th borrowing from chanlun)
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         run: python gen_quality_cert.py
 
       # R233 回归守门（R90 修复后）：quality_cert.overall_hit_rate 必须诚实——
@@ -455,19 +516,20 @@ jobs:
         id: hc
         if: github.event.schedule == '30 14 * * *'
         run: |
-          # R806 语义级健康检查（替代"fetchedAt 小时>=15"启发式）：
-          # 仅比对 EXPECTED(预期最后交易日) 与 data.js `updated`(本快照覆盖的交易日)。
-          # 相等=健康(已更新)不告警；不等=今日未更新，开/更新告警 issue。
-          # 节假日(如国庆/劳动节长假期中)与周末由 expected_trading_day.py 统一处理，
-          # 不再误报（假期中 data 本就该停在假前最后交易日）。
+          # R806 语义级健康检查（替代"fetchedAt 小时>=15"启发式）+ R810 加 sentiment 维度：
+          # 比对 EXPECTED(预期最后交易日) 与 data.js `updated`(数据覆盖日) 及
+          # sentiment.json history 末条 date(情绪覆盖日)。二者皆 == EXPECTED 才健康不告警，
+          # 任一陈旧即告警（避免情绪死锁假绿——数据新鲜但情绪冻住时也能捕获）。
+          # 节假日/周末由 expected_trading_day.py 统一处理，不再误报。
           EXPECTED=$(python3 expected_trading_day.py)
           UPDATED=$(grep -oE '"updated": "[0-9]{4}-[0-9]{2}-[0-9]{2}"' data/data.js | head -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          echo "health-check: expected=$EXPECTED ; data updated=$UPDATED"
-          if [ "$UPDATED" = "$EXPECTED" ]; then
-            echo "today already updated ($UPDATED == $EXPECTED) -> no alert"
+          SENT_DATE=$(python3 -c "import json; d=json.load(open('data/sentiment.json',encoding='utf-8')); print(d['history'][-1]['date'])" 2>/dev/null || echo "")
+          echo "health-check: expected=$EXPECTED ; data updated=$UPDATED ; sentiment-covers=$SENT_DATE"
+          if [ "$UPDATED" = "$EXPECTED" ] && [ "$SENT_DATE" = "$EXPECTED" ]; then
+            echo "today already updated & sentiment refreshed ($UPDATED==$EXPECTED, sent=$SENT_DATE==$EXPECTED) -> no alert"
             echo "alert=false" >> "$GITHUB_OUTPUT"
           else
-            echo "NOT updated as expected (updated=$UPDATED, expected=$EXPECTED) -> alert"
+            echo "NOT fully updated (data=$UPDATED, sentiment=$SENT_DATE, expected=$EXPECTED) -> alert"
             echo "alert=true" >> "$GITHUB_OUTPUT"
           fi
 
