@@ -124,3 +124,38 @@ jobs:
               }
               console.log('healthy: 无陈旧告警需要处理');
             }
+
+      # ── R813 年检提醒：11-12 月检查次年休市表是否已补 ─────────────────────────
+      # 交易所休市安排通常于前一年 11-12 月公布。若次年缺表则开 issue 提醒补表，
+      # 避免新一年起节假日被误判为交易日 → 假期反复强制重建 + 刷屏告警 → 告警疲劳。
+      - name: Calendar coverage check (annual reminder)
+        id: cal
+        continue-on-error: true
+        run: |
+          MISSING=$(python3 expected_trading_day.py --coverage-check 2>/dev/null || echo "")
+          echo "missing=[$MISSING]"
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+
+      - name: Calendar table reminder issue
+        if: steps.cal.outputs.missing != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = '${{ steps.cal.outputs.missing }}';
+            if (!missing) { console.log('calendar coverage OK'); return; }
+            const { owner, repo } = context.repo;
+            const TITLE = '📅 需要补充 A股休市表：' + missing;
+            const body = '自愈看门狗年检：以下年份缺少精确的 A股休市日表 —— ' + missing + '\n\n' +
+              '当前仅有保底推定（元旦/劳动节/国庆等公历固定节假日），春节/清明/端午/中秋等' +
+              '农历浮动节日仍会被误判为交易日，导致看门狗在假期反复强制重建并刷屏告警，' +
+              '最终引发告警疲劳而掩盖真实故障。\n\n' +
+              '请在 expected_trading_day.py 的 CLOSED_BY_YEAR 中补上该年度休市日' +
+              '（来源：上交所《关于YYYY年部分节假日休市安排的通知》）。';
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
+            const found2 = existing.data.find(i => i.title === TITLE);
+            if (!found2) {
+              await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] });
+              console.log('calendar reminder created: ' + TITLE);
+            } else {
+              console.log('calendar reminder already open: ' + TITLE);
+            }
