@@ -290,7 +290,67 @@ def _sync_sh_csv_from_raw():
         _w.writerows(_data)
 
 
+def _valid_master_raw(path, min_rows=120):
+    """模块级内容校验（与 main 内 _valid_raw 同语义）：拒绝空壳/错误 JSON 残桩。"""
+    try:
+        return len(read_kline_md(path)) >= min_rows
+    except Exception:
+        return False
+
+
+def _refresh_master_raw():
+    """R811 根因修复：build 前先把主指数 sh000001 的 raw.md 刷新到当日，再同步 csv。
+
+    原缺陷：main() 开头的 _sync_sh_csv_from_raw() 读的是「上一次运行留下的」raw.md，
+    而本轮取数 _ensure_raw 定义在 main 内部、执行于 L727/L831（远在 csv 同步与读取之后），
+    导致 csv 永远比 raw.md 滞后一整轮 —— data.js 恒产出「昨天」的数据，CI 上被 R806
+    硬失败断言(BUILT != EXPECTED)拦下不提交，raw.md 更新也进不了仓库，形成无法自愈的
+    永久滞后（本地「先 fetch 再 build」两步走会偶然绕过，掩盖了该缺陷）。
+    此处在 main 最开头先行刷新主指数 raw.md（带完整旧版备份与不足还原保护，避免海外回退的
+    单日快照把多年历史截断），使后续 csv 同步与构建拿到当日数据。
+    """
+    _p = os.path.join(BASE, "data", "sh000001_raw.md")
+    _cache = os.path.join(BASE, "data", ".idx_cache", "sh000001_raw.md")
+    if not os.path.exists(_p):
+        try:
+            datafeed.fetch_and_write("sh000001", _p)
+        except Exception as _e:
+            print("  [warn] 主指数取数失败(无基线): %s" % _e)
+        return False
+    _bak = None
+    try:
+        _bak = os.path.join(tempfile.gettempdir(), "fibraw_master.bak")
+        shutil.copyfile(_p, _bak)
+    except Exception:
+        _bak = None
+    try:
+        if datafeed.fetch_and_write("sh000001", _p):
+            if _valid_master_raw(_p):
+                try:
+                    os.makedirs(os.path.dirname(_cache), exist_ok=True)
+                    shutil.copyfile(_p, _cache)
+                except Exception:
+                    pass
+                return True
+            # 回退源写入不足（如仅单日快照）-> 还原完整旧版，避免截断历史污染基线
+            if _bak is not None:
+                shutil.copyfile(_bak, _p)
+                print("  [warn] 主指数取数不足(回退源快照)，已还原完整旧版 raw.md")
+                return False
+        elif _bak is not None:
+            shutil.copyfile(_bak, _p)
+    except Exception as _e:
+        print("  [warn] 主指数取数异常: %s" % _e)
+        if _bak is not None:
+            try:
+                shutil.copyfile(_bak, _p)
+            except Exception:
+                pass
+    return False
+
+
 def main():
+    _refresh_master_raw()     # R811：先刷新主指数 raw.md（否则 csv 同步永远滞后一轮）
     _sync_sh_csv_from_raw()  # R805：build 前确保主指数 csv 已随 raw.md 更新
     df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"), parse_dates=["date"]).set_index("date")
     # 成交量单位容错(R62)：每日管线追加的当日行偶发以不同单位(股 vs 手)写入，
