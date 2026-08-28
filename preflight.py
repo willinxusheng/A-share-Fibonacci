@@ -79,6 +79,24 @@ def parse_date(s):
     return None
 
 
+def _expected_trading_day(now=None):
+    """R816：主指数末根日期的判据 —— 用「预期最后交易日」而非「今日(北京)」。
+
+    背景（深度审计发现的云端停更机制）：原判据为 max_dt == 今日(北京)。当 GitHub 调度
+    延迟跨日时（如 16:30 的定时任务被推迟到次日凌晨执行），数据源只能提供前一交易日
+    收盘，末根必然 != 今日 → preflight 100% 误杀合法数据并阻断当日更新，表现为
+    「云端莫名其妙不更新 + 一条误告警」，且因告警疲劳掩盖真实故障。
+    改用与 daily.yml 硬失败断言(BUILT == EXPECTED)完全一致的语义后：延迟跨日时判据同为
+    前一交易日，合法数据正常放行；数据真陈旧时仍然拦截，不降低防护强度。
+    """
+    try:
+        import expected_trading_day as _etd
+        return _etd.expected_trading_day(now if now is not None else _etd._beijing_now())
+    except Exception:
+        # 拿不到判据时退回原「今日」语义：宁可严判，也不静默放行
+        return datetime.now(timezone(timedelta(hours=8))).date()
+
+
 def check_file(fname, critical):
     target = blocking if critical else warnings
     before = len(target)
@@ -193,10 +211,12 @@ def check_file(fname, critical):
     # 22:30 健康检查也因 fetchedAt=今日 不告警——正是 R46 想防却没真正堵上的静默假更新路径。
     # 此处显式校验主指数末根日期，过期即阻断，把"假更新"变为可见红标(失败->健康检查发现后告警)。
     if critical and max_dt is not None:
-        _today_bj = datetime.now(timezone(timedelta(hours=8))).date()
-        if max_dt.date() != _today_bj:
-            fail(target, "主指数末根日期 %s != 今日(北京) %s：取数可能回退旧值/未更新，阻断以免假更新"
-                 % (max_dt.date(), _today_bj))
+        # R816：判据改为「预期最后交易日」（与 daily.yml 硬失败断言同语义），
+        # 避免 GitHub 调度延迟跨日时把合法的「前一交易日收盘」误判为陈旧而阻断。
+        _expected = _expected_trading_day()
+        if max_dt.date() != _expected:
+            fail(target, "主指数末根日期 %s != 预期最后交易日 %s：取数可能回退旧值/未更新，阻断以免假更新"
+                 % (max_dt.date(), _expected))
     added = len(target) > before
     if not added:
         print("    OK: %d 行有效, 坏行 %d (%.1f%%)" % (n_ok, n_bad, ratio * 100))
