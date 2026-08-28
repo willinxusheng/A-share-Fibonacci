@@ -440,8 +440,14 @@ jobs:
 
       # 提交前二次新鲜度校验（R46 加固④）：确认 build 后 data.js 的 fetchedAt 确为本日（北京），
       # 否则说明取数回退到旧快照却伪装成新数据 —— 放弃提交以免"假更新"掩盖取数故障。
+      # R815：情绪解耦必须贯穿到提交环节。此前本步骤仅有 `skip != 'true'`，
+      # 导致「数据已最新(skip=true) + 情绪陈旧(sentfresh.stale=true)」时，gen_sentiment
+      # 虽已重算情绪，更新却进不了仓库 —— R810 只打通了「重算」，漏了「提交」，
+      # 死锁实际并未被完全打破。此处补上情绪维度。
+      # 安全性：数据已最新时 BUILT==EXPECTED 必然成立，故硬失败断言不会误拦
+      # 「仅情绪更新」的提交；若数据也陈旧，则 skip!=true 已为真，行为不变。
       - name: Commit & push data back to main
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         run: |
           # R806 陈旧硬失败断言（②）：构建后再次语义比对，把"跑了但数据仍陈旧"变响亮失败。
           # EXPECTED=当前预期最后交易日；BUILT=data.js 的 `updated`（本次构建后覆盖的交易日）。
