@@ -1,6 +1,10 @@
 {
  "signals": [
   {
+   "date": "2021-09-14",
+   "signal": -1
+  },
+  {
    "date": "2021-11-10",
    "signal": 1
   },
@@ -58,6 +62,18 @@
   }
  ],
  "zigzag": [
+  {
+   "date": "2021-06-02",
+   "price": 3629.29,
+   "type": "H",
+   "unconfirmed": false
+  },
+  {
+   "date": "2021-07-28",
+   "price": 3312.72,
+   "type": "L",
+   "unconfirmed": false
+  },
   {
    "date": "2021-09-14",
    "price": 3723.85,
@@ -120,7 +136,7 @@
   },
   {
    "date": "2024-10-08",
-   "price": 3674.41,
+   "price": 3674.4,
    "type": "H",
    "unconfirmed": false
   },
@@ -138,7 +154,7 @@
   },
   {
    "date": "2024-11-27",
-   "price": 3227.35,
+   "price": 3227.36,
    "type": "L",
    "unconfirmed": false
   },
