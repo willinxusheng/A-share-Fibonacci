@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-08-27T06:38:08Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#790 目标实时追踪·open目标进度面板)
+var BUILD_TS = "2026-09-01T08:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (#788b 校准位按期限分桶)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -2038,7 +2038,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   }
   var _gdevSell = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.sell != null) ? (bt.levelPrecisionMedianDevBySide.sell * 100).toFixed(1) : '?';
   var _gdevBuy = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.buy != null) ? (bt.levelPrecisionMedianDevBySide.buy * 100).toFixed(1) : '?';
-  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类样本≥5 取该类稳健偏差(高置信)；未成熟类别(卖①②③/子浪ⅲⅴ，n<5) 用<b>同侧稳健偏差</b>作低置信兜底——上行目标(卖点/子浪ⅰⅲⅴ)历史系统性 undershoot(中位 ' + _gdevSell + '%)，下行目标(子浪ⅱⅳ/浪⑤起)近乎精确(中位 ' + _gdevBuy + '%)，故卖点校准位更保守、买点校准位近乎原模型位。该兜底仅作方向性参考。<b>区间</b>=同侧历史 16~84 分位落点范围(#789)，揭示单一校准点估计掩盖的精度散布——卖点侧区间极宽(可达 −25%~−10%)，说明校准位仅供参考、实际常大幅偏离；买点侧区间较窄，可信度更高。</div>';
+  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类样本≥5 取该类稳健偏差(高置信)；未成熟类别(卖①②③/子浪ⅲⅴ，n<5) 用<b>同侧×期限桶稳健偏差</b>作兜底(#788b)——卖点历史系统性 undershoot 且随期限加深(短期≈−11%、中期≈−15%、长期≈−25%)，买点短目标近乎精确、中远期略 overshoot，故校准位随目标期限动态调整。该兜底仅作方向性参考。<b>区间</b>=同侧历史 16~84 分位落点范围(#789)，揭示单一校准点估计掩盖的精度散布——卖点侧区间极宽(可达 −25%~−10%)，说明校准位仅供参考、实际常大幅偏离；买点侧区间较窄，可信度更高。</div>';
   _det += '</div>';
   bodyEl.innerHTML = html + note + _det;
 })();

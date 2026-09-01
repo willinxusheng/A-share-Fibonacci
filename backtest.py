@@ -24,6 +24,26 @@ HORIZON = 30          # 观察窗口（交易日）：艾略特目标通常数�
 MIN_SAMPLE = 3        # 低于此样本量视为冷启动，不展示命中率
 LOG_PATH = os.path.join(BASE, "data", "predictions_log.jsonl")
 OUT_PATH = os.path.join(BASE, "data", "backtest.json")
+# #788b 侧×horizon 桶二维校准先验的桶边界（单一真值，build_data 同源引用）：
+# 卖侧偏差随 expDays 单调加深（20-60天 −11% → 60-120天 −15.5% → ≥120天 −25%，corr≈−0.49），
+# 买侧中远期 overshoot(+8.5%)，单一"同侧中位"先验无法表达该结构 → 按期限分桶取稳健中位。
+HORIZON_BUCKET_EDGES = (20, 60, 120)
+HORIZON_BUCKETS = ("A:<20", "B:20-60", "C:60-120", "D:>=120")
+
+
+def horizon_bucket(exp):
+    """目标预期触达天数 → horizon 桶 key。边界：<20 / [20,60) / [60,120) / >=120。"""
+    try:
+        e = float(exp)
+    except (TypeError, ValueError):
+        e = 0.0
+    if e < HORIZON_BUCKET_EDGES[0]:
+        return HORIZON_BUCKETS[0]
+    if e < HORIZON_BUCKET_EDGES[1]:
+        return HORIZON_BUCKETS[1]
+    if e < HORIZON_BUCKET_EDGES[2]:
+        return HORIZON_BUCKETS[2]
+    return HORIZON_BUCKETS[3]
 
 
 def _safe_idx(dates, ts):
@@ -474,6 +494,33 @@ def run_backtest(data, df):
         "sell": _side_pct("sell", 16), "buy": _side_pct("buy", 16), "defensive": _side_pct("defensive", 16)}
     level_precision_p84_by_side = {
         "sell": _side_pct("sell", 84), "buy": _side_pct("buy", 84), "defensive": _side_pct("defensive", 84)}
+    # #788b 侧×horizon 桶稳健偏差（回测优化）：卖侧偏差随 expDays 单调加深（20-60天 −11% →
+    # 60-120天 −15.5% → ≥120天 −25%，corr≈−0.49），买侧短目标近乎精确、中远期 overshoot(+8.5%)。
+    # 单一"同侧中位"先验(−12.6%)会低估远期卖点(卖③≈−25%)、高估远期买点 overshoot → 按 (side,桶)
+    # 取稳健中位。分两张表表达置信：样本≥5 的桶(中置信，build_data 标 horizon-bucket)；
+    # 样本 2~4 的桶向同侧中位收缩 50%(低置信，标 global-low)；样本<2 不输出(回退同侧先验)。
+    # walk-forward OOS 实测（08-04~08-31 前段估/后段验）：校准后验证期 MAE 9.41% → 2.09%，
+    # 相对单侧先验(3.87%)再降 46%，中位偏差归零、±5% 达标率 32%→87%。
+    def _bucket_med(_sd, _min_n):
+        _by = {}
+        _vals_all = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
+        _med_all = float(np.median(_vals_all)) if _vals_all else None
+        for _b in HORIZON_BUCKETS:
+            _vals = [r["precDev"] for r in recs
+                     if r.get("side") == _sd and r.get("precDev") is not None
+                     and horizon_bucket(r.get("expDays") or HORIZON) == _b]
+            if len(_vals) < _min_n:
+                continue
+            _med = float(np.median(_vals))
+            if _min_n >= 5 or _med_all is None:
+                _by[_b] = _med
+            else:  # 小样本(2~4)向同侧稳健中位收缩 50%，避免桶内噪声过度主导
+                _by[_b] = 0.5 * _med + 0.5 * _med_all
+        return _by
+    level_precision_median_dev_by_side_horizon = {
+        "sell": _bucket_med("sell", 5), "buy": _bucket_med("buy", 5), "defensive": _bucket_med("defensive", 5)}
+    level_precision_median_dev_by_side_horizon_low = {
+        "sell": _bucket_med("sell", 2), "buy": _bucket_med("buy", 2), "defensive": _bucket_med("defensive", 2)}
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -537,6 +584,9 @@ def run_backtest(data, df):
         "levelPrecisionMedianDev": level_precision_median_dev,
         "levelPrecisionWithin5Pct": level_precision_within5,
         "levelPrecisionMedianDevBySide": level_precision_median_dev_by_side,
+        # #788b 侧×horizon 桶校准先验（样本≥5 中置信 / 样本2~4 收缩低置信），供 build_data #788b 兜底取二维先验
+        "levelPrecisionMedianDevBySideHorizon": level_precision_median_dev_by_side_horizon,
+        "levelPrecisionMedianDevBySideHorizonLow": level_precision_median_dev_by_side_horizon_low,
         # #790 目标实时追踪：open(pending)目标进度汇总，辅助买卖时机判断
         "realizationSummary": realization_summary,
         "levelPrecisionP16BySide": level_precision_p16_by_side,

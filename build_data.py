@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from analyze import zigzag_pct, read_kline_md
-from backtest import run_backtest, MIN_SAMPLE
+from backtest import run_backtest, MIN_SAMPLE, HORIZON, horizon_bucket
 from calibrate import run_calibration as _run_calib   # 概率模型 walk-forward 实证校准
 import datafeed  # R271 多源回退取数（eastmoney 主源 -> yahoo/stooq 海外可达回退）
 
@@ -1460,6 +1460,13 @@ def main():
     # 用于给校准位附加「历史实际落点区间」[calibLo, calibHi]，揭示单一 calibPx 点估计掩盖的精度风险。
     _p16_by_side = bt_stats.get("levelPrecisionP16BySide") or {}
     _p84_by_side = bt_stats.get("levelPrecisionP84BySide") or {}
+    # #788b 侧×horizon 桶二维先验（回测优化）：卖侧偏差随 expDays 单调加深（20-60天 −11% →
+    # 60-120天 −15.5% → ≥120天 −25%），单侧中位(−12.6%)会低估远期卖点(卖③≈−25%)；买侧中远期
+    # overshoot(+8.5%)同样被单侧中位(+0.3%)低估。分桶后校准位随期限更诚实。
+    # 样本≥5 的桶（中置信，标 horizon-bucket）；样本 2~4 收缩 50%（低置信，标 global-low）；
+    # 桶缺失回退同侧中位 → 全局中位（#788/#787 保持原语义）。walk-forward OOS 实测 MAE 再降 46%。
+    _bh_med = bt_stats.get("levelPrecisionMedianDevBySideHorizon") or {}
+    _bh_low = bt_stats.get("levelPrecisionMedianDevBySideHorizonLow") or {}
     _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
     def _is_high(_cat, _key):
         if _cat == "sellTarget":
@@ -1479,21 +1486,36 @@ def main():
                 _conf = "high"
             # #788 分侧稳健兜底：未成熟/无逐类校准的目标，优先用【同侧】稳健偏差(低置信)——
             # 上行目标(sell/子浪ⅰⅲⅴ)取 sell 侧(−12.6%)，下行目标(子浪ⅱⅳ/浪⑤起/防御)取 buy 侧(+0.3%)。
-            # 同侧缺失时回退 #787 全局稳健偏差。严守铁律⑦：仅附加 calibPx 辅助参考，Elliott 价位一字未动。
+            # #788b 升级：同侧内再按【目标预期触达天数 horizon 桶】取更精细先验——
+            # 卖侧偏差随期限单调加深(20-60天−11%/60-120天−15.5%/≥120天−25%)，单侧中位会低估
+            # 远期卖点(卖③≈−25%)、低估买侧中远期 overshoot；桶样本≥5 标 horizon-bucket(中置信)，
+            # 样本 2~4 收缩标 global-low(低置信)。桶缺失回退同侧 → 全局。严守铁律⑦：仅附加
+            # calibPx 辅助参考，Elliott 价位一字未动。
             else:
                 _side = "sell" if _is_high(_cat, _k) else "buy"
-                _gs = _gdev_by_side.get(_side)
-                if _gs is not None and abs(_gs) >= 0.005:
-                    _pm = _gs
-                    _conf = "global-low"
-                elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
-                    _pm = _gdev_all
-                    _conf = "global-low"
+                _bkt = horizon_bucket(_p.get("expDays") or HORIZON)
+                _bhm = (_bh_med.get(_side) or {}).get(_bkt)
+                if _bhm is not None and abs(_bhm) >= 0.005:
+                    _pm = _bhm
+                    _conf = "horizon-bucket"
+                else:
+                    _bhl = (_bh_low.get(_side) or {}).get(_bkt)
+                    if _bhl is not None and abs(_bhl) >= 0.005:
+                        _pm = _bhl
+                        _conf = "global-low"
+                    else:
+                        _gs = _gdev_by_side.get(_side)
+                        if _gs is not None and abs(_gs) >= 0.005:
+                            _pm = _gs
+                            _conf = "global-low"
+                        elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
+                            _pm = _gdev_all
+                            _conf = "global-low"
             if _pm is None:
                 continue
             _p["biasPct"] = round(_pm * 100, 1)
-            if _conf == "global-low":
-                _p["calibConf"] = "global-low"
+            if _conf != "high":
+                _p["calibConf"] = _conf
             if _is_high(_cat, _k):
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
