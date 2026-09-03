@@ -521,6 +521,23 @@ def run_backtest(data, df):
         "sell": _bucket_med("sell", 5), "buy": _bucket_med("buy", 5), "defensive": _bucket_med("defensive", 5)}
     level_precision_median_dev_by_side_horizon_low = {
         "sell": _bucket_med("sell", 2), "buy": _bucket_med("buy", 2), "defensive": _bucket_med("defensive", 2)}
+    # R818 观察窗成熟度：precDev 是"已观测窗"内最优接近偏差——窗走得越少，|偏差|越被夸大
+    # （远期卖点样本窗仅 ~7-17% 时 −15%~−25% 主要是"未走完"的伪偏差，非真实系统性高估）。
+    # 每桶输出样本级 elapsed/max(HORIZON,expDays) 中位（1.0=观察窗已闭合/成熟）。
+    # 供 build_data R818 对桶先验修正量按成熟度收缩，防远期目标(卖③等)被过度下修到现价附近。
+    def _bucket_mat(_sd):
+        _by = {}
+        for _b in HORIZON_BUCKETS:
+            _rs = [r for r in recs if r.get("side") == _sd and r.get("precDev") is not None
+                   and horizon_bucket(r.get("expDays") or HORIZON) == _b]
+            if not _rs:
+                continue
+            _rat = [min(1.0, float(r.get("elapsedDays", 0)) / max(1.0, float(max(HORIZON, int(r.get("expDays") or HORIZON)))))
+                    for r in _rs]
+            _by[_b] = round(float(np.median(_rat)), 3)
+        return _by
+    level_precision_maturity_by_side_horizon = {
+        "sell": _bucket_mat("sell"), "buy": _bucket_mat("buy"), "defensive": _bucket_mat("defensive")}
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -587,6 +604,8 @@ def run_backtest(data, df):
         # #788b 侧×horizon 桶校准先验（样本≥5 中置信 / 样本2~4 收缩低置信），供 build_data #788b 兜底取二维先验
         "levelPrecisionMedianDevBySideHorizon": level_precision_median_dev_by_side_horizon,
         "levelPrecisionMedianDevBySideHorizonLow": level_precision_median_dev_by_side_horizon_low,
+        # R818 每桶观察窗成熟度中位(0~1)，供 build_data 对桶先验修正量按窗长收缩
+        "levelPrecisionMaturityBySideHorizon": level_precision_maturity_by_side_horizon,
         # #790 目标实时追踪：open(pending)目标进度汇总，辅助买卖时机判断
         "realizationSummary": realization_summary,
         "levelPrecisionP16BySide": level_precision_p16_by_side,

@@ -1463,10 +1463,24 @@ def main():
     # #788b 侧×horizon 桶二维先验（回测优化）：卖侧偏差随 expDays 单调加深（20-60天 −11% →
     # 60-120天 −15.5% → ≥120天 −25%），单侧中位(−12.6%)会低估远期卖点(卖③≈−25%)；买侧中远期
     # overshoot(+8.5%)同样被单侧中位(+0.3%)低估。分桶后校准位随期限更诚实。
+    # R818（09-03 回测诊断修正）：桶偏差含"观察窗欠账"——precDev 是已观测窗内偏差，日志仅 21 个
+    # 交易日(最短观察窗 30 天)致成熟样本为 0，D 桶卖③样本窗仅 ~9% 即 −25% 主要是"136 天未走完"
+    # 的伪偏差。桶命中修正量现按观察窗成熟度(calibMat)收缩 ×(0.5+0.5·mat)——方向证据保留 ≥50%，
+    # 幅度不再把远期 Elliott 目标压到现价附近；窗闭合(=1.0)后自动全量采用（随日志积累自然收敛）。
     # 样本≥5 的桶（中置信，标 horizon-bucket）；样本 2~4 收缩 50%（低置信，标 global-low）；
     # 桶缺失回退同侧中位 → 全局中位（#788/#787 保持原语义）。walk-forward OOS 实测 MAE 再降 46%。
     _bh_med = bt_stats.get("levelPrecisionMedianDevBySideHorizon") or {}
     _bh_low = bt_stats.get("levelPrecisionMedianDevBySideHorizonLow") or {}
+    # R818 观察窗成熟度表(side→bucket→中位 0~1)：precDev 是已观测窗内偏差，远期目标窗未走完时
+    # |偏差|被夸大（D 桶卖③样本窗仅 ~7-9% 即 −25%，含大量"未走完"欠账而非真实高估）。
+    # 桶命中时按成熟度收缩修正量：窗闭合(=1.0)全量采用；窗越短越向 0.5 收缩——方向性证据
+    # (方向判定 96%+)保留 ≥50%，幅度不把远期 Elliott 目标(如卖③ 5334)过度压到现价附近。
+    _bh_mat = bt_stats.get("levelPrecisionMaturityBySideHorizon") or {}
+    def _mat_shrink(_pm, _mat):
+        if _mat is None:
+            return _pm, 1.0
+        _mat = max(0.0, min(1.0, _mat))
+        return _pm * (0.5 + 0.5 * _mat), _mat
     _SUB_HIGH = {"子浪ⅰ", "子浪ⅲ", "子浪ⅴ"}
     def _is_high(_cat, _key):
         if _cat == "sellTarget":
@@ -1480,6 +1494,9 @@ def main():
             _b = _bias_map.get((_cat, _k))
             _pm = None
             _conf = None
+            # R818 观察窗成熟度：仅桶命中(horizon-bucket/global-low桶级)路径赋值并写盘 calibMat，
+            # high(逐类 n≥5)/全局兜底 路径保持 None 不写盘(逐类样本已成熟、全局为 #787 旧语义不收缩)。
+            _mat_src = None
             # 逐类校准(n>=5，稳健)：高置信，直接使用该类的带符号中位偏差。
             if _b and _b.get("precDevMedian") is not None and _b.get("n", 0) >= 5:
                 _pm = _b["precDevMedian"]
@@ -1494,14 +1511,16 @@ def main():
             else:
                 _side = "sell" if _is_high(_cat, _k) else "buy"
                 _bkt = horizon_bucket(_p.get("expDays") or HORIZON)
+                # R818 桶观察窗成熟度(0~1)：仅桶命中路径收缩 + 写盘 calibMat；全局兜底不收缩(保持 #787 语义)
+                _mat_src = (_bh_mat.get(_side) or {}).get(_bkt)
                 _bhm = (_bh_med.get(_side) or {}).get(_bkt)
                 if _bhm is not None and abs(_bhm) >= 0.005:
-                    _pm = _bhm
+                    _pm, _mat_src = _mat_shrink(_bhm, _mat_src)
                     _conf = "horizon-bucket"
                 else:
                     _bhl = (_bh_low.get(_side) or {}).get(_bkt)
                     if _bhl is not None and abs(_bhl) >= 0.005:
-                        _pm = _bhl
+                        _pm, _mat_src = _mat_shrink(_bhl, _mat_src)
                         _conf = "global-low"
                     else:
                         _gs = _gdev_by_side.get(_side)
@@ -1516,6 +1535,10 @@ def main():
             _p["biasPct"] = round(_pm * 100, 1)
             if _conf != "high":
                 _p["calibConf"] = _conf
+            # R818：桶命中的修正量已按观察窗成熟度收缩，写盘成熟度供前端标注"偏差基于 % 观察窗"，
+            # 防远期目标(卖③)的 −25% 被误读为"历史最终实现偏差"(实为 136 天目标才走 ~9% 的早期欠账)。
+            if _mat_src is not None:
+                _p["calibMat"] = round(_mat_src, 2)
             if _is_high(_cat, _k):
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
