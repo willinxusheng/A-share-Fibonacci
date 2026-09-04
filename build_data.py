@@ -1476,6 +1476,11 @@ def main():
     # 桶命中时按成熟度收缩修正量：窗闭合(=1.0)全量采用；窗越短越向 0.5 收缩——方向性证据
     # (方向判定 96%+)保留 ≥50%，幅度不把远期 Elliott 目标(如卖③ 5334)过度压到现价附近。
     _bh_mat = bt_stats.get("levelPrecisionMaturityBySideHorizon") or {}
+    # R819 桶级 16/84 分位(不确定带·本桶源，样本>=5)：供桶命中路径的不确定带取本桶散布，
+    # 与点估(桶中位)同源——修复"点估用桶中位、区间却用同侧全局分位"的口径断裂
+    # (R818 后点估已收缩但区间未收缩：卖③ calibLo 仍停在 R817 已否定的 3995 压现值回归)。
+    _bh_p16 = bt_stats.get("levelPrecisionP16BySideHorizon") or {}
+    _bh_p84 = bt_stats.get("levelPrecisionP84BySideHorizon") or {}
     def _mat_shrink(_pm, _mat):
         if _mat is None:
             return _pm, 1.0
@@ -1543,15 +1548,38 @@ def main():
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
                 _p["calibPx"] = round(_p["price"] / (1 + _pm), 2)
-            # #789 校准不确定带：用同侧历史 16/84 分位 precDev 给校准位附「历史实际落点区间」。
+            # #789/#R819 校准不确定带：给校准位附「历史实际落点区间」。
             # 严守铁律⑦：仅附加辅助参考区间，Elliott 原始 px/baseCase 一字未动。
             # 上行目标(卖/子浪ⅰⅲⅴ)：precDev 多为负(undershoot)，p16 更负=更低、p84 较近=更高 →
             #   lo=px*(1+p16)(更可能够不到), hi=px*(1+p84)(较可能够到)。
             # 下行目标(子浪ⅱⅳ/浪⑤起/防御)：precDev≈0 或正(overshoot=跌更深)，p84 更正=跌更深=更低 →
             #   lo=px/(1+p84)(更深), hi=px/(1+p16)(较浅)。
+            # R819 分位源分级(与点估同源，修口径断裂)：
+            #   ① high(逐类 n>=5)：用本类组内分位(precDevP16/P84)——类内散布才代表该类真实精度，
+            #      子浪ⅰ(类内仅 −1.5%)若用同侧全局 p16(−25.1%)会被远期卖③ 样本污染出荒谬区间；
+            #   ② 桶命中(horizon-bucket/global-low 桶级)：用本桶分位(levelPrecisionP16BySideHorizon)
+            #      并随 _mat_src 同因子收缩——点估已收缩、区间停在旧分位会重现 R817 已否定的压现值；
+            #   ③ 回退同侧全局(旧 #789 语义，仅全局兜底路径)。
             _sd = "sell" if _is_high(_cat, _k) else "buy"
-            _p16 = _p16_by_side.get(_sd)
-            _p84 = _p84_by_side.get(_sd)
+            _p16 = _p84 = None
+            if _conf == "high" and _b:
+                _p16 = _b.get("precDevP16")
+                _p84 = _b.get("precDevP84")
+            else:
+                _bkt2 = horizon_bucket(_p.get("expDays") or HORIZON)
+                _p16 = ((_bh_p16.get(_sd) or {}).get(_bkt2))
+                _p84 = ((_bh_p84.get(_sd) or {}).get(_bkt2))
+            if _p16 is None:
+                _p16 = _p16_by_side.get(_sd)
+            if _p84 is None:
+                _p84 = _p84_by_side.get(_sd)
+            # R819 桶命中不确定带端点与点估同因子收缩(×0.5+0.5·mat，向 0 收敛)：
+            # 桶偏差含观察窗欠账，其 16/84 分位端点同源同欠账——点估收缩而区间不收缩会造成
+            # "校准≈4604 但 16% 概率落 3995(=R817 已否定的压现值)"的自相矛盾展示。high 路径不收缩
+            # (逐类样本散布=该类真实历史落点)；全局兜底无 _mat_src 亦不收缩(保持 #789 原语义)。
+            if _p16 is not None and _p84 is not None and _conf != "high" and _mat_src is not None:
+                _p16 = _p16 * (0.5 + 0.5 * _mat_src)
+                _p84 = _p84 * (0.5 + 0.5 * _mat_src)
             if _p16 is not None and _p84 is not None:
                 if _is_high(_cat, _k):
                     _p["calibLo"] = round(_p["price"] * (1 + _p16), 2)
@@ -1559,6 +1587,17 @@ def main():
                 else:
                     _p["calibLo"] = round(_p["price"] / (1 + _p84), 2)
                     _p["calibHi"] = round(_p["price"] / (1 + _p16), 2)
+                # R819 坍缩保护：观察窗未闭合时桶内样本高度同质(如卖② C 桶 23 条记录同一目标
+                # 同一最佳接近 → p16==p84)，收缩后区间退化为单点(lo==hi==calibPx)——
+                # "100% 落点=点估"是假精确(散布未展开≠确定)。此时删除区间只留点估+mat 标注，
+                # 诚实呈现"散布暂不可估"(前端已显示"偏差已按 X% 观察窗收缩")。
+                # 仅桶路径(mat 收缩)生效；high 路径类内散布窄是真实高精度(如子浪ⅰ ±1.5%)不误删。
+                if _conf != "high" and _mat_src is not None and _p.get("calibLo") is not None \
+                        and _p.get("calibHi") is not None:
+                    _w = abs(_p["calibHi"] - _p["calibLo"])
+                    if _w < _p["price"] * 0.01:    # 区间宽 < 目标价 1% 视为坍缩(未分化)
+                        _p.pop("calibLo", None)
+                        _p.pop("calibHi", None)
     # #785 修复 #783 卖点校准键名错配：原 keyfn 用 p["name"].split(" ")[0] 取「卖①」，
     # 但 backtest.summary 键(extract_targets 用 t["name"])是全称「卖① 保守兑现」，二者永不匹配
     # → 卖①②③ 在任何样本量下都拿不到校准位。改为用全称 p["name"] 对齐 backtest 键。

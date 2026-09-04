@@ -441,6 +441,12 @@ def aggregate(recs):
             # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，
             # <0=系统性 undershoot(价格够不到目标)；绝对值越大精度越差。样本不足标 None。
             "precDevMedian": round(float(np.median(g["precDevs"])), 4) if g["precDevs"] else None,
+            # R819 组内 16/84 分位(校准不确定带·逐类源)：high 路径(逐类 n>=5 中置信)的不确定带
+            # 应从【本类自身】的落点散布取，而非同侧全局——否则子浪ⅰ(类内偏差仅 −1.5%)会被全局
+            # 卖侧 p16(−25.1%，来自远期卖③未走完样本)污染成"16% 概率落点低 23%"的荒谬区间。
+            # 样本 >=MIN_SAMPLE 才出数(与 hitRate/precDevMedian 同门限)，不足标 None 回退同侧。
+            "precDevP16": round(float(np.percentile(g["precDevs"], 16)), 4) if len(g["precDevs"]) >= MIN_SAMPLE else None,
+            "precDevP84": round(float(np.percentile(g["precDevs"], 84)), 4) if len(g["precDevs"]) >= MIN_SAMPLE else None,
             # #790 目标实时追踪：open(pending)目标的时间进度与最佳接近度(可立即观测，无需窗闭合)
             "open": g["open"],
             "openElapsedMed": round(float(np.median(g["openElapsed"])), 1) if g["openElapsed"] else None,
@@ -538,6 +544,22 @@ def run_backtest(data, df):
         return _by
     level_precision_maturity_by_side_horizon = {
         "sell": _bucket_mat("sell"), "buy": _bucket_mat("buy"), "defensive": _bucket_mat("defensive")}
+    # R819 桶级 16/84 分位(校准不确定带·桶源)：供 build_data 桶命中路径的不确定带用【本桶】落点散布，
+    # 与点估(桶中位)同源同桶——避免同侧全局分位被跨桶样本污染(卖③ D 桶 −25% 污染卖① B 桶区间)。
+    # 样本 >=5 才出数(与 levelPrecisionMedianDevBySideHorizon 中置信同门限)；不足回退同侧全局。
+    def _bucket_pct(_sd, _q):
+        _by = {}
+        for _b in HORIZON_BUCKETS:
+            _vals = [r["precDev"] for r in recs
+                     if r.get("side") == _sd and r.get("precDev") is not None
+                     and horizon_bucket(r.get("expDays") or HORIZON) == _b]
+            if len(_vals) >= 5:
+                _by[_b] = round(float(np.percentile(_vals, _q)), 4)
+        return _by
+    level_precision_p16_by_side_horizon = {
+        "sell": _bucket_pct("sell", 16), "buy": _bucket_pct("buy", 16), "defensive": _bucket_pct("defensive", 16)}
+    level_precision_p84_by_side_horizon = {
+        "sell": _bucket_pct("sell", 84), "buy": _bucket_pct("buy", 84), "defensive": _bucket_pct("defensive", 84)}
     # R291 方向准确率(最诚实早期信号)：统计【全部有方向判定】样本，含观察窗未闭合但已有未来 K 线的目标，
     # 因方向在第 1 个未来交易日即可判定；仅未来 K 线为空(末日记录)无方向判定。不局限于已成熟样本。
     total_dir_eval = sum(1 for r in recs if r.get("dirCorrect") is not None)
@@ -606,6 +628,9 @@ def run_backtest(data, df):
         "levelPrecisionMedianDevBySideHorizonLow": level_precision_median_dev_by_side_horizon_low,
         # R818 每桶观察窗成熟度中位(0~1)，供 build_data 对桶先验修正量按窗长收缩
         "levelPrecisionMaturityBySideHorizon": level_precision_maturity_by_side_horizon,
+        # R819 桶级 16/84 分位(桶命中路径不确定带·本桶源，样本>=5)，与点估(桶中位)同源同桶
+        "levelPrecisionP16BySideHorizon": level_precision_p16_by_side_horizon,
+        "levelPrecisionP84BySideHorizon": level_precision_p84_by_side_horizon,
         # #790 目标实时追踪：open(pending)目标进度汇总，辅助买卖时机判断
         "realizationSummary": realization_summary,
         "levelPrecisionP16BySide": level_precision_p16_by_side,
