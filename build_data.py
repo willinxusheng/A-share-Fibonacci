@@ -1481,6 +1481,16 @@ def main():
     # (R818 后点估已收缩但区间未收缩：卖③ calibLo 仍停在 R817 已否定的 3995 压现值回归)。
     _bh_p16 = bt_stats.get("levelPrecisionP16BySideHorizon") or {}
     _bh_p84 = bt_stats.get("levelPrecisionP84BySideHorizon") or {}
+    # R820 独立目标观测数(nEff)：上述偏差/分位/成熟度的真实自由度——同一目标价位的多日重复观测
+    # 已按目标去重(卖① 28 行 → 1 个独立目标；sell C 桶 26 行 → 1 个)。R820 起：
+    # ① 逐类校准门禁由"band 命中数 n>=5"改为"独立目标数 nEff>=5"(前者错把远期卖点永久打入桶兜底，
+    #    即便该类已有 20 个独立目标)；② nEff 写盘 calibN 供前端披露证据量，消除"27 行=27 样本"错觉。
+    _bh_neff = bt_stats.get("levelPrecisionNEffBySideHorizon") or {}
+    _neff_by_side = bt_stats.get("levelPrecisionNEffBySide") or {}
+    _neff_total = bt_stats.get("precDevNEffTotal")
+    # R820 侧级观察窗成熟度(side→0~1)，供同侧兜底路径按窗长收缩
+    _mat_by_side = bt_stats.get("levelPrecisionMaturityBySide") or {}
+    _MIN_EFF = 5
     def _mat_shrink(_pm, _mat):
         if _mat is None:
             return _pm, 1.0
@@ -1499,20 +1509,26 @@ def main():
             _b = _bias_map.get((_cat, _k))
             _pm = None
             _conf = None
-            # R818 观察窗成熟度：仅桶命中(horizon-bucket/global-low桶级)路径赋值并写盘 calibMat，
-            # high(逐类 n≥5)/全局兜底 路径保持 None 不写盘(逐类样本已成熟、全局为 #787 旧语义不收缩)。
+            # R818 观察窗成熟度：桶命中(horizon-bucket/global-low 桶级)与 R820 起的【同侧兜底】路径
+            # 均按成熟度收缩并写盘 calibMat；仅 high(逐类 nEff≥5)路径不收缩——该类已有 ≥5 个独立目标
+            # 的中位偏差，其观察窗信息已体现在偏差本身，无需再按窗长缩放。
             _mat_src = None
-            # 逐类校准(n>=5，稳健)：高置信，直接使用该类的带符号中位偏差。
-            if _b and _b.get("precDevMedian") is not None and _b.get("n", 0) >= 5:
+            # R820 证据量来源：high→该类独立目标数；桶命中→该桶独立目标数；同侧/全局兜底→对应侧/全体。
+            _n_src = None
+            # R820 逐类校准门禁：由"band 命中数 n>=5"改为【独立目标数 nEff>=5】。旧门禁把
+            # "已触达 band 的日数"当成样本量，使长期未触达的远期卖点永远拿不到逐类校准(卖① 有
+            # 27 行观测却因仅 2 次 band 命中被打入桶兜底)。nEff 才是 precDevMedian 的自由度。
+            if _b and _b.get("precDevMedian") is not None and (_b.get("precDevNEff") or 0) >= _MIN_EFF:
                 _pm = _b["precDevMedian"]
                 _conf = "high"
+                _n_src = _b.get("precDevNEff")
             # #788 分侧稳健兜底：未成熟/无逐类校准的目标，优先用【同侧】稳健偏差(低置信)——
-            # 上行目标(sell/子浪ⅰⅲⅴ)取 sell 侧(−12.6%)，下行目标(子浪ⅱⅳ/浪⑤起/防御)取 buy 侧(+0.3%)。
+            # 上行目标(sell/子浪ⅰⅲⅴ)取 sell 侧中位，下行目标(子浪ⅱⅳ/浪⑤起/防御)取 buy 侧中位。
+            # R820 数值(独立目标口径)：sell≈−8.5%、buy≈+2.0%(旧行级口径为 −12.6%/+0.3%，含重复灌水)。
             # #788b 升级：同侧内再按【目标预期触达天数 horizon 桶】取更精细先验——
-            # 卖侧偏差随期限单调加深(20-60天−11%/60-120天−15.5%/≥120天−25%)，单侧中位会低估
-            # 远期卖点(卖③≈−25%)、低估买侧中远期 overshoot；桶样本≥5 标 horizon-bucket(中置信)，
-            # 样本 2~4 收缩标 global-low(低置信)。桶缺失回退同侧 → 全局。严守铁律⑦：仅附加
-            # calibPx 辅助参考，Elliott 价位一字未动。
+            # R820 独立目标口径下 sell B(20-60d)≈−8.5%、D(≥120d)≈−13.8%，C 桶独立目标仅 1 个不再出数；
+            # buy A≈+0.6%、B≈+9.0%。桶独立目标≥5 标 horizon-bucket(中置信)，2~4 收缩标 global-low(低置信)，
+            # 桶独立目标不足则回退同侧 → 全局。严守铁律⑦：仅附加 calibPx 辅助参考，Elliott 价位一字未动。
             else:
                 _side = "sell" if _is_high(_cat, _k) else "buy"
                 _bkt = horizon_bucket(_p.get("expDays") or HORIZON)
@@ -1522,19 +1538,25 @@ def main():
                 if _bhm is not None and abs(_bhm) >= 0.005:
                     _pm, _mat_src = _mat_shrink(_bhm, _mat_src)
                     _conf = "horizon-bucket"
+                    _n_src = (_bh_neff.get(_side) or {}).get(_bkt)
                 else:
                     _bhl = (_bh_low.get(_side) or {}).get(_bkt)
                     if _bhl is not None and abs(_bhl) >= 0.005:
                         _pm, _mat_src = _mat_shrink(_bhl, _mat_src)
                         _conf = "global-low"
+                        _n_src = (_bh_neff.get(_side) or {}).get(_bkt)
                     else:
                         _gs = _gdev_by_side.get(_side)
                         if _gs is not None and abs(_gs) >= 0.005:
-                            _pm = _gs
+                            # R820：侧级兜底同样按侧级观察窗成熟度收缩(与桶路径口径一致)——
+                            # 侧级中位偏差与桶中位同样含"窗口未走完"欠账，不收缩会与收缩后的点估不一致。
+                            _pm, _mat_src = _mat_shrink(_gs, _mat_by_side.get(_side))
                             _conf = "global-low"
+                            _n_src = _neff_by_side.get(_side)
                         elif _gdev_all is not None and abs(_gdev_all) >= 0.005:
                             _pm = _gdev_all
                             _conf = "global-low"
+                            _n_src = _neff_total
             if _pm is None:
                 continue
             _p["biasPct"] = round(_pm * 100, 1)
@@ -1544,6 +1566,10 @@ def main():
             # 防远期目标(卖③)的 −25% 被误读为"历史最终实现偏差"(实为 136 天目标才走 ~9% 的早期欠账)。
             if _mat_src is not None:
                 _p["calibMat"] = round(_mat_src, 2)
+            # R820：写盘独立目标观测数(nEff)，供前端标注"基于 N 个独立目标"——与 calibMat 一起
+            # 把"证据多少(样本量)+ 走到哪(观察窗)"两件事都透明化，防把 27 行重复观测读成高置信。
+            if _n_src is not None:
+                _p["calibN"] = int(_n_src)
             if _is_high(_cat, _k):
                 _p["calibPx"] = round(_p["price"] * (1 + _pm), 2)
             else:
@@ -1587,17 +1613,15 @@ def main():
                 else:
                     _p["calibLo"] = round(_p["price"] / (1 + _p84), 2)
                     _p["calibHi"] = round(_p["price"] / (1 + _p16), 2)
-                # R819 坍缩保护：观察窗未闭合时桶内样本高度同质(如卖② C 桶 23 条记录同一目标
-                # 同一最佳接近 → p16==p84)，收缩后区间退化为单点(lo==hi==calibPx)——
-                # "100% 落点=点估"是假精确(散布未展开≠确定)。此时删除区间只留点估+mat 标注，
-                # 诚实呈现"散布暂不可估"(前端已显示"偏差已按 X% 观察窗收缩")。
-                # 仅桶路径(mat 收缩)生效；high 路径类内散布窄是真实高精度(如子浪ⅰ ±1.5%)不误删。
-                if _conf != "high" and _mat_src is not None and _p.get("calibLo") is not None \
-                        and _p.get("calibHi") is not None:
-                    _w = abs(_p["calibHi"] - _p["calibLo"])
-                    if _w < _p["price"] * 0.01:    # 区间宽 < 目标价 1% 视为坍缩(未分化)
-                        _p.pop("calibLo", None)
-                        _p.pop("calibHi", None)
+                # R820 退化保护（替代 R819 的"宽度<目标价 1%"启发式）：
+                # 分位源【完全无散布】(p16==p84，所有独立目标偏差一模一样)才是真·散布不可估 → 删区间。
+                # 旧启发式按"宽度 < 目标价 1%"判定，会把【真实但一致性很高】的散布误删——独立目标
+                # 口径下卖① 的 19 个独立目标 16~84 分位仅差 0.7%(≈21 点)，那是真实高一致性而非坍缩。
+                # 桶内高度同质(旧案例：卖② C 桶 23 行实为同一目标)现由 R820 nEff 门禁结构性拦截
+                # (该桶 nEff=1 根本不出分位)，无需再用宽度阈值兜底。
+                if _p16 is not None and _p84 is not None and abs(_p16 - _p84) < 1e-9:
+                    _p.pop("calibLo", None)
+                    _p.pop("calibHi", None)
     # #785 修复 #783 卖点校准键名错配：原 keyfn 用 p["name"].split(" ")[0] 取「卖①」，
     # 但 backtest.summary 键(extract_targets 用 t["name"])是全称「卖① 保守兑现」，二者永不匹配
     # → 卖①②③ 在任何样本量下都拿不到校准位。改为用全称 p["name"] 对齐 backtest 键。

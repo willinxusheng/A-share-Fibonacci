@@ -342,7 +342,41 @@ def evaluate(df):
     return recs
 
 
-def aggregate(recs):
+# R820 等价锚去重：子浪ⅴ ≡ 卖①（同价位同买卖口径，audit49 强制断言）——聚合侧/桶统计时
+# 只计一次，避免同一目标在同一桶里被重复计数(双重灌水)。分类自身仍保留条目供其独立校准。
+_DUP_ANCHORS = {("subwave", "子浪ⅴ")}
+
+
+def _is_dup_anchor(rec):
+    return (rec.get("cat"), rec.get("key")) in _DUP_ANCHORS
+
+
+def episode_reps(recs):
+    """R820 独立目标观测（反"重复灌水"）：把同一预测目标的多次日度观测收敛为一次观测。
+
+    背景（09-12 深度回测诊断）：precDev 是"自预测日起至今，价格最接近目标的程度"。当日度日志
+    连续多日发出【同一个目标价位】时（Elliott 结构稳定，卖①②③ 的目标价 28 天一字未变），
+    从第 d 天起的"未来最高/最低"往往落在同一个市场极值上 → precDev 逐日完全相同的行被反复计入，
+    制造虚假样本量：卖① 27 行实际只有 5 个不同偏差值、浪⑤起 27 行只有 3 个值，
+    卖①/卖②/卖③ 的独立目标数分别只有 1/2/2 个。行级统计据此得出的"样本量"与"16~84 分位带宽"
+    均无统计意义（浪⑤起区间宽度 0.03% = 假精确），R817 的招牌结论"卖侧偏差随期限单调加深
+    −11.1/−15.5/−25.1%"也被证实主要是重复灌水假象（独立目标口径为 −8.5%/−/−13.8%）。
+
+    口径：同一 (cat, key, 目标价位) 视为【同一个预测目标】，只保留观察窗最长(证据最多)的一条
+    作为该目标的代表观测。命中率类指标(按"每日发出即一次预测"计)仍走行级，不受此影响。
+    """
+    by = {}
+    for r in recs:
+        if r.get("precDev") is None or r.get("price") is None or _is_dup_anchor(r):
+            continue
+        _k = (r.get("cat"), r.get("key"), round(float(r["price"]), 2))
+        _cur = by.get(_k)
+        if _cur is None or (r.get("elapsedDays") or 0) > (_cur.get("elapsedDays") or 0):
+            by[_k] = r
+    return list(by.values())
+
+
+def aggregate(recs, pdev_recs=None):
     """按 (cat,key) 聚合命中率，样本不足标 cold。
 
     R291 拆分两条诚实口径：
@@ -350,7 +384,15 @@ def aggregate(recs):
       因方向是「第 1 个未来交易日即可判定」的最诚实早期信号；仅未来 K 线为空(末日记录)才无判定。
     - 精确命中率(preciseHitRate)：仅统计【已成熟/已解决】(evaluated)样本，观察窗未闭合目标
       保持 unevaluated、不计入分母(成熟门禁)，避免把需数月/年的浪⑤目标在窗未闭合时记成精确 miss。
+
+    R820：价位偏差类统计(precDevs 列表 → precDevMedian/Percentile)改用【独立目标观测】
+    (pdev_recs：同一目标只计一次)，并输出 precDevNEff 供下游门禁与诚实披露。
     """
+    if pdev_recs is None:
+        pdev_recs = episode_reps(recs)
+    _peff = {}
+    for r in pdev_recs:
+        _peff.setdefault((r["cat"], r["key"]), []).append(r["precDev"])
     groups = {}
     for r in recs:
         g = groups.setdefault((r["cat"], r["key"]),
@@ -359,7 +401,7 @@ def aggregate(recs):
                                "dirEval": 0, "dirHits": 0,
                                "preciseEval": 0, "matured": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
-                               "precDevs": [],
+                               "precDevs": [], "nEff": 0,
                                # #790 目标实时追踪：open(pending=未触达且窗未闭)目标的时间/接近度累计
                                "open": 0, "openElapsed": [], "openExp": [], "openBest": []})
         # 方向准确率：统计全部有方向判定(非 None)的样本——含观察窗未闭合(仅累计数日)的目标，
@@ -390,11 +432,8 @@ def aggregate(recs):
             g["preciseEval"] += 1
             if r.get("preciseHit"):
                 g["ph"] += 1
-        # #782 精确价位偏差(早期可观测精度信号)：所有已计算 approachTarget(非 None)的样本均纳入，
-        # 不依赖观察窗闭合/是否命中——即便目标窗口未到、尚未判定命中，也能观测"价格离目标差多少"，
-        # 揭示系统性 overshoot(中位>0)/undershoot(中位<0)，为预测准确性提供窗口闭合前的真实信号。
-        if r.get("approachTarget") is not None and r.get("precDev") is not None:
-            g["precDevs"].append(r["precDev"])
+        # #782 精确价位偏差(早期可观测精度信号)：见循环后统一按【独立目标观测】装入 g["precDevs"]
+        # (R820：不再逐行 append，避免同一目标的多日观测被当作多个独立样本灌水)。
         # #790 目标实时追踪：对【观察窗未闭合且尚未触达】(pending, evaluated=False)目标，
         # 累计其时间进度(已过时/预期时)与最佳接近度(precDev 中位)，供状态分类与面板展示。
         if not r.get("evaluated"):
@@ -405,6 +444,12 @@ def aggregate(recs):
                 g["openExp"].append(int(r["expDays"]))
             if r.get("precDev") is not None:
                 g["openBest"].append(r["precDev"])
+    # R820 价位偏差改用独立目标观测装入：同一目标(同价位)只计一次 → precDevs 的样本量即真实
+    # 独立目标数(nEff)，中位/分位不再被重复行灌水（卖① 27 行 → nEff=1）。
+    for _key, _vals in _peff.items():
+        if _key in groups:
+            groups[_key]["precDevs"] = list(_vals)
+            groups[_key]["nEff"] = len(_vals)
     summary = []
     for (cat, key), g in groups.items():
         avg_days = round(sum(g["days"]) / len(g["days"]), 1) if g["days"] else None
@@ -447,6 +492,10 @@ def aggregate(recs):
             # 样本 >=MIN_SAMPLE 才出数(与 hitRate/precDevMedian 同门限)，不足标 None 回退同侧。
             "precDevP16": round(float(np.percentile(g["precDevs"], 16)), 4) if len(g["precDevs"]) >= MIN_SAMPLE else None,
             "precDevP84": round(float(np.percentile(g["precDevs"], 84)), 4) if len(g["precDevs"]) >= MIN_SAMPLE else None,
+            # R820 独立目标观测数(nEff)：本节 precDevMedian/P16/P84 的真实样本量。与行数 n 不同，
+            # nEff 已按"同一目标价位的多日观测"去重——故它才是这些统计量的自由度。前端据此披露
+            # "基于 N 个独立目标"，避免把 27 行重复观测读成 27 个样本的高置信。
+            "precDevNEff": g["nEff"] or None,
             # #790 目标实时追踪：open(pending)目标的时间进度与最佳接近度(可立即观测，无需窗闭合)
             "open": g["open"],
             "openElapsedMed": round(float(np.median(g["openElapsed"])), 1) if g["openElapsed"] else None,
@@ -462,7 +511,11 @@ def run_backtest(data, df):
     """编排：存档当日 → 重评全部 → 聚合写盘 → 返回注入统计。"""
     archive(data)
     recs = evaluate(df)
-    summary = aggregate(recs)
+    # R820 独立目标观测(反重复灌水)：下述所有【价位偏差/离散度/成熟度】统计一律以 pdev_recs 为源，
+    # 使"样本量"= 独立预测目标数而非日志行数(卖① 28 行 → 1 个目标)。命中率类指标仍走行级 recs
+    # (每日发出即一次预测，属另一个问题)。等价锚 子浪ⅴ≡卖① 已在 episode_reps 内去重。
+    pdev_recs = episode_reps(recs)
+    summary = aggregate(recs, pdev_recs)
     total_eval = sum(1 for r in recs if r.get("evaluated"))
     total_pending = sum(1 for r in recs if not r.get("evaluated"))
     total_hits = sum(1 for r in recs if r.get("evaluated") and r.get("hit"))
@@ -474,7 +527,8 @@ def run_backtest(data, df):
     precise_early = sum(1 for r in recs if r.get("preciseHit") is True and not r.get("matured"))
     # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：全局统计所有已观测 approachTarget 样本的偏差，
     # 即便目标窗口未闭合也能贡献"价格离目标差多少"的真实信号，弥补精确命中率需窗口闭合才出数的盲区。
-    all_prec_dev = [r["precDev"] for r in recs if r.get("precDev") is not None]
+    # R820：改用独立目标观测(见 episode_reps 注释)，使全局精度不被重复行主导。
+    all_prec_dev = [r["precDev"] for r in pdev_recs]
     level_precision_median_dev = round(float(np.median(all_prec_dev)), 4) if all_prec_dev else None
     # 已观测窗口内价格落入目标 ±5% 的比例(早期精度达标率)：偏差<=0.05 视为"够近"，与面板诚实化口径一致。
     level_precision_within5 = round(sum(1 for d in all_prec_dev if d <= 0.05) / len(all_prec_dev) * 100, 1) \
@@ -483,11 +537,12 @@ def run_backtest(data, df):
     # （卖点系统性 undershoot 约 −12.6%、买点近乎精确约 +0.3%）。供 build_data #787 兜底按侧取先验，
     # 避免单一全局偏差(−8.6%)同时低估卖点、高估买点。defensive 侧样本极少，多为 None。
     def _side_med(_sd):
-        _vs = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
+        _vs = [r["precDev"] for r in pdev_recs if r.get("side") == _sd]
         return round(float(np.median(_vs)), 4) if _vs else None
     def _side_pct(_sd, _q):
-        _vs = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
-        return round(float(np.percentile(_vs, _q)), 4) if _vs else None
+        _vs = [r["precDev"] for r in pdev_recs if r.get("side") == _sd]
+        # R820：分位(尾部分布)对样本量远比中位敏感——独立目标数不足 5 时不出分位（宁缺勿假精确）。
+        return round(float(np.percentile(_vs, _q)), 4) if len(_vs) >= 5 else None
     level_precision_median_dev_by_side = {
         "sell": _side_med("sell"),
         "buy": _side_med("buy"),
@@ -509,11 +564,11 @@ def run_backtest(data, df):
     # 相对单侧先验(3.87%)再降 46%，中位偏差归零、±5% 达标率 32%→87%。
     def _bucket_med(_sd, _min_n):
         _by = {}
-        _vals_all = [r["precDev"] for r in recs if r.get("side") == _sd and r.get("precDev") is not None]
+        _vals_all = [r["precDev"] for r in pdev_recs if r.get("side") == _sd]
         _med_all = float(np.median(_vals_all)) if _vals_all else None
         for _b in HORIZON_BUCKETS:
-            _vals = [r["precDev"] for r in recs
-                     if r.get("side") == _sd and r.get("precDev") is not None
+            _vals = [r["precDev"] for r in pdev_recs
+                     if r.get("side") == _sd
                      and horizon_bucket(r.get("expDays") or HORIZON) == _b]
             if len(_vals) < _min_n:
                 continue
@@ -534,7 +589,7 @@ def run_backtest(data, df):
     def _bucket_mat(_sd):
         _by = {}
         for _b in HORIZON_BUCKETS:
-            _rs = [r for r in recs if r.get("side") == _sd and r.get("precDev") is not None
+            _rs = [r for r in pdev_recs if r.get("side") == _sd
                    and horizon_bucket(r.get("expDays") or HORIZON) == _b]
             if not _rs:
                 continue
@@ -544,18 +599,45 @@ def run_backtest(data, df):
         return _by
     level_precision_maturity_by_side_horizon = {
         "sell": _bucket_mat("sell"), "buy": _bucket_mat("buy"), "defensive": _bucket_mat("defensive")}
+    # R820 侧级观察窗成熟度：R818 的成熟度收缩原先只作用于"桶命中"路径，而同侧兜底路径
+    # (桶独立目标不足时的回退)用的是同样含"窗口未走完欠账"的侧级中位偏差——R820 起桶门禁改用
+    # 独立目标数，更多目标会走到侧级兜底(如卖② 的 C 桶仅 1 个独立目标)，故侧级同样给成熟度，
+    # 使"任何 precDev 派生的修正量都按观察窗收缩"口径一致。
+    def _side_mat(_sd):
+        _rs = [r for r in pdev_recs if r.get("side") == _sd]
+        if not _rs:
+            return None
+        _rat = [min(1.0, float(r.get("elapsedDays", 0)) / max(1.0, float(max(HORIZON, int(r.get("expDays") or HORIZON)))))
+                for r in _rs]
+        return round(float(np.median(_rat)), 3)
+    level_precision_maturity_by_side = {
+        "sell": _side_mat("sell"), "buy": _side_mat("buy"), "defensive": _side_mat("defensive")}
     # R819 桶级 16/84 分位(校准不确定带·桶源)：供 build_data 桶命中路径的不确定带用【本桶】落点散布，
     # 与点估(桶中位)同源同桶——避免同侧全局分位被跨桶样本污染(卖③ D 桶 −25% 污染卖① B 桶区间)。
     # 样本 >=5 才出数(与 levelPrecisionMedianDevBySideHorizon 中置信同门限)；不足回退同侧全局。
     def _bucket_pct(_sd, _q):
         _by = {}
         for _b in HORIZON_BUCKETS:
-            _vals = [r["precDev"] for r in recs
-                     if r.get("side") == _sd and r.get("precDev") is not None
+            _vals = [r["precDev"] for r in pdev_recs
+                     if r.get("side") == _sd
                      and horizon_bucket(r.get("expDays") or HORIZON) == _b]
             if len(_vals) >= 5:
                 _by[_b] = round(float(np.percentile(_vals, _q)), 4)
         return _by
+    # R820 桶级独立目标数(nEff)：供 build_data 判断桶先验/桶区间是否有真实自由度，
+    # 避免"26 行 = 26 样本"的错觉（sell C 桶 26 行实际只有 2 个独立目标）。
+    def _bucket_neff(_sd):
+        _by = {}
+        for _b in HORIZON_BUCKETS:
+            _n = sum(1 for r in pdev_recs if r.get("side") == _sd
+                     and horizon_bucket(r.get("expDays") or HORIZON) == _b)
+            if _n:
+                _by[_b] = _n
+        return _by
+    level_precision_neff_by_side_horizon = {
+        "sell": _bucket_neff("sell"), "buy": _bucket_neff("buy"), "defensive": _bucket_neff("defensive")}
+    level_precision_neff_by_side = {
+        _sd: sum(1 for r in pdev_recs if r.get("side") == _sd) for _sd in ("sell", "buy", "defensive")}
     level_precision_p16_by_side_horizon = {
         "sell": _bucket_pct("sell", 16), "buy": _bucket_pct("buy", 16), "defensive": _bucket_pct("defensive", 16)}
     level_precision_p84_by_side_horizon = {
@@ -631,6 +713,14 @@ def run_backtest(data, df):
         # R819 桶级 16/84 分位(桶命中路径不确定带·本桶源，样本>=5)，与点估(桶中位)同源同桶
         "levelPrecisionP16BySideHorizon": level_precision_p16_by_side_horizon,
         "levelPrecisionP84BySideHorizon": level_precision_p84_by_side_horizon,
+        # R820 独立目标观测数(nEff)：上列全部偏差/分位/成熟度统计量的真实自由度，
+        # 已剔除"同一目标多日重复观测"(卖① 28 行→1 个目标；sell C 桶 26 行→2 个目标)。
+        # 供 build_data 门禁与前端诚实披露，取代把日志行数当样本量的错觉。
+        "levelPrecisionNEffBySideHorizon": level_precision_neff_by_side_horizon,
+        "levelPrecisionNEffBySide": level_precision_neff_by_side,
+        "precDevNEffTotal": len(pdev_recs),
+        # R820 侧级观察窗成熟度(0~1)，供同侧兜底路径同样按窗长收缩修正量
+        "levelPrecisionMaturityBySide": level_precision_maturity_by_side,
         # #790 目标实时追踪：open(pending)目标进度汇总，辅助买卖时机判断
         "realizationSummary": realization_summary,
         "levelPrecisionP16BySide": level_precision_p16_by_side,

@@ -6,7 +6,7 @@
 // 用它作为唯一 URL 参数——用户任何入口(书签/旧缓存)下次打开都会因参数不符而自动
 // replace 到最新版本，彻底绕过 GitHub Pages 对 HTML 的 10 分钟 CDN 缓存，
 // 杜绝"改了前端但用户看到的还是旧入口"。零缓存镜像 latest.html / r155fix*.html 可即时突破顽固缓存。
-var BUILD_TS = "2026-09-03T04:42:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R818 校准明细透明化: calibMat 观察窗成熟度标签)
+var BUILD_TS = "2026-09-12T01:15:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R820 独立目标观测口径披露: calibN 独立目标数标签)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -2024,8 +2024,8 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   // #784：数据源由历史 pivot 列表 D.subWavePoints 改为预测目标 D.subForecast.points，
   // 使子浪ⅳ/浪⑤起 等真·预测目标也能显示校准位（#783 曾因挂错列表而漏显）。
   var _cal = [];
-  (D.subForecast ? D.subForecast.points : []).forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.label, m: p.price, c: p.calibPx, b: p.biasPct, lo: p.calibLo, hi: p.calibHi, conf: p.calibConf || 'high', mat: p.calibMat }); });
-  if (D.tradePlan && D.tradePlan.sellTargets) D.tradePlan.sellTargets.forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.name, m: p.price, c: p.calibPx, b: p.biasPct, lo: p.calibLo, hi: p.calibHi, conf: p.calibConf || 'high', mat: p.calibMat }); });
+  (D.subForecast ? D.subForecast.points : []).forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.label, m: p.price, c: p.calibPx, b: p.biasPct, lo: p.calibLo, hi: p.calibHi, conf: p.calibConf || 'high', mat: p.calibMat, neff: p.calibN }); });
+  if (D.tradePlan && D.tradePlan.sellTargets) D.tradePlan.sellTargets.forEach(function (p) { if (p.calibPx != null) _cal.push({ name: p.name, m: p.price, c: p.calibPx, b: p.biasPct, lo: p.calibLo, hi: p.calibHi, conf: p.calibConf || 'high', mat: p.calibMat, neff: p.calibN }); });
   if (_cal.length) {
     _det += '<div style="margin-top:8px;font-weight:600;color:#555;">当前目标校准（模型位 → 校准位）：</div>';
     _det += '<div style="font-size:12.5px;color:#444;line-height:1.7;">';
@@ -2035,14 +2035,18 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       // 防远期目标(卖③) −25% 被误读为最终实现偏差(实为 136 天目标才走 ~9% 的早期欠账，窗闭合自动收敛)。
       var _ctag = (x.conf === 'global-low') ? ' <span style="color:#b8872a;font-size:11px;">(同侧期望·低置信)</span>' : '';
       var _mtag = (x.mat != null && x.conf !== 'high') ? ' <span style="color:#7a8699;font-size:11px;">偏差已按 ' + Math.round(x.mat * 100) + '% 观察窗收缩·随窗闭合收敛</span>' : '';
+      // R820：披露本校准位实际依据的【独立目标观测数】——同一目标价位的多日重复观测已去重，
+      // 故 N 往往远小于回测日志行数(卖① 28 行 → 1 个独立目标)。样本量小者提示证据有限，
+      // 防把"多日重复观测同一目标"读成高置信。
+      var _ntag = (x.neff != null) ? ' <span style="color:#8a94a6;font-size:11px;">基于 ' + x.neff + ' 个独立目标</span>' : '';
       var _band = (x.lo != null && x.hi != null) ? ' <span style="color:#8a94a6;">[区间 ' + _f2(x.lo) + '~' + _f2(x.hi) + ']</span>' : '';
-      _det += '· ' + x.name + '：' + _f2(x.m) + ' → <b style="color:#2f7d2f;">校准≈' + _f2(x.c) + '</b>' + _band + ' <span style="color:#8a94a6;">(历史实际' + (x.b >= 0 ? '高/深' : '低/浅') + '约 ' + Math.abs(x.b) + '%)</span>' + _ctag + _mtag + '<br>';
+      _det += '· ' + x.name + '：' + _f2(x.m) + ' → <b style="color:#2f7d2f;">校准≈' + _f2(x.c) + '</b>' + _band + ' <span style="color:#8a94a6;">(历史实际' + (x.b >= 0 ? '高/深' : '低/浅') + '约 ' + Math.abs(x.b) + '%)</span>' + _ctag + _ntag + _mtag + '<br>';
     });
     _det += '</div>';
   }
   var _gdevSell = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.sell != null) ? (bt.levelPrecisionMedianDevBySide.sell * 100).toFixed(1) : '?';
   var _gdevBuy = (bt && bt.levelPrecisionMedianDevBySide && bt.levelPrecisionMedianDevBySide.buy != null) ? (bt.levelPrecisionMedianDevBySide.buy * 100).toFixed(1) : '?';
-  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类样本≥5 取该类稳健偏差(高置信)；未成熟类别(卖①②③/子浪ⅲⅴ，n<5) 用<b>同侧×期限桶稳健偏差</b>作兜底(#788b)——卖点历史系统性 undershoot 且随期限加深(短期≈−11%、中期≈−15%、长期≈−25%)，买点短目标近乎精确、中远期略 overshoot，故校准位随目标期限动态调整。<b>R818 观察窗修正</b>：回测日志仅 21 个交易日，最短观察窗 30 天，桶偏差样本"窗未走完"占多数(远期卖③ 136 天目标当前仅走 ~9%)，桶命中偏差量已按观察窗成熟度收缩 ×(0.5+0.5·成熟度)、方向证据保留 ≥50%，避免远期目标被过度下修到现价附近；窗闭合(=100%)后自动全量采用，随日志积累自然收敛。该兜底仅作方向性参考。<b>区间</b>=同侧历史 16~84 分位落点范围(#789)，揭示单一校准点估计掩盖的精度散布——卖点侧区间极宽(可达 −25%~−10%)，说明校准位仅供参考、实际常大幅偏离；买点侧区间较窄，可信度更高。</div>';
+  _det += '<div style="margin-top:6px;color:#8a94a6;font-size:11.5px;">校准位=基于历史回测偏差对 Elliott 模型位的修正预期，<b>不改变原模型目标位</b>；↑overshoot=实际比目标高/深，↓undershoot=实际够不到目标。逐类独立目标数≥5 取该类稳健偏差(高置信)；独立目标不足的类别(卖①②③/浪⑤起/子浪ⅴ) 用<b>同侧×期限桶稳健偏差</b>作兜底(#788b)，桶内目标也不足时回退同侧中位。<b>R820 独立目标口径</b>：偏差统计以「独立预测目标」而非「日志行数」计样本——同一目标价位的多日重复观测只算一次(卖① 连续 28 天报同一目标价，28 行实际仅 1 个独立目标)，区间与中位不再被重复观测灌水(此前"卖侧偏差随期限加深 −11%/−15%/−25%"经查主要是重复灌水假象)，每条校准位后标注其依据的独立目标数。<b>R818 观察窗修正</b>：回测日志仅 28 个交易日，短于最短观察窗 30 天，偏差样本"窗未走完"占多数，修正量已按观察窗成熟度收缩 ×(0.5+0.5·成熟度)、方向证据保留 ≥50%，窗闭合(=100%)后自动全量采用。<b>区间</b>=同侧(或本桶/本类)历史 16~84 分位落点范围(#789/#819)，揭示单一校准点估计掩盖的精度散布；独立目标过少或落点高度同质时不出区间(避免假精确)。该兜底仅作方向性参考。</div>';
   _det += '</div>';
   bodyEl.innerHTML = html + note + _det;
 })();
