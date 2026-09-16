@@ -1,6 +1,10 @@
 {
  "signals": [
   {
+   "date": "2021-09-14",
+   "signal": -1
+  },
+  {
    "date": "2021-11-10",
    "signal": 1
   },
@@ -59,8 +63,14 @@
  ],
  "zigzag": [
   {
-   "date": "2021-08-20",
-   "price": 3394.97,
+   "date": "2021-06-02",
+   "price": 3629.29,
+   "type": "H",
+   "unconfirmed": false
+  },
+  {
+   "date": "2021-07-28",
+   "price": 3312.72,
    "type": "L",
    "unconfirmed": false
   },
