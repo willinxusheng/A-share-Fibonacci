@@ -563,20 +563,31 @@ jobs:
             }
 
       # ── R821 恢复即关闭（告警闭环治理）────────────────────────────────────────
-      # 缺陷背景：daily 的两个失败告警（"每日数据更新失败"/"今日数据未更新"）**只开不关**——
-      # 失败时建 issue，恢复后没有任何分支去关闭它。对比 freshness-watch 的 Manage alert issue
-      # 有 else{close} 分支，daily 缺该分支 → Issue #1（08-20 由失败告警创建）在流水线早已恢复、
-      # 数据每日正常更新的情况下，仍以 open 红标长期挂着，误导"看板仍在失败"。
-      # 修复：本次运行成功且确实更新了数据（非新鲜度门卫 skip 的空跑）→ 关闭这两个历史告警。
+      # 缺陷背景：daily 的失败告警**只开不关**——失败时建 issue，恢复后没有任何分支关闭它。
+      # 对比 freshness-watch 的 Manage alert issue 有 else{close} 分支，daily 三处告警都缺：
+      # ①"每日数据更新失败" ②"今日数据未更新" ③"情绪看板重算失败"，其中 ① 已造成实际后果：
+      # Issue #1（08-20 由失败告警创建）在流水线早已恢复、数据每日正常更新（updated=09-16）
+      # 的情况下仍以 open 红标长期挂着，误导"看板仍在失败"（09-17 手动关闭并留说明）。
+      # 修复：本次运行成功且确实更新了数据（非新鲜度门卫 skip 的空跑）→ 关闭数据层两个告警；
+      # 情绪层告警仅在该产物校验通过时才关闭（见 script 内注释，避免误关假绿告警）。
       - name: Close stale failure alerts on healthy update
         if: success() && steps.fresh.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const TITLES = [
+            // 数据层告警：本次运行成功且确实更新了数据（非新鲜度门卫空跑）即视为恢复。
+            const DATA_TITLES = [
               '⚠️ A股斐波那契看板每日数据更新失败',
               '⚠️ A股斐波那契看板今日数据未更新',
             ];
+            // 情绪层告警：**仅在情绪产物校验通过时才关闭**。该告警专为捕获"数据新鲜但情绪冻住"
+            // 的假绿而设，若只看 success() 就关，会在情绪仍异常时把红标抹掉——反而制造假绿。
+            const SENT_TITLE = '⚠️ 情绪看板重算失败（产物校验未通过）';
+            const sentOk = '${{ steps.sentverify.outputs.ok }}' === 'true';
+            const TITLES = sentOk ? DATA_TITLES.concat([SENT_TITLE]) : DATA_TITLES;
+            if (!sentOk) {
+              core.info('sentverify.ok != true，本轮不关闭情绪层告警（避免误关假绿告警）。');
+            }
             const { owner, repo } = context.repo;
             const ts = new Date().toISOString();
             const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'], per_page: 100 });
