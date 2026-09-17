@@ -9,6 +9,12 @@
 #  - maturedCount == 0 → 静默，不建 Issue、不发任何通知。
 #  - maturedCount  > 0 → gen_precision_report.py 产出 report.md，建/更新置顶 Issue。
 #  - 不改仓库任何文件（report.md 仅存在于临时工作区，不提交）。
+#
+# R821（09-17）修复：2026-09-16 起 maturedCount 首次 >0（观察窗首批闭合），报告成功产出，
+#   但通知步骤用 `gh issue create --label "backtest"` 而仓库无此标签 → exit 1、workflow 染红，
+#   且此后每个交易日复现。已改 github-script + REST + label 三级兜底（见步骤内注释），
+#   并补建仓库 label `backtest`。**注意：preciseRealizedHitRate 仍为 None 属设计内**
+#   （backtest.py 要求 matured_count >= MIN_SAMPLE(5) 才出精确率；首批仅 2 个）。
 
 name: A股回测·精确率首出探测
 
@@ -48,21 +54,48 @@ jobs:
       - name: 生成精确率首出报告 (maturedCount==0 时静默、不产出 report.md)
         run: python gen_precision_report.py
 
+      # R821 加固：原实现用 `gh issue`(GraphQL) + 硬编码 `--label backtest`，而仓库标签集中
+      # 并无 backtest 标签 → `gh issue create` 报 "could not add label" 直接 exit 1，把整条
+      # workflow 染红（09-16 run 35134464119 首次 maturedCount>0 时暴露，且此后每个交易日复现）。
+      # 改为与 freshness-watch.yml 一致的 actions/github-script + REST：
+      #   ① 避开 GraphQL（在权限受限/代理环境下是已知脆弱面）；
+      #   ② label 先探测、不存在则自动创建、创建不了则降级为无标签建 Issue——
+      #      通知这一步绝不再因标签问题失败；
+      #   ③ 按标题精确匹配既有 Issue（REST 列出 open + title 全等），不依赖 search 语法。
       - name: 创建/更新 GitHub Issue 通知 (仅 maturedCount>0 且 report.md 存在时)
         if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -f report.md ]; then
-            TITLE="📊 A股回测·精确率首出报告"
-            EXISTING=$(gh issue list --search "$TITLE" --state open --json number --jq '.[0].number' || true)
-            if [ -z "$EXISTING" ] || [ "$EXISTING" = "null" ]; then
-              gh issue create --title "$TITLE" --body-file report.md --label "backtest"
-              echo "已创建 Issue（精确率首出）。"
-            else
-              gh issue edit "$EXISTING" --body-file report.md
-              echo "已更新既有 Issue #$EXISTING。"
-            fi
-          else
-            echo "maturedCount==0，未成熟，静默退出（无 Issue）。"
-          fi
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('report.md')) {
+              core.info('maturedCount==0，未成熟，静默退出（无 Issue）。');
+              return;
+            }
+            const TITLE = '📊 A股回测·精确率首出报告';
+            const body = fs.readFileSync('report.md', 'utf8');
+            const { owner, repo } = context.repo;
+            // label 探测 → 自动创建 → 降级，三级兜底，任一环节都不抛出到 workflow 层
+            let labels = ['backtest'];
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: 'backtest' });
+            } catch (e) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner, repo, name: 'backtest', color: '0e8a16', description: 'A股回测·精确率报告',
+                });
+                core.notice('已自动创建缺失的 label: backtest');
+              } catch (e2) {
+                core.warning(`label "backtest" 不可用，降级为无标签建 Issue：${e2.message}`);
+                labels = [];
+              }
+            }
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+            const found = open.data.find(i => i.title === TITLE && !i.pull_request);
+            if (found) {
+              await github.rest.issues.update({ owner, repo, issue_number: found.number, body });
+              core.notice(`已更新既有 Issue #${found.number}（精确率首出报告）。`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title: TITLE, body, labels });
+              core.notice(`已创建 Issue #${created.data.number}（精确率首出）。`);
+            }
