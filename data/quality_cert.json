@@ -1,50 +1,50 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-09-16T08:02:53Z",
-  "data_last_date": "2026-09-16 16:01:29",
+  "generated_at": "2026-09-17T08:03:02Z",
+  "data_last_date": "2026-09-17 16:01:14",
   "engine": {
     "driftConf": 1.0,
     "bandScale": 0.88,
     "resonance_breadth": -1.0,
     "calib_points": 10,
-    "last_close": 3891.6,
+    "last_close": 3875.6,
     "vol_bucket": "低"
   },
   "oos_brier": {
-    "production_brier5": 0.17174,
+    "production_brier5": 0.18838,
     "production_baseline": 0.2276,
-    "production_delta_pct": -24.54,
-    "bucket_brier": 0.09658,
+    "production_delta_pct": -17.23,
+    "bucket_brier": 0.09384,
     "bucket_baseline": 0.089,
-    "bucket_delta_pct": 8.51,
-    "sample_cnt": 2584,
+    "bucket_delta_pct": 5.44,
+    "sample_cnt": 2576,
     "status": "regressed",
     "tolerance_pct": 5.0
   },
   "backtest": {
-    "total_logged": 279,
-    "total_evaluated": 118,
-    "total_pending": 161,
-    "matured_count": 2,
-    "precise_evaluated": 62,
-    "total_dir_evaluated": 270,
-    "total_dir_hits": 258,
+    "total_logged": 288,
+    "total_evaluated": 120,
+    "total_pending": 168,
+    "matured_count": 5,
+    "precise_evaluated": 66,
+    "total_dir_evaluated": 279,
+    "total_dir_hits": 267,
     "realized_hit_rate": 99.2,
-    "dir_realized_hit_rate": 95.2,
-    "precise_realized_hit_rate": null,
+    "dir_realized_hit_rate": 95.4,
+    "precise_realized_hit_rate": 92.6,
     "level_precision_median_dev": -0.01,
     "level_precision_within5_pct": 76.5,
     "cold_start": false,
     "overall_hit_rate": 100.0,
-    "overall_dir_hit_rate": 95.2,
-    "overall_precise_hit_rate": 50.8,
+    "overall_dir_hit_rate": 95.4,
+    "overall_precise_hit_rate": 51.7,
     "targets": [
       {
         "cat": "sellTarget",
         "key": "卖① 保守兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": -0.111
@@ -54,7 +54,7 @@
         "key": "卖② 标准兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": -0.1462
@@ -64,7 +64,7 @@
         "key": "卖③ 激进兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 1.5,
         "precDevMedian": -0.2028
@@ -74,27 +74,27 @@
         "key": "子浪ⅰ",
         "n": 26,
         "hitRate": 96.4,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 1.3,
-        "precDevMedian": -0.0132
+        "precDevMedian": -0.0135
       },
       {
         "cat": "subwave",
         "key": "子浪ⅱ",
-        "n": 30,
-        "hitRate": 96.9,
-        "dirHitRate": 96.9,
+        "n": 31,
+        "hitRate": 97.0,
+        "dirHitRate": 97.0,
         "preciseHitRate": null,
         "avgDays": 1.0,
-        "precDevMedian": 0.0085
+        "precDevMedian": 0.0087
       },
       {
         "cat": "subwave",
         "key": "子浪ⅲ",
         "n": 3,
         "hitRate": 80.0,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 3.3,
         "precDevMedian": -0.0852
@@ -102,19 +102,19 @@
       {
         "cat": "subwave",
         "key": "子浪ⅳ",
-        "n": 30,
-        "hitRate": 96.9,
-        "dirHitRate": 96.9,
+        "n": 31,
+        "hitRate": 97.0,
+        "dirHitRate": 97.0,
         "preciseHitRate": null,
         "avgDays": 1.0,
-        "precDevMedian": 0.0931
+        "precDevMedian": 0.0932
       },
       {
         "cat": "subwave",
         "key": "子浪ⅴ",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.6,
+        "dirHitRate": 90.9,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": null
@@ -124,13 +124,13 @@
         "key": "浪⑤起",
         "n": 21,
         "hitRate": 95.7,
-        "dirHitRate": 96.9,
-        "preciseHitRate": null,
+        "dirHitRate": 97.0,
+        "preciseHitRate": 20.0,
         "avgDays": 7.3,
         "precDevMedian": -0.0194
       }
     ],
-    "note": "回测诚实化(R291)三口径：①<b>方向准确率</b>(最早诚实信号, 第1个未来交易日即可判定, 独立于成熟门禁)=95.2；②<b>band 触达率</b>(宽松, ±σ 可达 23.5%, 偏乐观)=99.2；③<b>精确命中率</b>(真实目标价位, 仅窗口闭合方出数)=待成熟。当前 161 个目标观察窗未闭合、2 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，过早出数会虚高到 ~97%(假绿)故暂标 None。方向准 95.2 证明艾略特框架方向有效，精确价位偏松属常态而非卖点算错。④<b>精确价位精度(#782·早期可观测)</b>：中位偏差 -1.00%(↑overshoot 价格冲过目标 / ↓undershoot 够不到)，±5%达标率 76.5——不依赖观察窗闭合即可观测目标定价松紧、揭示系统性偏差方向，补足③需窗口闭合才出数的盲区。"
+    "note": "回测诚实化(R291)三口径：①<b>方向准确率</b>(最早诚实信号, 第1个未来交易日即可判定, 独立于成熟门禁)=95.4；②<b>band 触达率</b>(宽松, ±σ 可达 23.5%, 偏乐观)=99.2；③<b>精确命中率</b>(真实目标价位, 仅窗口闭合方出数)=92.6。当前 168 个目标观察窗未闭合、5 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，过早出数会虚高到 ~97%(假绿)故暂标 None。方向准 95.4 证明艾略特框架方向有效，精确价位偏松属常态而非卖点算错。④<b>精确价位精度(#782·早期可观测)</b>：中位偏差 -1.00%(↑overshoot 价格冲过目标 / ↓undershoot 够不到)，±5%达标率 76.5——不依赖观察窗闭合即可观测目标定价松紧、揭示系统性偏差方向，补足③需窗口闭合才出数的盲区。"
   },
   "accuracy_status": "REVIEW",
   "sentiment": {
@@ -138,7 +138,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-09-16 16:01:29"
+    "asOf": "2026-09-17 16:01:14"
   },
   "error": null
 }
