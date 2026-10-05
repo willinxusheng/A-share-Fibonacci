@@ -83,7 +83,13 @@ def test_level_precision():
     _df = pd.read_csv(os.path.join(BASE, "data", "sh000001.csv"),
                       parse_dates=["date"]).set_index("date")
     recs = bt_mod.evaluate(_df)
-    all_dev = [r["precDev"] for r in recs if r.get("precDev") is not None]
+    # R822 修正（门禁口径与引擎同步）：R820（09-12）已把全局偏差统计源从【行级 recs】改为
+    # 【独立目标观测 pdev_recs】——同一目标的多日重复观测只计一次（卖① 28 行 → 1 个目标）。
+    # 本门禁未同步，仍用行级复算 → 得到 −8.62% 而发布值是 −0.95%（独立目标口径），
+    # 自此长期软 FAIL（continue-on-error 掩盖，每日 CI 实际报红）。现改为调用引擎同款
+    # episode_reps() 取独立目标口径，保证"复算=发布"而非"复算=旧定义"。
+    pdev_recs = bt_mod.episode_reps(recs)
+    all_dev = [r["precDev"] for r in pdev_recs if r.get("precDev") is not None]
     assert all_dev, "evaluate 未产出任何 precDev（#782 字段失效）"
     expect_median = round(float(np.median(all_dev)), 4)
     expect_within5 = round(sum(1 for x in all_dev if x <= 0.05) / len(all_dev) * 100, 1)

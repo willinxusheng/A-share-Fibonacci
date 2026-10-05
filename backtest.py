@@ -330,6 +330,32 @@ def evaluate(df):
                                 "preciseHit": False,
                                 "approachTarget": round(approachTarget, 4) if approachTarget else None,
                                 "dirCorrect": bool(dirCorrect), "matured": matured})
+            # ---- R822：方向判据改为【观察窗内 · 目标感知】----
+            # 缺陷（09-30 深度回测实证）：旧判据 `未来最高 >= 预测日收盘`（上行目标）完全不引用目标价
+            # —— 同日同 side 的全部记录取值恒等（实测 0 个混合组合），即它测的是"日期"不是"预测"；
+            # 且用【全部未来数据】（可跨数月），零信息基线 94.0%（上行）/ 99.0%（下行），判别力为零。
+            # 新判据：Δ = 目标价 − 预测日收盘；在观察窗（max(HORIZON,expDays) 个交易日）内价格朝 Δ
+            # 方向推进 >= 50%·|Δ| 记方向达成。既引用目标（有判别力），又限定预测者承诺的期限。
+            _win_end = min(len(idx), i0 + 1 + _hz)
+            win = df.iloc[i0 + 1: _win_end]
+            _delta = (px - close0) if close0 is not None else None
+            if close0 is None or win.empty or _delta is None or abs(_delta) <= 0.005 * close0:
+                _dir_ok = None                      # 无未来 K 线 / 目标≈现价(无方向可判)
+            elif _delta > 0:
+                _dir_ok = bool(float(win["high"].max()) >= close0 + 0.5 * _delta)
+            else:
+                _dir_ok = bool(float(win["low"].min()) <= close0 + 0.5 * _delta)
+            # R822 平凡命中标记：目标价在【预测当日】已被自身收盘满足（卖目标低于现价 / 买目标高于现价）
+            # → 该条不含预测信息，"命中"是零未来信息即可成立的重言式；用于从精确命中率中剔除。
+            _is_buy = (rec.get("side") == "buy")
+            _triv_prec = None if close0 is None else (px >= close0 if _is_buy else px <= close0)
+            _triv_hit = None if close0 is None else (
+                (px * (1.0 + _frac) >= close0) if _is_buy else (px * (1.0 - _frac) <= close0))
+            rec["dirCorrect"] = _dir_ok
+            rec["dirGap"] = round(_delta / close0, 6) if (close0 and _delta is not None) else None
+            rec["dirWindow"] = int(_hz)
+            rec["trivialPrecise"] = _triv_prec
+            rec["trivialHit"] = _triv_hit
             # #782 精确价位偏差(早期可观测精度信号)：基于最接近点 approachTarget 推导，
             # 取全部已有前视数据里的最接近点(不依赖观察窗闭合)——故即便目标窗口未闭合，
             # 亦可观测"价格离目标差多少"。带符号：>0=overshoot(价格冲过目标)、<0=undershoot(够不到)、
@@ -376,6 +402,78 @@ def episode_reps(recs):
     return list(by.values())
 
 
+def dir_baseline(df, recs):
+    """R822 方向判据的【零信息基线】：对每条记录，用同一相对间距 |Δ|/c0 与同一观察窗长，
+    在全部历史交易日上复算同一条方向判据，得到"完全不做预测、只凭历史行情"的基准达成率。
+
+    用途：把"方向推进率"从自说自话变成有对照的指标——观测率 ≈ 基线率 ⇒ 该指标的预测增量
+    价值为零（纯粹是行情 beta）。这是 R822 对旧"方向准确率"（与目标无关、基线 94~99%）的补丁。
+
+    ⚠ 必须同时给【全历史基线】与【同期基线】：全历史含 2024-25 单边牛市，会把基线抬到 40%+，
+    若预测集中在弱市区间，直接对比会得出"差于随机"的过度断言。同期基线覆盖全部预测日期所在
+    区间（不足 60 交易日则向前补足到 60），才是"同行情下随机目标"的正确对照。
+    返回 (global_baseline_pct, recent_baseline_pct)。
+    """
+    _close = df["close"].values
+    _high = df["high"].values
+    _low = df["low"].values
+    _n = len(_close)
+    _hs = pd.Series(_high)
+    _ls = pd.Series(_low)
+    _cache = {}
+
+    def _fwd_max(w):
+        k = ("hi", int(w))
+        if k not in _cache:
+            # 反转滚动：index i = max(high[i : i+w])，再 shift(-1) → max(high[i+1 : i+1+w])
+            _cache[k] = _hs[::-1].rolling(int(w), min_periods=1).max()[::-1].shift(-1).values
+        return _cache[k]
+
+    def _fwd_min(w):
+        k = ("lo", int(w))
+        if k not in _cache:
+            _cache[k] = _ls[::-1].rolling(int(w), min_periods=1).min()[::-1].shift(-1).values
+        return _cache[k]
+
+    _valid = np.zeros(_n, dtype=bool)
+    _valid[: _n - 1] = True      # 需 i+1 <= n-1（至少 1 根未来 K 线，与记录判据同界）
+    # 同期基线窗口：覆盖全部预测日期所在区间（不足 60 交易日则向前补足 60）
+    _dates = [d.strftime("%Y-%m-%d") for d in df.index]
+    _DATESSET = set(_dates)
+    per = {}
+    vals = []
+    recent_vals = []
+    for r in recs:
+        g = r.get("dirGap")
+        w = r.get("dirWindow")
+        if g is None or not w or abs(g) <= 0.005:
+            continue
+        key = (round(float(g), 4), int(w))
+        if key not in per:
+            want_up = key[0] > 0
+            arr = _fwd_max(key[1]) if want_up else _fwd_min(key[1])
+            need = _close * (1.0 + 0.5 * key[0])
+            ok = (arr >= need) if want_up else (arr <= need)
+            m = _valid & ~np.isnan(arr)
+            per[key] = (float(ok[m].mean()) if m.any() else None,
+                        ok, m)
+            if per[key][0] is not None:
+                vals.append(per[key][0])
+        r["dirBase"] = per[key][0]
+    glob = round(float(np.mean(vals)) * 100, 1) if vals else None
+    # 同期基线：窗口起点 = min(最早预测日, 末日-60)（至少 60 交易日，覆盖全部预测区间）
+    _i0s = [_dates.index(r["date"]) for r in recs if r.get("date") in _DATESSET]
+    _start = max(0, min(min(_i0s) if _i0s else _n - 1, _n - 1 - 60))
+    _rec_valid = np.zeros(_n, dtype=bool)
+    _rec_valid[_start: _n - 1] = True
+    for key, (b, ok, m) in per.items():
+        mm = m & _rec_valid
+        if mm.any():
+            recent_vals.append(float(ok[mm].mean()))
+    recent = round(float(np.mean(recent_vals)) * 100, 1) if recent_vals else None
+    return glob, recent
+
+
 def aggregate(recs, pdev_recs=None):
     """按 (cat,key) 聚合命中率，样本不足标 cold。
 
@@ -399,6 +497,8 @@ def aggregate(recs, pdev_recs=None):
                               {"cat": r["cat"], "key": r["key"],
                                "n": 0, "hit": 0, "ph": 0, "days": [],
                                "dirEval": 0, "dirHits": 0,
+                               "dirBaseSum": 0.0, "dirBaseN": 0,
+                               "PrecNTEval": 0, "phNT": 0,
                                "preciseEval": 0, "matured": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
                                "precDevs": [], "nEff": 0,
@@ -410,6 +510,9 @@ def aggregate(recs, pdev_recs=None):
             g["dirEval"] += 1
             if r.get("dirCorrect"):
                 g["dirHits"] += 1
+            if r.get("dirBase") is not None:
+                g["dirBaseSum"] += r["dirBase"]
+                g["dirBaseN"] += 1
         # #779 基准情形方向准确率：仅统计 baseCase=True（被系统当作基准发出的目标）的方向判定
         if r.get("baseCase", True) and r.get("dirCorrect") is not None:
             g["bcDirEval"] += 1
@@ -432,6 +535,12 @@ def aggregate(recs, pdev_recs=None):
             g["preciseEval"] += 1
             if r.get("preciseHit"):
                 g["ph"] += 1
+            # R822 去平凡精确命中：剔除"目标价在预测当日已被自身收盘满足"的记录（不含预测信息），
+            # 使精确命中率不再被重言式灌水（实测 78 条已触达中 48 条为平凡）。
+            if not r.get("trivialPrecise"):
+                g["PrecNTEval"] += 1
+                if r.get("preciseHit"):
+                    g["phNT"] += 1
         # #782 精确价位偏差(早期可观测精度信号)：见循环后统一按【独立目标观测】装入 g["precDevs"]
         # (R820：不再逐行 append，避免同一目标的多日观测被当作多个独立样本灌水)。
         # #790 目标实时追踪：对【观察窗未闭合且尚未触达】(pending, evaluated=False)目标，
@@ -481,6 +590,15 @@ def aggregate(recs, pdev_recs=None):
             "preciseEval": g["preciseEval"], "matured": g["matured"],
             "avgDays": avg_days, "cold": cold,
             "dirEval": g["dirEval"], "dirHits": g["dirHits"], "dirHitRate": dir_rate,
+            # R822 该组方向判据的零信息基线（同间距/同窗长，全体历史日复算）——供前端并列展示，
+            # 使"方向推进率"可判读：观测≈基线 ⇒ 无预测增量价值。
+            "dirBaseRate": round(g["dirBaseSum"] / g["dirBaseN"] * 100, 1) if g["dirBaseN"] else None,
+            # R822 去平凡精确命中率：剔除"目标价在预测当日已被自身收盘满足"的样本后的真实命中率。
+            "preciseEvalNonTrivial": g["PrecNTEval"] or None,
+            "preciseHitsNonTrivial": g["phNT"] if g["PrecNTEval"] else None,
+            "preciseHitRateNonTrivial": (round((g["phNT"] + 1.0) / (g["PrecNTEval"] + 2.0) * 100, 1)
+                                         if g["PrecNTEval"] >= MIN_SAMPLE else None),
+            "trivialPreciseEval": (g["preciseEval"] - g["PrecNTEval"]) or 0,
             "baseCaseDirEval": g["bcDirEval"], "baseCaseDirHits": g["bcDirHits"],
             "baseCaseDirRate": base_case_dir_rate,
             # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，
@@ -511,6 +629,8 @@ def run_backtest(data, df):
     """编排：存档当日 → 重评全部 → 聚合写盘 → 返回注入统计。"""
     archive(data)
     recs = evaluate(df)
+    # R822 方向判据零信息基线：必须在 evaluate 之后（依赖每条的 dirGap/dirWindow）。
+    dir_base_rate, dir_base_recent = dir_baseline(df, recs)
     # R820 独立目标观测(反重复灌水)：下述所有【价位偏差/离散度/成熟度】统计一律以 pdev_recs 为源，
     # 使"样本量"= 独立预测目标数而非日志行数(卖① 28 行 → 1 个目标)。命中率类指标仍走行级 recs
     # (每日发出即一次预测，属另一个问题)。等价锚 子浪ⅴ≡卖① 已在 episode_reps 内去重。
@@ -660,6 +780,24 @@ def run_backtest(data, df):
         if (precise_eval >= MIN_SAMPLE and matured_count >= MIN_SAMPLE) else None
     # 方向准确率(整体，Laplace 收缩)：早期最诚实信号，独立于成熟门禁。
     dir_realized = round((total_dir_hits + 1.0) / (total_dir_eval + 2.0) * 100, 1) if total_dir_eval else None
+    # ---- R822 诚实化补充（不改变既有字段语义，只把被隐藏的分母暴露出来）----
+    # 旧 realizedHitRate 的分母是【已解决集】(命中 或 窗口已闭合的 miss)：命中可当天判定、miss 必须
+    # 等窗口闭合 → 该集合在任一快照都被命中富集（删失偏差），实测 97.6% vs 全量口径 45.3%。
+    # 这里同时给出两个可解释口径，供前端并列披露（不替换旧字段，避免打断既有下游）：
+    #   hitRateAll     = 命中 / 全部有未来 K 线的记录（未成熟未命中计入分母 → 保守下界）
+    #   hitRateMatured = 成熟样本内命中率（分子分母同为窗口已闭合样本 → 对称、无删失偏差）
+    _with_fut = [r for r in recs if (r.get("elapsedDays") or 0) > 0]
+    _all_hits = sum(1 for r in _with_fut if r.get("hit"))
+    hit_rate_all = round((_all_hits + 1.0) / (len(_with_fut) + 2.0) * 100, 1) if _with_fut else None
+    _mat = [r for r in recs if r.get("matured")]
+    _mat_hits = sum(1 for r in _mat if r.get("hit"))
+    hit_rate_matured = round((_mat_hits + 1.0) / (len(_mat) + 2.0) * 100, 1) if len(_mat) >= MIN_SAMPLE else None
+    # R822 精确命中率去平凡：剔除"目标价在预测当日已被自身收盘满足"的记录（零未来信息即成立）。
+    _pnt = [r for r in recs if r.get("preciseHit") is not None and not r.get("trivialPrecise")]
+    _pnt_hits = sum(1 for r in _pnt if r.get("preciseHit"))
+    _triv_n = sum(1 for r in recs if r.get("preciseHit") is not None and r.get("trivialPrecise"))
+    precise_realized_nt = round((_pnt_hits + 1.0) / (len(_pnt) + 2.0) * 100, 1) \
+        if (len(_pnt) >= MIN_SAMPLE and matured_count >= MIN_SAMPLE) else None
     # #779 基准情形方向准确率(整体)：仅统计 baseCase=True 样本，反映"系统真正当作基准发出的目标"方向正确率
     total_bc_dir_eval = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect") is not None)
     total_bc_dir_hits = sum(1 for r in recs if r.get("baseCase", True) and r.get("dirCorrect"))
@@ -694,6 +832,22 @@ def run_backtest(data, df):
         "totalDirEvaluated": total_dir_eval,
         "totalDirHits": total_dir_hits,
         "dirRealizedHitRate": dir_realized,
+        # ---- R822 诚实化口径（详见上文注释）----
+        # dirBaseRate          : 方向推进率的零信息基线（同间距同窗长）。观测 ≈ 基线 ⇒ 无预测增量。
+        # hitRateAll           : band 命中率·全量口径（未成熟未命中计入分母，保守下界）。
+        # hitRateMaturedOnly   : band 命中率·对称成熟口径（分子分母同为窗口闭合样本，无删失偏差）。
+        # preciseRealizedHitRateNonTrivial : 精确命中率·剔除平凡样本（目标价预测当日已被自身收盘满足）。
+        # preciseTrivialCount  : 被剔除的平凡精确样本数。
+        "dirBaseRate": dir_base_rate,
+        "dirBaseRateRecent": dir_base_recent,
+        "hitRateAll": hit_rate_all,
+        "hitRateMaturedOnly": hit_rate_matured,
+        "hitRateAllEvaluated": len(_with_fut),
+        "hitRateMaturedHits": _mat_hits,
+        "preciseRealizedHitRateNonTrivial": precise_realized_nt,
+        "preciseNonTrivialEvaluated": len(_pnt),
+        "preciseNonTrivialHits": _pnt_hits,
+        "preciseTrivialCount": _triv_n,
         "baseCaseDirEvaluated": total_bc_dir_eval,
         "baseCaseDirHits": total_bc_dir_hits,
         "baseCaseDirRealizedHitRate": base_case_dir_realized,
@@ -742,7 +896,12 @@ if __name__ == "__main__":
     s = run_backtest(d, _df)
     print("回测:", s["totalLogged"], "条存档 /", s["totalEvaluated"], "条已评估(band) /",
           s["maturedCount"], "条窗口已闭合(成熟) /", s["totalPending"], "条观察窗未闭合 / cold=", s["coldStart"])
-    print("  方向准确率(早期信号·主指标)=%s%%" % s["dirRealizedHitRate"])
+    print("  方向推进率(窗内·目标感知)=%s%%   零信息基线 全历史=%s%% / 同期=%s%%"
+          % (s["dirRealizedHitRate"], s.get("dirBaseRate"), s.get("dirBaseRateRecent")))
+    print("  band 触达率 已实现口径(旧/分母仅已解决)=%s%%  |  全量口径=%s%%  |  对称成熟口径=%s%%"
+          % (s["realizedHitRate"], s.get("hitRateAll"), s.get("hitRateMaturedOnly")))
+    print("  精确命中率 旧=%s%%  |  去平凡=%s%% (剔除 %s 条'预测当日已满足'的重言式样本)"
+          % (s["preciseRealizedHitRate"], s.get("preciseRealizedHitRateNonTrivial"), s.get("preciseTrivialCount")))
     print("  基准情形方向准确率(#779·仅 baseCase=True)=%s%% (样本=%d)" % (s["baseCaseDirRealizedHitRate"], s["baseCaseDirEvaluated"]))
     print("  band 触达率(宽松)=%s%%   精确命中率(真实目标价位·需窗口闭合才出数)=%s%%" %
           (s["realizedHitRate"], s["preciseRealizedHitRate"]))

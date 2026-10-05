@@ -121,6 +121,14 @@ def _main():
         # R291 方向准确率(最诚实早期信号)与成熟门禁计数：直接透传 run_backtest 的全局统计，
         # 不重算(防公式漂移、反假绿)。方向准确率独立于成熟门禁，最早第1个未来交易日即可判定。
         dir_realized = bt.get("dirRealizedHitRate")
+        # R822 诚实化补充口径：方向判据的零信息基线（全历史/同期）、band 命中率的全量口径、
+        # 精确命中率去平凡后的真实值。均直接透传 run_backtest，不重算（防公式漂移）。
+        dir_base_rate = bt.get("dirBaseRate")
+        dir_base_recent = bt.get("dirBaseRateRecent")
+        hit_rate_all = bt.get("hitRateAll")
+        hit_rate_matured = bt.get("hitRateMaturedOnly")
+        precise_nt = bt.get("preciseRealizedHitRateNonTrivial")
+        precise_trivial = bt.get("preciseTrivialCount")
         matured_count = bt.get("maturedCount")
         precise_eval = bt.get("preciseEvaluated")
         total_dir_eval = bt.get("totalDirEvaluated")
@@ -216,6 +224,13 @@ def _main():
             "total_dir_hits": total_dir_hits,
             "realized_hit_rate": realized,
             "dir_realized_hit_rate": dir_realized,
+            # R822 诚实化补充：方向推进率的零信息基线 + 全量/对称命中率 + 去平凡精确命中率
+            "dir_base_rate": dir_base_rate,
+            "dir_base_rate_recent": dir_base_recent,
+            "hit_rate_all": hit_rate_all,
+            "hit_rate_matured_only": hit_rate_matured,
+            "precise_realized_hit_rate_non_trivial": precise_nt,
+            "precise_trivial_count": precise_trivial,
             "precise_realized_hit_rate": precise_realized,
             # #782 精确价位精度(早期可观测，不依赖观察窗闭合)：带符号中位偏差(↑overshoot/↓undershoot)
             # 与 ±5% 达标率，补足精确命中率需窗口闭合才出数的盲区，揭示系统性偏差方向。
@@ -226,24 +241,30 @@ def _main():
             "overall_dir_hit_rate": overall_dir,
             "overall_precise_hit_rate": overall_precise,
             "targets": targets,
-            # R291 诚实化三口径说明：方向准确率(最早信号) / band 触达率(宽松偏乐观) /
-            # 精确命中率(仅窗口闭合方出数)。避免"精确未成熟即出数"造成的 ~97% 假绿。
-            "note": ("回测诚实化(R291)三口径：①<b>方向准确率</b>(最早诚实信号, 第1个未来交易日即可判定, "
-                     "独立于成熟门禁)=%s；②<b>band 触达率</b>(宽松, ±σ 可达 23.5%%, 偏乐观)=%s；"
-                     "③<b>精确命中率</b>(真实目标价位, 仅窗口闭合方出数)=%s。当前 %d 个目标观察窗未闭合、"
-                     "%d 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，"
-                     "过早出数会虚高到 ~97%%(假绿)故暂标 None。方向准 %s 证明艾略特框架方向有效，"
-                     "精确价位偏松属常态而非卖点算错。"
-                     "④<b>精确价位精度(#782·早期可观测)</b>：中位偏差 %s(↑overshoot 价格冲过目标 / ↓undershoot 够不到)，"
-                     "±5%%达标率 %s——不依赖观察窗闭合即可观测目标定价松紧、揭示系统性偏差方向，"
-                     "补足③需窗口闭合才出数的盲区。"
+            # R822 诚实化口径说明（替换 R291 旧文案：旧文案含"方向准 X% 证明艾略特框架方向有效"这
+            # 一已被 09-30 深度回测证伪的断言——旧方向判据与目标价无关、零信息基线 94~99%）。
+            "note": ("回测诚实化(R822)四口径："
+                     "①<b>方向推进率</b>(窗内·目标感知，走完 50%% 目标距离)=%s（零信息基线 同期=%s / 全历史=%s）。"
+                     "旧口径只问\"未来是否曾高于预测日收盘\"，与目标价无关（同日同 side 恒定）、零信息基线即 94~99%%，"
+                     "无判别力已弃用；观测≈基线 ⇒ 该期限内目标方向未展现超越随机的预测增量。"
+                     "②<b>band 触达率</b>：已实现口径=%s（分母仅含已解决样本——命中当天可判定、未命中须等窗口闭合，"
+                     "被命中富集故系统性偏高）；全量口径=%s、对称成熟口径=%s 方可解释。"
+                     "③<b>精确命中率</b>(真实目标价位)=%s，其中 %s 条为\"目标价在预测当日已被自身收盘满足\"的"
+                     "重言式样本 → 去平凡后=%s。"
+                     "④<b>精确价位精度(#782)</b>：中位偏差 %s（↑overshoot 冲过目标 / ↓undershoot 够不到），"
+                     "±5%%达标率 %s。当前 %d 个目标观察窗未闭合、%d 个已成熟(窗口闭合)。"
                      % (dir_realized if dir_realized is not None else "样本不足",
+                        dir_base_recent if dir_base_recent is not None else "—",
+                        dir_base_rate if dir_base_rate is not None else "—",
                         realized if realized is not None else "样本不足",
+                        hit_rate_all if hit_rate_all is not None else "—",
+                        hit_rate_matured if hit_rate_matured is not None else "—",
                         precise_realized if precise_realized is not None else "待成熟",
-                        pending, matured_count or 0,
-                        dir_realized if dir_realized is not None else "—",
+                        precise_trivial if precise_trivial is not None else "—",
+                        precise_nt if precise_nt is not None else "—",
                         ("%.2f%%" % (level_precision_median_dev * 100)) if level_precision_median_dev is not None else "样本不足",
-                        level_precision_within5 if level_precision_within5 is not None else "样本不足")),
+                        level_precision_within5 if level_precision_within5 is not None else "样本不足",
+                        pending, matured_count or 0)),
         },
         "accuracy_status": accuracy_status,
         "sentiment": senti,

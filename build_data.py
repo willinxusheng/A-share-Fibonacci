@@ -1315,8 +1315,15 @@ def main():
     # 此处用已定义的 _horizon_for/_sf_exp 预先写入，使归档落库真实长周期；_enrich 后续重算同一 expDays
     # 并补 prob/lo/hi，与展示完全一致，二者不冲突。expDays 依赖 _horizon_for/_sf_exp（不依赖 bt_stats），
     # 而 prob 依赖 bt_stats —— 故 expDays 先于 run_backtest、prob 后于 run_backtest，化解循环依赖。
+    # R822 修正(R48 同源铁律收口)：卖① 与子浪ⅴ 是同一终点(同价同日)，expDays 必须严格同源。
+    # R282 把 _enrich 侧(line ~1972)的卖① 改为 _sf_exp[5] 后，本处(归档 + _empirical_rates 输入)
+    # 仍用 _horizon_for(price) → 产生三处连锁失真：
+    #   ① predictions_log 里 卖① expDays=63 而 子浪ⅴ=59 → 等价锚(R820 去重前提)观察窗不等长；
+    #   ② _empirical_rates 用 63 天算 卖① 实证率(16.4%)、用 59 天算子浪ⅴ(14.6%) → 同一目标两个概率；
+    #   ③ R224 一致性门禁 FAIL（recomputed 14.7 != published 16.4，长期未修）。
+    # 现与 _enrich 统一为同一表达式，使"卖①≡子浪ⅴ"在归档/实测率/展示三层完全自洽。
     for _s in sell_targets:
-        _s["expDays"] = _horizon_for(_s["price"])
+        _s["expDays"] = _sf_exp[5] if _s["name"].startswith("卖①") else _horizon_for(_s["price"])
     for k, _p in enumerate(sub_forecast["points"]):
         _p["expDays"] = _sf_exp[k]
     for k, _r in enumerate(sub_forecast["rows"]):
