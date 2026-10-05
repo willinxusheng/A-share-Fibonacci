@@ -1,7 +1,7 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-09-30T08:03:29Z",
-  "data_last_date": "2026-09-30 16:01:39",
+  "generated_at": "2026-10-05T01:27:02Z",
+  "data_last_date": "2026-10-05 09:25:50",
   "engine": {
     "driftConf": 1.0,
     "bandScale": 0.88,
@@ -27,16 +27,22 @@
     "total_pending": 198,
     "matured_count": 34,
     "precise_evaluated": 103,
-    "total_dir_evaluated": 351,
-    "total_dir_hits": 330,
+    "total_dir_evaluated": 343,
+    "total_dir_hits": 76,
     "realized_hit_rate": 97.6,
-    "dir_realized_hit_rate": 93.8,
+    "dir_realized_hit_rate": 22.3,
+    "dir_base_rate": 40.4,
+    "dir_base_rate_recent": 23.7,
+    "hit_rate_all": 45.3,
+    "hit_rate_matured_only": 88.9,
+    "precise_realized_hit_rate_non_trivial": 54.4,
+    "precise_trivial_count": 48,
     "precise_realized_hit_rate": 75.2,
     "level_precision_median_dev": -0.0095,
     "level_precision_within5_pct": 76.1,
     "cold_start": false,
     "overall_hit_rate": 98.1,
-    "overall_dir_hit_rate": 93.8,
+    "overall_dir_hit_rate": 22.3,
     "overall_precise_hit_rate": 48.1,
     "targets": [
       {
@@ -44,7 +50,7 @@
         "key": "卖① 保守兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.2,
+        "dirHitRate": 2.4,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": -0.111
@@ -54,7 +60,7 @@
         "key": "卖② 标准兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.2,
+        "dirHitRate": 2.4,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": -0.1462
@@ -64,7 +70,7 @@
         "key": "卖③ 激进兑现",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.2,
+        "dirHitRate": 2.4,
         "preciseHitRate": null,
         "avgDays": 1.5,
         "precDevMedian": -0.2028
@@ -74,7 +80,7 @@
         "key": "子浪ⅰ",
         "n": 35,
         "hitRate": 97.3,
-        "dirHitRate": 90.2,
+        "dirHitRate": 43.9,
         "preciseHitRate": 7.7,
         "avgDays": 1.8,
         "precDevMedian": -0.0131
@@ -84,7 +90,7 @@
         "key": "子浪ⅱ",
         "n": 39,
         "hitRate": 97.6,
-        "dirHitRate": 95.1,
+        "dirHitRate": 90.9,
         "preciseHitRate": 97.6,
         "avgDays": 1.0,
         "precDevMedian": 0.0193
@@ -94,7 +100,7 @@
         "key": "子浪ⅲ",
         "n": 6,
         "hitRate": 50.0,
-        "dirHitRate": 90.2,
+        "dirHitRate": 2.4,
         "preciseHitRate": 20.0,
         "avgDays": 3.3,
         "precDevMedian": -0.0852
@@ -104,7 +110,7 @@
         "key": "子浪ⅳ",
         "n": 39,
         "hitRate": 97.6,
-        "dirHitRate": 95.1,
+        "dirHitRate": 2.4,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": 0.1044
@@ -114,7 +120,7 @@
         "key": "子浪ⅴ",
         "n": 2,
         "hitRate": null,
-        "dirHitRate": 90.2,
+        "dirHitRate": 2.4,
         "preciseHitRate": null,
         "avgDays": 1.0,
         "precDevMedian": null
@@ -124,13 +130,13 @@
         "key": "浪⑤起",
         "n": 35,
         "hitRate": 97.3,
-        "dirHitRate": 95.1,
+        "dirHitRate": 75.6,
         "preciseHitRate": 7.7,
         "avgDays": 8.1,
         "precDevMedian": -0.0172
       }
     ],
-    "note": "回测诚实化(R291)三口径：①<b>方向准确率</b>(最早诚实信号, 第1个未来交易日即可判定, 独立于成熟门禁)=93.8；②<b>band 触达率</b>(宽松, ±σ 可达 23.5%, 偏乐观)=97.6；③<b>精确命中率</b>(真实目标价位, 仅窗口闭合方出数)=75.2。当前 198 个目标观察窗未闭合、34 个已成熟(窗口闭合)，精确命中率需等浪⑤等中长期目标观察窗闭合后才诚实可判定，过早出数会虚高到 ~97%(假绿)故暂标 None。方向准 93.8 证明艾略特框架方向有效，精确价位偏松属常态而非卖点算错。④<b>精确价位精度(#782·早期可观测)</b>：中位偏差 -0.95%(↑overshoot 价格冲过目标 / ↓undershoot 够不到)，±5%达标率 76.1——不依赖观察窗闭合即可观测目标定价松紧、揭示系统性偏差方向，补足③需窗口闭合才出数的盲区。"
+    "note": "回测诚实化(R822)四口径：①<b>方向推进率</b>(窗内·目标感知，走完 50% 目标距离)=22.3（零信息基线 同期=23.7 / 全历史=40.4）。旧口径只问\"未来是否曾高于预测日收盘\"，与目标价无关（同日同 side 恒定）、零信息基线即 94~99%，无判别力已弃用；观测≈基线 ⇒ 该期限内目标方向未展现超越随机的预测增量。②<b>band 触达率</b>：已实现口径=97.6（分母仅含已解决样本——命中当天可判定、未命中须等窗口闭合，被命中富集故系统性偏高）；全量口径=45.3、对称成熟口径=88.9 方可解释。③<b>精确命中率</b>(真实目标价位)=75.2，其中 48 条为\"目标价在预测当日已被自身收盘满足\"的重言式样本 → 去平凡后=54.4。④<b>精确价位精度(#782)</b>：中位偏差 -0.95%（↑overshoot 冲过目标 / ↓undershoot 够不到），±5%达标率 76.1。当前 198 个目标观察窗未闭合、34 个已成熟(窗口闭合)。"
   },
   "accuracy_status": "WATCH",
   "sentiment": {
@@ -138,7 +144,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-09-30 16:01:39"
+    "asOf": "2026-10-05 09:25:50"
   },
   "error": null
 }
