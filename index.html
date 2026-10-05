@@ -1866,7 +1866,13 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     rows = '<tr><td colspan="7">样本采集中：目标位已存档，需其后 ' + bt.horizon +
       ' 个交易日观察期累积命中数据后方展示比率</td></tr>';
   }
-  tbl.innerHTML = '<tr><th>预测目标</th><th>样本(已评估)</th><th>方向推进率 / 零信息基线</th><th>band触达率</th><th>精确命中率</th><th>平均触达</th><th>状态</th></tr>' + rows;
+  // R822 过渡期兼容：index.html 经 Pages 在 push 后即时生效，而 data.js 要到下一个数据轮次
+  // 才由 CI 重建带上新口径字段。若检测不到新字段，则退回旧标签并隐藏新解释，避免"表头写
+  // 方向推进率、值却是旧口径 90%+"的误读（旧值待下一轮数据刷新后自动消失）。
+  var _r822 = (bt.dirBaseRate != null);
+  tbl.innerHTML = '<tr><th>预测目标</th><th>样本(已评估)</th><th>' +
+    (_r822 ? '方向推进率 / 零信息基线' : '方向准确率(旧口径·待数据刷新)') +
+    '</th><th>band触达率</th><th>精确命中率</th><th>平均触达</th><th>状态</th></tr>' + rows;
   var coldNote = bt.coldStart
     ? ' 当前处于冷启动：已存档 ' + bt.totalLogged + ' 条，已到观察期 ' + bt.totalEvaluated +
       ' 条（需 ≥ ' + bt.minSample + ' 条方展示比率）。'
@@ -1878,7 +1884,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     ? ' 卖出目标与子浪目标的「概率」列当前为<b>波动率估算</b>（冷启动），样本充足后切换为<b>回测band触达率</b>。'
     : ' 卖出目标与子浪目标的「概率」列 = <b>walk-forward 回测实证 band 触达率</b>（在大样本历史锚点上按同一「宽±σ带」定义复算，<b>非精确命中目标价位</b>）。' +
       '<b>⚠ 两套样本口径不可横向比较</b>：表中「样本」列 = walk-forward 锚点数（供概率融合，覆盖全部历史匹配窗口）；' +
-      '「方向推进率」列 = 预测日志口径（' + (bt.totalLogged || 0) + ' 条存档 / ' + (bt.totalEvaluated || 0) +
+      '「' + (_r822 ? '方向推进率' : '方向准确率') + '」列 = 预测日志口径（' + (bt.totalLogged || 0) + ' 条存档 / ' + (bt.totalEvaluated || 0) +
       ' 条已解决）——同表两列来源不同，样本量差异不代表精确度差异。';
   var ov_p = bt.preciseRealizedHitRate != null ? bt.preciseRealizedHitRate + '%' : '待成熟(窗口未闭合)';
   var ov_pnt = bt.preciseRealizedHitRateNonTrivial != null ? bt.preciseRealizedHitRateNonTrivial + '%' : '—';
@@ -1890,13 +1896,17 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var ov_w = bt.levelPrecisionWithin5Pct != null ? bt.levelPrecisionWithin5Pct + '%' : '—';
   foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
-    ' ｜ <b>整体：方向推进率(窗内走完 50% 目标距离) ' + ov_d + ' ｜ 零信息基线 ' + ov_dbase +
-    ' ｜ band 触达率 已实现口径 ' + ov_b + ' / 全量口径 ' + ov_ball +
-    ' ｜ 精确命中率 ' + ov_p + '(含重言式) / 去平凡 ' + ov_pnt + ' ｜ 价位接近度(±5%达标) ' + ov_w + '</b>' +
-    '（<b>方向推进率</b>已按 R822 改为「目标感知 + 限定观察窗」：旧口径只问"未来是否曾高于预测日收盘"，与目标价无关且零信息基线即达 94~99%，无判别力，故弃用。' +
-    '<b>band 触达率</b>：已实现口径的分母只含「已解决」样本(命中或窗口闭合未命中)，命中当天即可判定而未命中须等窗口闭合 → 该口径被命中富集、系统性偏高，全量口径才是保守下界。' +
-    '精确命中率含「目标价在预测当日已被自身收盘满足」的重言式样本，去平凡后为真实值。' +
-    '已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '）';
+    ' ｜ <b>整体：' + (_r822 ? '方向推进率(窗内走完 50% 目标距离) ' + ov_d + ' ｜ 零信息基线 ' + ov_dbase
+      : '方向准确率(旧口径) ' + ov_d + ' ｜ 零信息基线 待数据刷新') +
+    ' ｜ band 触达率 已实现口径 ' + ov_b + (_r822 ? ' / 全量口径 ' + ov_ball : '') +
+    ' ｜ 精确命中率 ' + ov_p + (_r822 ? '(含重言式) / 去平凡 ' + ov_pnt : '') +
+    ' ｜ 价位接近度(±5%达标) ' + ov_w + '</b>' +
+    (_r822
+      ? '（<b>方向推进率</b>已按 R822 改为「目标感知 + 限定观察窗」：旧口径只问"未来是否曾高于预测日收盘"，与目标价无关且零信息基线即达 94~99%，无判别力，故弃用。' +
+        '<b>band 触达率</b>：已实现口径的分母只含「已解决」样本(命中或窗口闭合未命中)，命中当天即可判定而未命中须等窗口闭合 → 该口径被命中富集、系统性偏高，全量口径才是保守下界。' +
+        '精确命中率含「目标价在预测当日已被自身收盘满足」的重言式样本，去平凡后为真实值。' +
+        '已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '）'
+      : '（本页指标尚未刷新到 R822 新口径，方向准确率为与目标价无关的旧判据；下次数据更新后自动切换为带零信息基线的「方向推进率」）');
   // #790 目标实时追踪：open(pending)目标进度一览，辅助买卖时机判断（不依赖观察窗闭合，可立即查看）
   var trackEl = document.getElementById('btTrack');
   if (trackEl && bt.realizationSummary && bt.realizationSummary.byCat) {
