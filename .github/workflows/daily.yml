@@ -447,6 +447,7 @@ jobs:
       # 安全性：数据已最新时 BUILT==EXPECTED 必然成立，故硬失败断言不会误拦
       # 「仅情绪更新」的提交；若数据也陈旧，则 skip!=true 已为真，行为不变。
       - name: Commit & push data back to main
+        id: dpush
         if: steps.fresh.outputs.skip != 'true' || steps.sentfresh.outputs.stale == 'true'
         run: |
           # R806 陈旧硬失败断言（②）：构建后再次语义比对，把"跑了但数据仍陈旧"变响亮失败。
@@ -465,7 +466,15 @@ jobs:
           git add data/
           if git diff --cached --quiet; then
             echo "⏭️ 数据无变化，跳过提交（市场休市或取数与上次一致）"
+            # R823：显式声明本轮未产生 push，交由下游 keep-alive 步骤兜底保活跃。
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
           else
+            # R823：把 keep-alive 的时间戳一并纳入本次提交 ⇒ 同一次运行只产生一次 push。
+            # 根因：此前「数据 commit」与「keep-alive commit」间隔 1–3 秒连续 push，Pages 的
+            # 分支构建是串行的，第二个构建启动即取消第一个，导致**每个交易日**都出现一次
+            # `Page build failed.`（近 30 次构建中 13 次 errored，而单独 push 的提交全部成功）。
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > last_build.txt
+            git add last_build.txt
             git commit -m "chore: daily data refresh (auto via GitHub Actions)"
             # 若 main 在取数期间被并发源码推送前移（双机/手动 push 源码），先 rebase 再推，
             # 避免 non-fast-forward 致当日数据未上线。data/ 与源码改动不冲突，rebase 安全。
@@ -474,6 +483,7 @@ jobs:
               # `fatal: no upstream branch` 致当日数据推不上去（部署同步铁律失守）。
               git push origin main
               echo "✅ 已推送最新数据到 main，Pages 将自动重新部署"
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
             else
               git rebase --abort 2>/dev/null || true
               echo "⚠️ 与远端冲突，放弃本次推送（保留工作区数据，下轮重试）"
@@ -484,10 +494,11 @@ jobs:
       # ② keep-alive commit（R87 借鉴缠论 deploy.yml，防 GitHub 因长期无 commit 停用 cron 调度）。
       # GitHub 对长期（约 60 天）无 commit 活动的仓库会**自动停用 scheduled workflows**，
       # 造成静默漏更且不易察觉。每天追加一个 [skip ci] 的 last_build.txt 戳 commit 即可保持调度活跃。
-      # 本步骤仅在今天确已通过新鲜度门卫后追加一个空戳 commit，失败不阻断（continue-on-error），
-      # 且 [skip ci] 不会触发额外 CI 循环——与缠论同款机制。
+      # 注意：**commit 活动本身**就足以保活，故数据已提交（pushed=true）时无需再补一戳。
+      # R823：加 `steps.dpush.outputs.pushed != 'true'` 门控 —— 保证「每次运行至多一次 push」，
+      # 从根上消除 Pages 的并发构建取消（[skip ci] 只挡 Actions，挡不住 Pages 的分支构建）。
       - name: Keep-alive commit (prevent GitHub disabling scheduled runs)
-        if: steps.fresh.outputs.skip != 'true'
+        if: steps.fresh.outputs.skip != 'true' && steps.dpush.outputs.pushed != 'true'
         continue-on-error: true
         run: |
           date -u +"%Y-%m-%dT%H:%M:%SZ" > last_build.txt
