@@ -990,24 +990,28 @@ def main():
     _risk_r61 = next(s["price"] for s in supports if s["name"] == "浪3回撤 61.8%")
     _risk_r50y = next(s["price"] for s in supports if s["name"] == "5年区间回撤 50%")
     _risk_r618y = r2(hi5 - (hi5 - lo5) * 0.618)
-    # R824：近端锚点日期原为硬编码字面量 "2026-09-30"（写码当日的数据日期），数据推进后该点
-    # 落在 last_date **之前** ⇒ 三个情景的 points 全部时间非单调（实测 10-08 → 09-30 倒退 8 天），
-    # 前端折线 x 轴出现折返。该点语义 = "当前收盘价 → 近端目标位"的瞬时锚，故锚到 last_date：
-    # 与 points[0] 同日、保留原有垂直跳变表达，且随数据自动前移（消除硬编码过期日期）。
-    # 门禁 audit57 新增「scenarios 各序列日期非降序」断言，防再次引入过期锚点。
+    # R824b：情景「近端锚点」日期不再用硬编码字面量（原 "2026-09-30" = 写码当日日期），
+    # 改为随数据自动前移的**近端未来交易日** = last_date 起 21 个营业日的最后一个（≈1 个自然月后）。
+    # 同时消除两个缺陷：
+    #   (a) 硬编码日期过期后落在 last_date **之前** ⇒ 三条情景 points 全部时间倒序（前端 x 轴折返）；
+    #   (b) R824 初版曾把近端锚点锚到 last_date ⇒ **同一日期出现两个价位**（现价 3811.9 与近端目标 3700），
+    #       同一份产物内自相矛盾，折线退化为零宽竖跳。近端锚点语义 = "约 1 个月后的目标位"，
+    #       必须**严格位于** last_date 之后，与 points[0]（今日收盘现状锚）分工不重叠。
+    # 门禁 audit54 断言：①各序列日期非降序；②至多一个点等于 last_date 且必须是首点；③无早于 last_date 的点。
+    _nt_anchor = pd.bdate_range(last_date, periods=21)[-1].strftime("%Y-%m-%d")
     scenarios = [
         # 浪4完成区间下界=浪③50%回撤支撑(supports[2])、上界=浪④低(w4_low)，
         # 全部由框架派生，消除"3650-3740"硬编码字面（浪型重校订时自动跟随，不会脱节）
         {"name": "基准: 浪4于%.0f-%.0f完成, 浪5看%.0f/%.0f" % (r2(w3_hi - w3 * 0.5), w4_low, _s0, _s1), "color": "#c23531",
-         "points": [[last_date, last_close], [last_date, 3700], ["2026-11-30", 3680],
+         "points": [[last_date, last_close], [_nt_anchor, 3700], ["2026-11-30", 3680],
                     ["2027-01-29", 3950], ["2027-03-31", 4200], ["2027-05-31", _s0], ["2027-08-31", _s1]]},
         {"name": "强势: %.0f已是浪4底, 直接启动浪5" % w4_low, "color": "#e6a23c",
-         "points": [[last_date, last_close], [last_date, 3980], ["2026-11-30", 4258],
+         "points": [[last_date, last_close], [_nt_anchor, 3980], ["2026-11-30", 4258],
                     ["2027-02-26", _s0], ["2027-05-31", _s2], ["2027-08-31", 4700]]},
         {"name": "风险: 跌破%.0f铁律线, 浪型证伪转深调" % KEY_LINE, "color": "#2f9e44",
          # 风险首点=铁律线 KEY_LINE 派生(原硬编码 3670 与 KEY_LINE 脱节 4.4 点，违反单源真值纪律 R231)；
          # 末点 3400 为人工叙事深调目标，不参与数值契约。
-         "points": [[last_date, last_close], [last_date, r2(KEY_LINE)], ["2026-11-30", _risk_r61],
+         "points": [[last_date, last_close], [_nt_anchor, r2(KEY_LINE)], ["2026-11-30", _risk_r61],
                     ["2027-01-29", _risk_r50y], ["2027-04-30", _risk_r618y], ["2027-08-31", 3400]]},
     ]
 
@@ -1337,14 +1341,23 @@ def main():
         return _sf_sorted[-1]["price"]
     scenarios[1]["points"] = [
         [last_date, last_close],
-        # R824：原硬编码 "2026-09-30"（写码当日日期）→ 数据推进后落在 last_date 之前致时间倒序。
-        # 该点语义 = 子浪路径在当前时点应有的价位，故随 last_date 前移。
-        [last_date, r2(_sf_price_at(last_date))],
+        # R824b：近端锚点与另两条情景同一口径——用**近端未来交易日** _nt_anchor（非 last_date，
+        # 否则同一天出现两个价位）；取子浪路径在该日期的线性插值，语义 = "约 1 个月后子浪走到哪"。
+        [_nt_anchor, r2(_sf_price_at(_nt_anchor))],
         ["2026-11-30", r2(_sf_price_at("2026-11-30"))],
         ["2027-02-26", _s0],
         ["2027-05-31", _s2],
         ["2027-08-31", 4700],
     ]
+
+    # ---------- R824b 情景日期护栏（系统性防复发）----------
+    # 上表剩余的 2026-11-30 / 2027-xx 同样是**硬编码未来日期字面量**，数据一旦推进越过它们，
+    # 会重演与 "2026-09-30" 一模一样的时间倒序缺陷（前端 x 轴折返）。
+    # 故在此统一剔除「日期 ≤ last_date」的点（首点永远保留为今日收盘现状锚），使曲线自愈。
+    # 剔除后序列仍严格递增、点数 ≥ 2（_nt_anchor 恒为未来日），由 audit54 复核。
+    for _sc in scenarios:
+        _keep = [p for p in (_sc.get("points") or []) if str(p[0]) > str(last_date)]
+        _sc["points"] = [[last_date, last_close]] + _keep
 
     # ---------- 修复 R44：归档前预先注入真实触达时间 expDays ----------
     # run_backtest 内部 archive→extract_targets 读取 expDays 做观察窗自适应(max(HORIZON,expDays)，R42 修复)。
@@ -2270,10 +2283,22 @@ def main():
                      "『条件推演』，仅作突破确认参考，不再作为基准情形；基准情形转为均值回归，"
                      "目标 %.2f（回撤 %.1f%%）。") % (_tg, _pct),
         })
+        # R824b：原硬编码文案 "…偏离度 + RSI(14)=%.0f 超买…" 有两处与数据相悖——
+        # (a) 「偏离度」后无取值（语义悬空）；(b) 无论 RSI 实测多少一律写「超买」：
+        #     线上实测 RSI(14)=37（明显偏弱）仍显示"超买"，且该 RSI 对衰竭度贡献恰为 0
+        #     （_rsi_pen = max(0,(37-50)/50) = 0）。文字与数据互斥 = 用户可见的错误信息。
+        # 现按实际 RSI 定性，并显式给出偏离度项与超买惩罚权重，使文案可被数据证伪。
+        _rsi_pen_now = max(0.0, (_rsi_now - 50.0) / 50.0)          # 与 _defensive_reversion_target 同式
+        _rsi_word = "超买区" if _rsi_now >= 70 else ("偏强" if _rsi_now >= 50 else "偏弱·未超买")
         data["defensiveScenario"] = {
             "target": _tg, "retracePct": _pct, "expDays": _n_days,
-            "basis": ("均值回归：当前价 %.2f 较浪④底 %.2f 偏离度 + RSI(14)=%.0f 超买，历史同类衰竭顶后中位回撤 %.1f%%"
-                      % (last_close, w4_low, _rsi_now, _pct)),
+            "rsiNow": round(_rsi_now, 1), "rsiPenalty": round(_rsi_pen_now, 4),
+            "deviationPct": round((last_close / w4_low - 1.0) * 100.0, 2),
+            "basis": ("均值回归：当前价 %.2f 较浪④底 %.2f 高出 %.1f%%（偏离度项），"
+                      "RSI(14)=%.0f（%s，超买惩罚 %.0f%%）；衰竭度 = 偏离度 + RSI 超买惩罚，"
+                      "夹紧 35%%~100%% 浪④底空间 ⇒ 目标回撤 %.1f%%"
+                      % (last_close, w4_low, (last_close / w4_low - 1.0) * 100.0,
+                         _rsi_now, _rsi_word, _rsi_pen_now * 100.0, _pct)),
         }
         # additive 降级标记（铁律⑦：绝不改价格/概率，仅增 baseCase/conditional 布尔）
         _apply_defensive_regime(trade_plan, sub_forecast)

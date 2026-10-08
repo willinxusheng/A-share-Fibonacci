@@ -31,12 +31,29 @@ def chk(cond, msg):
         problems.append(msg)
 
 
-# ---------- ① 情景路径日期必须非降序 ----------
+# ---------- ① 情景路径日期必须非降序 + 不得出现过期/同日双价锚点 ----------
+_ld = str(D.get("lastCloseDate") or D.get("updated") or "")
 for i, sc in enumerate(D.get("scenarios") or []):
     ds = [q[0] for q in sc.get("points") or []]
     chk(len(ds) >= 2, "scenarios[%d] points 少于 2 点" % i)
     chk(all(ds[j] <= ds[j + 1] for j in range(len(ds) - 1)),
         "scenarios[%d] 日期非单调（时间倒序）: %s" % (i, ds))
+    # R824b：硬编码未来日期字面量一旦过期会致时间倒序；护栏须把 ≤ last_date 的点剔除。
+    # 三项断言把护栏本身也变成可复算不变量：
+    #   ① 不得存在早于 last_date 的点（过期锚点必须已被剔除）；
+    #   ② 至多一个点等于 last_date，且必须是首点（今日收盘现状锚）；
+    #   ③ 同一日期不得出现两个不同价位（同日双价 = 自相矛盾，R824 初版曾引入）。
+    if _ld:
+        chk(all(d >= _ld for d in ds), "scenarios[%d] 含早于 last_date(%s) 的过期锚点: %s" % (i, _ld, ds))
+        chk(sum(1 for d in ds if d == _ld) <= 1,
+            "scenarios[%d] 有 %d 个点锚在同一日期 %s（同日双价自相矛盾）: %s"
+            % (i, sum(1 for d in ds if d == _ld), _ld, ds))
+        chk(not ds or ds[0] == _ld, "scenarios[%d] 首点应为 last_date(%s) 现状锚: %s" % (i, _ld, ds))
+    _same_day = {}
+    for _d, _p in (sc.get("points") or []):
+        _same_day.setdefault(_d, set()).add(round(float(_p), 4))
+    _dup = {k: v for k, v in _same_day.items() if len(v) > 1}
+    chk(not _dup, "scenarios[%d] 同日期多价位（自相矛盾）: %s" % (i, _dup))
 
 # ---------- ② 浪⑤启动闸门自洽 + 与 state/scenarioSwitch 同源 ----------
 wg = D.get("wave5Gate")
