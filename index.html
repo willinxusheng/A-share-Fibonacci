@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-10-05T00:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R822 回测指标诚实化: 方向推进率+零信息基线/全量band口径/去平凡精确命中率)
+var BUILD_TS = "2026-10-08T12:30:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R824 浪⑤启动闸门: 恒真判据→可证伪确认位 / 情景硬编码日期修复 / 校验卡 ok 派生)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -612,8 +612,8 @@ var BUILD_TS = "2026-10-05T00:55:00Z"; // R-ENTRY: 每次改 index.html 必同�
     <div class="scn-switch">
       <label for="scenarioSel">情景切换：</label>
       <select id="scenarioSel">
-        <option value="strong">强势（浪⑤启动 · 完整子浪）</option>
-        <option value="base">基准（浪④磨底 · 子浪待激活）</option>
+        <option value="strong">强势（浪⑤启动确认 · 完整子浪）</option>
+        <option value="base">基准（浪④震荡 · 浪⑤待确认）</option>
         <option value="risk">风险（跌破铁律 · 子浪失效）</option>
       </select>
       <span id="scnAuto" class="scn-auto"></span>
@@ -1300,7 +1300,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
   function _renderC2ScnStatus(mode) {
     var el = document.getElementById('c2ScnStatus');
     if (!el) return;
-    var nm = mode === 'strong' ? '强势（浪⑤已启动）' : (mode === 'base' ? '基准（浪④磨底）' : '风险（跌破铁律）');
+    var nm = mode === 'strong' ? '强势（浪⑤启动确认）' : (mode === 'base' ? '基准（浪⑤待确认）' : '风险（跌破铁律）');
     var auNm = SS.active === 'strong' ? '强势' : (SS.active === 'base' ? '基准' : '风险');
     var manual = (mode !== SS.active) ? ' <span class="manual">· 手动预览（不影响自动判定）</span>' : '';
     el.innerHTML = '当前情景高亮：<b>' + nm + '</b>' + manual + ' ｜ 自动判定：' + auNm + '（每日更新跟随行情）';
@@ -1332,12 +1332,19 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     var wk = (SS.w4Low != null ? SS.w4Low.toFixed(2) : '');
     var kl = (SS.keyLine != null ? SS.keyLine.toFixed(2) : '');
     var manual = (mode !== auto) ? '（手动预览，不影响自动判定）' : '';
+    // R824：浪⑤启动闸门（可证伪确认位）。旧文案硬编码"浪⑤已启动/浪④磨底中"与旧阈值
+    // （收盘 vs 浪④底，实测恒真）绑定；现一律从 data.wave5Gate 派生，保证页面与引擎同源。
+    var _wg = SS.w5Gate || null;
+    var cl = (_wg && _wg.confirmLevel != null) ? _wg.confirmLevel.toFixed(2) : wk;
+    var cld = (_wg && _wg.confirmDate) ? _wg.confirmDate : '';
+    var dev = (_wg && _wg.deviationPct != null) ? Math.abs(_wg.deviationPct).toFixed(1) : '?';
+    var ed = (_wg && _wg.daysElapsed != null) ? _wg.daysElapsed : '?';
     if (mode === 'strong') {
       el.style.background = '#fff7e6'; el.style.borderColor = '#f0d9a8'; el.style.borderLeftColor = '#e6a23c'; el.style.color = '#7a5a1e';
-      el.innerHTML = '<span class="tag">强势</span><div><b>浪⑤已启动</b>：浪④底 ' + wk + ' 已成、浪⑤直接启动（与上方情景推演图「强势」线同源）。完整子浪 ⅰ-ⅴ 细分见下图；若收盘跌破 ' + wk + ' 自动切【基准】磨底，跌破铁律 ' + kl + ' 切【风险】失效。' + manual + '<br><span style="color:#9a7b3a">自动判定：收盘 ' + lc + ' ≥ 浪④底 ' + wk + ' → 强势（每日更新跟随行情）</span></div>';
+      el.innerHTML = '<span class="tag">强势</span><div><b>浪⑤启动确认</b>：收盘站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，已脱离浪④区间 ⇒ 浪⑤启动（与上方情景推演图「强势」线同源）。完整子浪 ⅰ-ⅴ 细分见下图；若收盘回落跌破上沿 ' + cl + ' 自动切【基准】，跌破铁律 ' + kl + ' 切【风险】失效。' + manual + '<br><span style="color:#9a7b3a">自动判定：收盘 ' + lc + ' ≥ 浪④震荡区上沿 ' + cl + ' → 强势（每日更新跟随行情）</span></div>';
     } else if (mode === 'base') {
       el.style.background = '#eef6ee'; el.style.borderColor = '#cfe6cf'; el.style.borderLeftColor = '#67a867'; el.style.color = '#3f6b3f';
-      el.innerHTML = '<span class="tag" style="color:#2f7d2f;background:#d8efd8">基准</span><div><b>浪④磨底中</b>：浪⑤尚未启动，子浪推演（浪⑤内部 ⅰ-ⅴ 五浪细分）<b>待激活</b>——需待浪④于 3650–' + wk + ' 完成、浪⑤启动后自动激活。下方为基准走势路径（当前价→9/30≈3700 磨底→未来浪⑤目标），<b>非子浪细分</b>。' + manual + '<br><span style="color:#5b8a5b">自动判定：收盘 ' + lc + ' 处于铁律 ' + kl + '～浪④底 ' + wk + ' 之间 → 基准</span></div>';
+      el.innerHTML = '<span class="tag" style="color:#2f7d2f;background:#d8efd8">基准</span><div><b>浪⑤待确认</b>：收盘 ' + lc + ' 尚未站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，还差 ' + dev + '%（自浪④底已 ' + ed + ' 个交易日）——<b>未突破上沿即不算启动</b>，故子浪推演（浪⑤内部 ⅰ-ⅴ）为<b>条件推演</b>、不作为基准情形。下方为基准走势路径（<b>非子浪细分</b>）。' + manual + '<br><span style="color:#5b8a5b">自动判定：铁律 ' + kl + ' ≤ 收盘 ' + lc + ' < 上沿 ' + cl + ' → 基准（浪④震荡 · 浪⑤待确认）</span></div>';
     } else {
       el.style.background = '#fdecec'; el.style.borderColor = '#f3c4c4'; el.style.borderLeftColor = '#c23531'; el.style.color = '#8a2b2b';
       el.innerHTML = '<span class="tag" style="color:#c23531;background:#f7d4d4">风险</span><div><b>跌破铁律，数浪证伪</b>：收盘有效跌破铁律线 ' + kl + '，浪⑤数浪失败，子浪推演<b>失效</b>。下方为风险下行路径，仅供风控参考。' + manual + '<br><span style="color:#b05a5a">自动判定：收盘 ' + lc + ' < 铁律 ' + kl + ' → 风险</span></div>';
@@ -1490,7 +1497,7 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
           { name: '实际收盘', type: 'line', data: actual, symbol: 'none', lineStyle: { color: '#242a35', width: 1.8 }, itemStyle: { color: '#242a35' } }
         ].concat(maSeries).concat([
           { name: '基准走势(非子浪)', type: 'line', data: bproj, symbol: 'circle', symbolSize: 5, lineStyle: { color: NAVY, width: 2, type: 'dashed' }, itemStyle: { color: NAVY },
-            markPoint: { data: [ { coord: bMid, value: '浪④磨底', symbol: 'pin', symbolSize: 50, itemStyle: { color: '#67a867' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
+            markPoint: { data: [ { coord: bMid, value: '浪④震荡', symbol: 'pin', symbolSize: 50, itemStyle: { color: '#67a867' }, label: { show: true, fontSize: 10, color: '#fff' } } ] },
             markLine: { symbol: 'none', data: [ { yAxis: D.tradePlan.stopLine.price, lineStyle: { type: 'solid', color: ORANGE, width: 1.5 }, label: { formatter: '铁律线 ' + fmt2(D.tradePlan.stopLine.price), position: 'insideStartBottom', fontSize: 11, color: ORANGE } } ] } }
         ]).concat([_rsiSeries()]) });
     } else {
@@ -1756,7 +1763,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     var zoneTxt = belowKey ? ('<b style="color:#c23531">已跌破铁律线（风控位 ' + keyPrice.toFixed(2) + '），数浪证伪，转防御</b>') : (actionable ? '<b style="color:#2f9e44">买点参考区内</b>' : '买点参考区上方，等待回踩');
     var keyTxt = belowKey ? '<b style="color:#c23531">已跌破，数浪证伪</b>' : '缓冲 <b>' + distKey.toFixed(2) + '%</b>，跌破即转防御';
     var s1Txt = distS1 >= 0 ? '上行空间 <b>+' + distS1.toFixed(2) + '%</b>' : '已超出目标 <b>' + Math.abs(distS1).toFixed(2) + '%</b>';
-    var scnName = mode === 'strong' ? '强势（浪⑤已启动）' : (mode === 'base' ? '基准（浪④磨底·子浪待激活）' : '风险（跌破铁律·数浪证伪）');
+    var scnName = mode === 'strong' ? '强势（浪⑤启动确认）' : (mode === 'base' ? '基准（浪④震荡·浪⑤待确认）' : '风险（跌破铁律·数浪证伪）');
     var scnBar = mode === 'strong'
       ? '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12.5px;background:#fff7e6;border:1px solid #f0d9a8;color:#7a5a1e"><b>当前情景：' + scnName + '</b> · 浪⑤子浪与目标区有效，按完整框架操作。</div>'
       : (mode === 'base'

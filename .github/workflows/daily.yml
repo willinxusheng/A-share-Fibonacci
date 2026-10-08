@@ -240,11 +240,16 @@ jobs:
       # 用 ast 抽取 build_data._drift_prior_prob 与 oos_breadth.enrich 内联首达段真实源码、桩执行，
       # 与可导入真源 calibrate.first_passage_prob 及一份独立参考实现逐点数值比对；任一副本漂移
       # （改了公式忘改其他副本）即 EXIT≠0 阻断数据推送——杜绝弱守卫自洽假绿（R85 反假绿纪律）。
-      - name: Gatekeepers (validate + audit49..53 + R108 holiday-target)
+      # 第 10 道闸门：浪⑤启动闸门 / 情景路径时间序 / 校验卡 ok 派生 一致性守门员（audit54）。
+      # R824 固化的三类"判据退化"不变量：① 状态判据不得退化为恒真（confirmLevel 必须严格高于浪④底）；
+      # ② scenarios 各序列日期必须非降序（原硬编码 "2026-09-30" 锚点致时间倒序）；③ rules/ratioCheck
+      # 的 ok 必须由 actual 对 theory 区间复算得出（原大批硬编码 True，前端 warn 分支成死代码）。
+      # 已通过 7/7 缺陷注入正控（含正则需容许 theory 中 ~ 前夹 % 的坑，否则静默漏报=假绿）。
+      - name: Gatekeepers (validate + audit49..54 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit_holiday_targets.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done

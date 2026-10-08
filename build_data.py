@@ -210,15 +210,23 @@ def _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence):
     rr = {"level": None, "reasons": []}
     _s1 = (trade_plan["sellTargets"][0]["price"]
            if trade_plan.get("sellTargets") and trade_plan["sellTargets"][0].get("price") else None)
-    _in_w5 = last_close >= w4_low
-    _room_exhausted = (_s1 is not None) and (last_close >= _s1 * 0.97)
+    _in_w5 = last_close >= float(trade_plan["stopLine"]["price"])   # R824：原用浪④底(恒真)，改用铁律线
+    # R824 条件B 双轨。原仅「临近卖①（≥卖①×0.97）」，但守卫声称要防的 2026-08-18 局部顶
+    # （收盘 3990.30）距该阈值 4359.12 还差 9.2% ⇒ **目标场景下 100% 不触发**（回测实证：
+    # 浪④底以来满足"临近卖①"的交易日数 = 0），守卫形同虚设。新增第二轨「上涨停滞」：
+    # 近端高点确立 ≥5 个交易日未创新高、且现价已回落 ≥3% —— 正是 08-18 之后的真实形态。
+    _hi_seg_b = df["high"].iloc[-60:]
+    _recent_high_b = float(_hi_seg_b.max())
+    _days_since_high_b = (len(_hi_seg_b) - 1) - int(_hi_seg_b.values.argmax())
+    _faded = (_days_since_high_b >= 5) and (last_close <= _recent_high_b * 0.97)
+    _room_exhausted = (((_s1 is not None) and (last_close >= _s1 * 0.97))
+                       or _faded)
     if _in_w5 and _room_exhausted:
         _rsi_now = float(rsi.iloc[-1]) if (len(rsi) >= 1 and not pd.isna(rsi.iloc[-1])) else None
         _rsi_5ago = float(rsi.iloc[-6]) if (len(rsi) >= 6 and not pd.isna(rsi.iloc[-6])) else None
-        _hi_seg = df["high"].iloc[-20:]
-        _recent_high = float(_hi_seg.max())
-        _hi_idx = int(_hi_seg.values.argmax())
-        _days_since_high = (len(_hi_seg) - 1) - _hi_idx
+        _hi_seg = _hi_seg_b            # R824：与条件B 同窗（60 日），避免两处窗口不一致
+        _recent_high = _recent_high_b
+        _days_since_high = _days_since_high_b
         _near_recent_high = last_close >= _recent_high * 0.99
         # 局部顶停滞：贴近近期高点但≥2交易日未创新高（滞涨/派发），且未有效突破该高
         _local_top_stall = _near_recent_high and _days_since_high >= 2 and last_close <= _recent_high * 1.001
@@ -234,13 +242,23 @@ def _reversal_risk_guard(last_close, w4_low, trade_plan, rsi, df, divergence):
         if _local_top_stall:
             rr["reasons"].append("近 %d 交易日未创出新高，现价 %.2f 贴近近期高点 %.2f（滞涨/派发）"
                                  % (_days_since_high, last_close, _recent_high))
-        _sig = sum([_rsi_ob, _rsi_roll, _div, _local_top_stall])
+        if _faded:
+            rr["reasons"].append("近端高点 %.2f 确立于 %d 个交易日前，现价已回落 %.1f%%（上行动能停滞）"
+                                 % (_recent_high, _days_since_high,
+                                    (1.0 - last_close / _recent_high) * 100.0))
+        _sig = sum([_rsi_ob, _rsi_roll, _div, _local_top_stall, _faded])
         if _sig >= 2 or _div:
             rr["level"] = "warn"
         elif _sig == 1:
             rr["level"] = "watch"
     if rr["level"]:
-        rr["reasons"].insert(0, "浪⑤上行目标临近完成(卖① %.2f)，以下信号提示反转/假突破风险：" % _s1)
+        # R824：区分两条入场路径的文案（原固定写"临近完成"，在"停滞轨"触发时与事实不符）。
+        if (_s1 is not None) and (last_close >= _s1 * 0.97):
+            rr["reasons"].insert(0, "浪⑤上行目标临近完成(卖① %.2f)，以下信号提示反转/假突破风险：" % _s1)
+        else:
+            rr["reasons"].insert(0, "浪⑤推进停滞：现价 %.2f 距卖① %.2f 尚有 %.1f%%，且未站上浪④震荡区上沿；"
+                                    "以下信号提示上行框架失效风险："
+                                    % (last_close, _s1, (1.0 - last_close / _s1) * 100.0))
     return rr
 
 
@@ -530,17 +548,22 @@ def main():
     # 浪④时长量到浪4低(与浪②量到浪2底对称)，而非到末日——否则多算 (末日-浪4低) 交易日，
     # 使"交替规则"时序对比基准不对称（浪②用精确时长，浪④若用"至今"会虚增约11日）
     w4_days = safe_idx(idx, pd.Timestamp(_w4_low_date)) - safe_idx(idx, pd.Timestamp(wave_points[8]["date"]))
+    # R824：六条规则的 ok 一律由实测值派生。原先 5/6 条硬编码 True ⇒ ① 前端 index.html:918
+    # 的 `r.ok === true ? ... : warn` 分支成为**死代码**（永不渲染警告样式）；② 浪型重校订使
+    # 某条约束被违反时（如 浪4低 跌破 浪1顶 即违反铁律三），校验卡仍显示"通过" —— 判据退化为
+    # 恒真、零信息量（与 R822 的 dirCorrect 同族）。与 582 行 `_ok3` 的既有做法对齐。
+    _ca_v = wave_points[3]["price"] / wave_points[1]["price"]   # 大级别调整 C/A
     rules = [
-        {"name": "铁律一 · 浪2不破浪1起点", "ok": True,
+        {"name": "铁律一 · 浪2不破浪1起点", "ok": bool(w3_lo > W1_START),
          "detail": f"浪2低点 {w3_lo:.2f} > 浪1起点 {W1_START:.2f}"},
-        {"name": "铁律二 · 浪3非最短推动浪", "ok": True,
+        {"name": "铁律二 · 浪3非最短推动浪", "ok": bool(w3 > w1),
          "detail": "浪3 +%.2f > 浪1 +%.2f" % (w3, w1)},
-        {"name": "铁律三 · 浪4不入浪1价格区", "ok": True,
+        {"name": "铁律三 · 浪4不入浪1价格区", "ok": bool(w4_low > KEY_LINE),
          "detail": "浪4低点 %.2f > 浪1顶 %.2f（缓冲仅%.1f%%，警戒）" % (w4_low, KEY_LINE, (w4_low - KEY_LINE) / KEY_LINE * 100)},
-        {"name": "交替规则 · 浪2/浪4形态交替", "ok": True,
+        {"name": "交替规则 · 浪2/浪4形态交替", "ok": bool(w2_days != w4_days),
          "detail": f"浪②历时{w2_days}个交易日复杂平台型 vs 浪④{w4_days}个交易日急促锯齿型，时间与形态双交替"},
-        {"name": "等量特征 · 调整浪C≈A", "ok": True,
-         "detail": "大级别调整 C/A = %.2f，符合等量关系" % (wave_points[3]["price"] / wave_points[1]["price"])},
+        {"name": "等量特征 · 调整浪C≈A", "ok": bool(0.618 <= _ca_v <= 1.0),
+         "detail": "大级别调整 C/A = %.2f，符合等量关系" % _ca_v},
         {"name": "通道规则 · 浪⑤运行于艾略特通道", "ok": None,
          "detail": "浪2-浪4连线及其过浪3顶平行线构成通道，见推演图"},
     ]
@@ -580,13 +603,21 @@ def main():
     # 浪3/浪1 达标判定由实测比例派生（单一真源）：>=1.5 视为接近经典 1.618 扩展达标，
     # 浪型重校订使比例越过阈值时 ok 自动翻转，避免"verdict 写偏弱但比例已达标"脱节。
     _ok3 = _w3_ratio >= 1.5
+    # R824：其余四项的 ok 亦按各自 theory 区间由实测值派生（原硬编码 True ⇒ "actual 已越界
+    # 而 ok 仍为 True"的乐观标注：实测 浪2 回撤 64.4%(>61.8) / 浪4 回撤 42.5%(>38.2) /
+    # 子浪ⅱ 回撤 22.0%(<38.2) 三项均越界却全标通过，前端 index.html:1695 的 ok/mid 分支成死代码）。
+    # verdict 文案（"略深/偏浅"）本就描述越界，与 ok=False 自洽，故只改 ok 不改文案。
+    _ok_ca = 0.618 <= _ca <= 1.0
+    _ok_w2 = 50.0 <= _w2_ret <= 61.8
+    _ok_w4 = 23.6 <= _w4_ret <= 38.2
+    _ok_sub = 38.2 <= _sub_ret <= 61.8
     ratio_check = [
-        {"item": "调整浪 C/A", "actual": "%.2f" % _ca, "theory": "0.618~1.0", "verdict": "符合", "ok": True},
-        {"item": "浪2 回撤浪1", "actual": "%.1f%%" % _w2_ret, "theory": "50%~61.8%", "verdict": "略深，未破起点", "ok": True},
+        {"item": "调整浪 C/A", "actual": "%.2f" % _ca, "theory": "0.618~1.0", "verdict": "符合", "ok": _ok_ca},
+        {"item": "浪2 回撤浪1", "actual": "%.1f%%" % _w2_ret, "theory": "50%~61.8%", "verdict": "略深，未破起点", "ok": _ok_w2},
         {"item": "浪3 / 浪1", "actual": "%.3f" % _w3_ratio, "theory": "1.618",
          "verdict": "达标（≥1.5×浪1）" if _ok3 else "偏弱，动能温和", "ok": _ok3},
-        {"item": "浪4 回撤浪3", "actual": "%.1f%%" % _w4_ret, "theory": "23.6%~38.2%", "verdict": "略深，守铁律线", "ok": True},
-        {"item": "子浪ⅱ 回撤子浪ⅰ", "actual": "%.1f%%" % _sub_ret, "theory": "38.2%~61.8%", "verdict": "偏浅，强势特征", "ok": True},
+        {"item": "浪4 回撤浪3", "actual": "%.1f%%" % _w4_ret, "theory": "23.6%~38.2%", "verdict": "略深，守铁律线", "ok": _ok_w4},
+        {"item": "子浪ⅱ 回撤子浪ⅰ", "actual": "%.1f%%" % _sub_ret, "theory": "38.2%~61.8%", "verdict": "偏浅，强势特征", "ok": _ok_sub},
     ]
 
     # ---------- 量能验证（按交易日索引切片：无重叠/无遗漏/顶点日归前段）----------
@@ -959,19 +990,24 @@ def main():
     _risk_r61 = next(s["price"] for s in supports if s["name"] == "浪3回撤 61.8%")
     _risk_r50y = next(s["price"] for s in supports if s["name"] == "5年区间回撤 50%")
     _risk_r618y = r2(hi5 - (hi5 - lo5) * 0.618)
+    # R824：近端锚点日期原为硬编码字面量 "2026-09-30"（写码当日的数据日期），数据推进后该点
+    # 落在 last_date **之前** ⇒ 三个情景的 points 全部时间非单调（实测 10-08 → 09-30 倒退 8 天），
+    # 前端折线 x 轴出现折返。该点语义 = "当前收盘价 → 近端目标位"的瞬时锚，故锚到 last_date：
+    # 与 points[0] 同日、保留原有垂直跳变表达，且随数据自动前移（消除硬编码过期日期）。
+    # 门禁 audit57 新增「scenarios 各序列日期非降序」断言，防再次引入过期锚点。
     scenarios = [
         # 浪4完成区间下界=浪③50%回撤支撑(supports[2])、上界=浪④低(w4_low)，
         # 全部由框架派生，消除"3650-3740"硬编码字面（浪型重校订时自动跟随，不会脱节）
         {"name": "基准: 浪4于%.0f-%.0f完成, 浪5看%.0f/%.0f" % (r2(w3_hi - w3 * 0.5), w4_low, _s0, _s1), "color": "#c23531",
-         "points": [[last_date, last_close], ["2026-09-30", 3700], ["2026-11-30", 3680],
+         "points": [[last_date, last_close], [last_date, 3700], ["2026-11-30", 3680],
                     ["2027-01-29", 3950], ["2027-03-31", 4200], ["2027-05-31", _s0], ["2027-08-31", _s1]]},
         {"name": "强势: %.0f已是浪4底, 直接启动浪5" % w4_low, "color": "#e6a23c",
-         "points": [[last_date, last_close], ["2026-09-30", 3980], ["2026-11-30", 4258],
+         "points": [[last_date, last_close], [last_date, 3980], ["2026-11-30", 4258],
                     ["2027-02-26", _s0], ["2027-05-31", _s2], ["2027-08-31", 4700]]},
         {"name": "风险: 跌破%.0f铁律线, 浪型证伪转深调" % KEY_LINE, "color": "#2f9e44",
          # 风险首点=铁律线 KEY_LINE 派生(原硬编码 3670 与 KEY_LINE 脱节 4.4 点，违反单源真值纪律 R231)；
          # 末点 3400 为人工叙事深调目标，不参与数值契约。
-         "points": [[last_date, last_close], ["2026-09-30", r2(KEY_LINE)], ["2026-11-30", _risk_r61],
+         "points": [[last_date, last_close], [last_date, r2(KEY_LINE)], ["2026-11-30", _risk_r61],
                     ["2027-01-29", _risk_r50y], ["2027-04-30", _risk_r618y], ["2027-08-31", 3400]]},
     ]
 
@@ -1301,7 +1337,9 @@ def main():
         return _sf_sorted[-1]["price"]
     scenarios[1]["points"] = [
         [last_date, last_close],
-        ["2026-09-30", r2(_sf_price_at("2026-09-30"))],
+        # R824：原硬编码 "2026-09-30"（写码当日日期）→ 数据推进后落在 last_date 之前致时间倒序。
+        # 该点语义 = 子浪路径在当前时点应有的价位，故随 last_date 前移。
+        [last_date, r2(_sf_price_at(last_date))],
         ["2026-11-30", r2(_sf_price_at("2026-11-30"))],
         ["2027-02-26", _s0],
         ["2027-05-31", _s2],
@@ -2127,16 +2165,52 @@ def main():
     _key_line = trade_plan["stopLine"]["price"]   # 3674.40 铁律线
     _prev_high = w3_hi                              # 4258.86 浪③顶（前高）
     _bz_hi = trade_plan["buyZones"][0]["hi"]
-    # R278：与 scenarioSwitch 三段判定同源（避免头部徽章与情景联动/子浪推演自相矛盾）。
-    # 旧逻辑用「≥浪③顶4258.86才认浪⑤/≤买区hi才认买点」的旧阈值，导致 3741–4258 全区间
-    # （含当前收盘 3982.65 ≥ 浪④底 3741.11）被错误标为「浪④回调中·等待回踩」，与 strong 情景冲突。
+    # R824 根因修复：旧判据 `last_close >= w4_low`（浪④底）在「浪④成立」前提下**恒真**，
+    # 判别力为零 —— 回测实证：浪④底(2026-07-20)以来 53/53 = **100%** 落入该分支，头部徽章
+    # 连续 52 个交易日显示"浪⑤已启动"，期间指数净推进仅 +0.41%（卖① 目标完成度 28%）。
+    # 该判据还与同一份产物自相矛盾：wavePoints 末点标签即"浪4?(未确认)"。
+    # 现改用**可证伪**的确认位 = 浪④震荡区上沿（浪④底以来最高价）：
+    #   收盘 ≥ 上沿        → 已脱离浪④区间 ⇒ 浪⑤启动**确认**；
+    #   铁律线 ≤ 收盘 < 上沿 → 仍处浪④震荡 ⇒ 浪⑤**待确认**（超期未确认标记 stalled）；
+    #   收盘 < 铁律线      → 数浪**证伪**。
+    # 铁律⑦：仅新增披露字段 + 状态文案，艾略特价位/概率一字未动。
+    _w4_i = safe_idx(idx, pd.Timestamp(_w4_low_date))
+    _w4_seg = df["high"].iloc[_w4_i:].values
+    _w4_seg_hi = float(_w4_seg.max())                   # 浪④以来最高价 = 震荡区上沿（确认位）
+    _w4_seg_hi_i = _w4_i + int(_w4_seg.argmax())
+    _w5_dev = (last_close / _w4_seg_hi - 1.0) * 100.0    # 现价距确认位（负 = 尚未突破）
+    _w5_elapsed = len(idx) - 1 - _w4_i                   # 自浪④底已过交易日数
+    _w5_budget = int(_sf_exp[5])                         # 卖① 的 expDays（与生产同源，R48）
     if last_close < _key_line:
-        state = {"text": "铁律线跌破 · 数浪证伪 · 转防御", "cls": "danger"}
-    elif last_close < w4_low:
-        state = {"text": "浪④磨底中 · 子浪待激活", "cls": "ghost"}
+        _w5_status = "invalid"
+    elif last_close >= _w4_seg_hi:
+        _w5_status = "confirmed"
     else:
-        state = {"text": "浪⑤已启动 · 子浪推进", "cls": "gold"}
+        _w5_status = "pending"
+    _w5_stalled = bool(_w5_status == "pending" and _w5_elapsed >= _w5_budget)
+    wave5_gate = {
+        "status": _w5_status,
+        "confirmed": bool(_w5_status == "confirmed"),
+        "confirmLevel": r2(_w4_seg_hi),
+        "confirmDate": idx[_w4_seg_hi_i].strftime("%Y-%m-%d"),
+        "deviationPct": round(_w5_dev, 2),
+        "daysElapsed": int(_w5_elapsed),
+        "daysBudget": _w5_budget,
+        "stalled": _w5_stalled,
+        "basis": ("浪⑤启动判据 = 收盘站上浪④震荡区上沿 %.2f（%s 高点，自浪④底 %.2f 起算）；"
+                  "未站上则仍属浪④震荡、子浪推演为条件推演。判据可证伪：收盘跌破铁律线 %.2f 即浪型证伪。"
+                  % (r2(_w4_seg_hi), idx[_w4_seg_hi_i].strftime("%Y-%m-%d"), w4_low, _key_line)),
+    }
+    if _w5_status == "confirmed":
+        state = {"text": "浪⑤突破确认 · 子浪推进", "cls": "gold"}
+    elif _w5_status == "invalid":
+        state = {"text": "铁律线跌破 · 数浪证伪 · 转防御", "cls": "danger"}
+    elif _w5_stalled:
+        state = {"text": "浪④震荡超时 · 浪⑤未确认（已 %d 个交易日）" % _w5_elapsed, "cls": "ghost"}
+    else:
+        state = {"text": "浪④震荡中 · 浪⑤待确认（距 %.0f 还差 %.1f%%）" % (_w4_seg_hi, -_w5_dev), "cls": "ghost"}
     state["reversalRisk"] = reversalRisk  # #772 additive 反转风险守卫（不覆盖浪型状态 text/cls）
+    state["wave5Gate"] = wave5_gate       # R824 additive 浪⑤启动闸门（可证伪披露，铁律⑦）
 
     # ---------- 图3(panel p3)注释：子浪幅度/回撤由 subWavePoints 派生（消除 +993/22%/4258.86 双份真值）----------
     _p3_amp = sub_wave_points[1]["price"] - sub_wave_points[0]["price"]
@@ -2164,6 +2238,7 @@ def main():
         "indexCompare": index_compare, "resonance": resonance, "crossMarket": crossMarket, "distances": distances,
         "scenarios": scenarios, "zones": zones, "findings": findings,
         "tradePlan": trade_plan, "state": state, "p3Note": p3_note,
+        "wave5Gate": wave5_gate,   # R824：浪⑤启动闸门（可证伪确认位，铁律⑦ additive）
         "subForecast": sub_forecast, "divergence": divergence,
         "indexBase": _norm_base, "tzBaseStart": _tz_base_start, "tzBaseTop": _tz_base_top,
         "calibration": _calib,
@@ -2214,37 +2289,44 @@ def main():
     # 此处直接注入 FIB_DATA.backtest，避免重复跑。
     # ---------- 情景自适应切换（随机应变）：按当日收盘自动判定 activeScenario ----------
     # 用户要求：走强势→子浪切强势、走弱势→切弱势、走基准→切基准走势，系统随行情自动应变。
-    # 判定基于当日收盘相对两个既有关键位：铁律线 KEY_LINE(3674.40) 与 浪④底 w4_low(3741.11)。
-    #   last_close < KEY_LINE          → risk   （跌破铁律，数浪证伪，子浪失效）
-    #   KEY_LINE ≤ last_close < w4_low → base   （浪④磨底中，浪⑤未启动，子浪推演待激活）
-    #   last_close ≥ w4_low            → strong （浪⑤已启动，展示完整子浪细分）
-    if last_close < KEY_LINE:
+    # R824：阈值从「浪④底 w4_low」改为「浪④震荡区上沿 _w4_seg_hi」，与头部徽章（state）
+    # 共用同一个**可证伪**的浪⑤启动闸门 _w5_status。旧版两处同源但**同错**：把同一条恒真判据
+    # 复制两份互相"印证"，不构成独立验证（旧判据实测 53/53 = 100% 恒真）。
+    #   _w5_status == invalid   → risk   （跌破铁律，数浪证伪，子浪失效）
+    #   _w5_status == pending   → base   （浪④震荡中，浪⑤待确认，子浪推演为条件推演）
+    #   _w5_status == confirmed → strong （浪⑤启动确认，展示完整子浪细分）
+    if _w5_status == "invalid":
         _active_scn = "risk"
-    elif last_close < w4_low:
-        _active_scn = "base"
-    else:
+    elif _w5_status == "confirmed":
         _active_scn = "strong"
-    # 基准/风险为「严谨占位」：不杜撰未启动的子浪，仅提供各自走势路径 + 待激活/失效说明；
-    # 与子浪图同源的强子浪推演仅在 strong 下生成（审计铁律 子浪ⅴ≡卖① 仅校验 strong subForecast）。
+    else:
+        _active_scn = "base"
+    # 基准/风险为「严谨占位」：不杜撰未启动的子浪，仅提供各自走势路径 + 待激活/失效说明。
+    # 注：subForecast 恒生成（~1211 行无条件赋值），故 子浪ⅴ≡卖① 不变量 与 active 解耦。
     scenario_switch = {
         "active": _active_scn,
         "lastClose": round(last_close, 2),
         "keyLine": round(KEY_LINE, 2),
         "w4Low": round(w4_low, 2),
+        "w5Gate": wave5_gate,   # R824：浪⑤启动闸门（与 state.wave5Gate 同源）
         "rules": [
-            "收盘 ≥ %.2f（浪④底）→ 强势：浪⑤已启动，展示完整子浪细分" % w4_low,
-            "%.2f（铁律）≤ 收盘 < %.2f → 基准：浪④磨底中，子浪推演待激活" % (KEY_LINE, w4_low),
+            "收盘 ≥ %.2f（浪④震荡区上沿）→ 强势：浪⑤启动确认，展示完整子浪细分" % _w4_seg_hi,
+            "%.2f（铁律）≤ 收盘 < %.2f → 基准：浪④震荡中，浪⑤待确认，子浪推演为条件推演" % (KEY_LINE, _w4_seg_hi),
             "收盘 < %.2f（铁律）→ 风险：数浪证伪，子浪失效" % KEY_LINE,
         ],
         "base": {
             "name": scenarios[0]["name"], "color": scenarios[0]["color"],
-            "path": scenarios[0]["points"],   # 基准走势线（当前价→磨底3700→未来浪⑤目标），非子浪细分
+            "path": scenarios[0]["points"],   # 基准走势线（当前价→震荡→未来浪⑤目标），非子浪细分
             "pending": True,
             # 磨底区间下沿 _r50 与浪④底 w4_low 均从单一真值派生（_r50=浪3回撤50%=supports[2]，
-            # w4_low 即上方 w4Low），消除"3650"硬编码字面与派生值双份真值漂移；浪型重校订自动跟随
-            "note": ("当前处于【基准】情景：浪④于 %.0f–%.0f 区间磨底（9/30 约 3700），浪⑤尚未启动。"
-                    "子浪推演（浪⑤内部 ⅰ-ⅴ 五浪细分）需待浪④完成、浪⑤启动后才激活——"
-                    "下方为基准走势路径（非子浪细分），仅供参考。") % (_r50, w4_low),
+            # w4_low 即上方 w4Low），消除"3650"硬编码字面与派生值双份真值漂移；浪型重校订自动跟随。
+            # R824：note 原含硬编码过期日期与魔数"（9/30 约 3700）"，改为由闸门实测值派生。
+            "note": ("当前处于【基准】情景：收盘 %.2f 尚未站上浪④震荡区上沿 %.2f（%s 高点），"
+                     "浪⑤未确认启动（自浪④底已 %d 个交易日），参考震荡下沿 %.0f。"
+                     "子浪推演（浪⑤内部 ⅰ-ⅴ 五浪细分）为**条件推演**，待收盘站上上沿方可确认——"
+                     "下方为基准走势路径（非子浪细分），仅供参考。")
+                    % (last_close, _w4_seg_hi, idx[_w4_seg_hi_i].strftime("%Y-%m-%d"),
+                       _w5_elapsed, _r50),
         },
         "risk": {
             "name": scenarios[2]["name"], "color": scenarios[2]["color"],
