@@ -57,7 +57,7 @@
    "signal": 1
   },
   {
-   "date": "2026-10-13",
+   "date": "2026-10-15",
    "signal": 1
   }
  ],
@@ -195,8 +195,8 @@
    "unconfirmed": false
   },
   {
-   "date": "2026-07-20",
-   "price": 3741.11,
+   "date": "2026-10-15",
+   "price": 3674.82,
    "type": "L",
    "unconfirmed": true
   }
