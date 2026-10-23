@@ -1,8 +1,8 @@
 window.CHANLUN_VIEW = {
   "symbol": "sh000001",
   "name": "上证指数",
-  "lastDate": "2026-10-22",
-  "lastClose": 3658.03,
+  "lastDate": "2026-10-23",
+  "lastClose": 3690.48,
   "scenario": "空头延续",
   "confidence": 44,
   "adaptiveHorizon": 30,
@@ -10,43 +10,43 @@ window.CHANLUN_VIEW = {
     {
       "t": 8,
       "main": 3874.7,
-      "med": 3665.92,
-      "lo": 3481.08,
-      "hi": 3984.42
+      "med": 3698.35,
+      "lo": 3511.74,
+      "hi": 4020.24
     },
     {
       "t": 15,
       "main": 3827.92,
-      "med": 3673.5,
-      "lo": 3416.84,
-      "hi": 4127.96
+      "med": 3705.92,
+      "lo": 3446.8,
+      "hi": 4165.21
     },
     {
       "t": 20,
       "main": 3814.49,
-      "med": 3678.57,
-      "lo": 3384.15,
-      "hi": 4207.47
+      "med": 3710.97,
+      "lo": 3413.74,
+      "hi": 4245.5
     },
     {
       "t": 30,
       "main": 3788.48,
-      "med": 3689.36,
-      "lo": 3328.43,
-      "hi": 4354.64
+      "med": 3721.74,
+      "lo": 3357.37,
+      "hi": 4394.09
     }
   ],
   "dip": {
     "t": 0,
-    "main": 3658.03,
-    "lo": 3658.03,
-    "hi": 3658.03
+    "main": 3690.48,
+    "lo": 3690.48,
+    "hi": 3690.48
   },
   "tail": {
     "t": 30,
     "main": 3788.48,
-    "hi": 4354.64,
-    "lo": 3328.43
+    "hi": 4394.09,
+    "lo": 3357.37
   },
   "generatedBy": "gen_chanlun_view.py v2 (CI daily refresh from data/sh000001.csv)",
   "klinesSource": "data/sh000001.csv"

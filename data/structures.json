@@ -1,6 +1,10 @@
 {
  "signals": [
   {
+   "date": "2021-09-14",
+   "signal": -1
+  },
+  {
    "date": "2021-11-10",
    "signal": 1
   },
@@ -57,14 +61,20 @@
    "signal": 1
   },
   {
-   "date": "2026-10-22",
+   "date": "2026-10-23",
    "signal": 1
   }
  ],
  "zigzag": [
   {
-   "date": "2021-08-20",
-   "price": 3394.97,
+   "date": "2021-06-10",
+   "price": 3624.34,
+   "type": "H",
+   "unconfirmed": false
+  },
+  {
+   "date": "2021-07-28",
+   "price": 3312.72,
    "type": "L",
    "unconfirmed": false
   },
@@ -195,8 +205,8 @@
    "unconfirmed": false
   },
   {
-   "date": "2026-10-22",
-   "price": 3649.86,
+   "date": "2026-10-23",
+   "price": 3574.27,
    "type": "L",
    "unconfirmed": true
   }
