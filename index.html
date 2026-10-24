@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-10-08T12:30:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R824 浪⑤启动闸门: 恒真判据→可证伪确认位 / 情景硬编码日期修复 / 校验卡 ok 派生)
+var BUILD_TS = "2026-10-24T09:25:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R825 浪④锚点失效披露 + 破位记账 latching + 校验卡三态渲染)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -62,6 +62,9 @@ var BUILD_TS = "2026-10-08T12:30:00Z"; // R-ENTRY: 每次改 index.html 必同�
   .badge.ghost { background: rgba(255,255,255,.08); color: rgba(255,255,255,.7); border: 1px solid rgba(255,255,255,.16); }
   .badge.ok { background: rgba(47,158,68,.16); color: #7fe39a; border: 1px solid rgba(47,158,68,.45); }
   .badge.danger { background: rgba(194,53,49,.18); color: #ff9b97; border: 1px solid rgba(194,53,49,.5); }
+  /* R825：`.badge.warn` 此前**从未定义**，而 JS（反转风险守卫 watch 档）一直在用该 class
+     ⇒ 关注级徽章渲染成无底色无边框的裸文字。补上。 */
+  .badge.warn { background: rgba(230,162,60,.16); color: #f0b95c; border: 1px solid rgba(230,162,60,.45); }
   .badge.up { background: rgba(194,53,49,.14); color: #e05a55; border: 1px solid rgba(194,53,49,.4); }
   .badge.down { background: rgba(47,158,68,.14); color: #4faf6a; border: 1px solid rgba(47,158,68,.4); }
   .spark-box { text-align: right; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px 12px; }
@@ -126,6 +129,10 @@ var BUILD_TS = "2026-10-08T12:30:00Z"; // R-ENTRY: 每次改 index.html 必同�
   .rule { border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; display: flex; gap: 11px; align-items: flex-start; background: #fbfcfe; transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease; }
   .rule .ic { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; margin-top: 1px; }
   .rule .ic.ok { background: var(--green); } .rule .ic.na { background: var(--gold); }
+  /* R825：新增「违反」态。旧版只有 ok(绿) / na(金) 两态，而 JS 用 `r.ok === true` 判定，
+     把 false(违反) 与 null(不适用) 压成同一个金色「—」⇒ 铁律三被市场跌破后用户仍看到
+     "中性"，R824 以为存在的 ok===false 警告分支实际上从未被渲染。 */
+  .rule .ic.bad { background: var(--red); }
   .rule .rn { font-size: 13px; font-weight: 700; }
   .rule .rd { font-size: 11.5px; color: var(--sub); margin-top: 3px; }
 
@@ -914,9 +921,13 @@ document.getElementById('findings').innerHTML = D.findings.map(function (f) {
 }).join('');
 
 /* ---------- 规则校验卡 ---------- */
+// R825：三态渲染。旧实现 `var ok = r.ok === true; ... (ok ? '✓' : '—')` 把
+// 「违反(false)」与「不适用(null)」压成同一个金色「—」——铁律三被市场跌破后，
+// 用户看到的仍是中性符号。同时把 live=false 的静态结构断言标注出来，避免误当每日风控。
 document.getElementById('rules').innerHTML = D.rules.map(function (r) {
-  var ok = r.ok === true;
-  return '<div class="rule"><div class="ic ' + (ok ? 'ok' : 'na') + '">' + (ok ? '✓' : '—') + '</div>' +
+  var st = (r.ok === true) ? 'ok' : ((r.ok === false) ? 'bad' : 'na');
+  var ic = (r.ok === true) ? '✓' : ((r.ok === false) ? '✕' : '—');
+  return '<div class="rule"><div class="ic ' + st + '">' + ic + '</div>' +
     '<div><div class="rn">' + r.name + '</div><div class="rd">' + r.detail + '</div></div></div>';
 }).join('');
 

@@ -1,5 +1,15 @@
 # -*- coding: utf-8 -*-
-"""audit54（R824）：浪⑤启动闸门 / 情景路径时间序 / 校验卡 ok 派生 —— 一致性守门员。
+"""audit54（R824 建 / R825 扩）：浪⑤启动闸门 / 情景路径时间序 / 校验卡 ok 派生 —— 一致性守门员。
+
+R825 扩展（同一「判据退化」族的三个新实例，均已被市场事实验证）：
+  ④ 铁律三 `ok = w4_low > KEY_LINE` —— **两端都是人工标注常量** ⇒ 对任何行情恒真。
+     2026-10-22 收盘 3658.03 已跌破铁律线、最低 3574.27 已跌破标注浪④底，校验卡仍全绿。
+     原断言「所有铁律 ok 必须 is True」本身也是恒真导向的（只能发现被写成 False，
+     发现不了被写成"常量比常量"）。现改为**从 kline 复算**并与产物比对，允许合法 False。
+  ⑤ wave5Gate 只看最后一根收盘、无记忆 ⇒ 10-22 的证伪被 10-23 反弹洗掉，invalid 无痕退回
+     pending。现要求 status 与「破位记账(closeDays)」同口径复算，且 latched 必须自洽。
+  ⑥ 浪④锚点披露 wave4Anchor 的 actual/undercut/breach/双口径回撤必须与 kline 一致；
+     ratioCheck 的浪4回撤必须等于**实际最低**口径（旧口径用失效锚点，42.5% vs 实际 56.2%）。
 
 背景（R824 实证，均为"判据退化"同族缺陷）：
   ① 旧状态判据 `last_close >= 浪④底` 在「浪④成立」前提下**恒真** —— 回测 53/53 = 100%，
@@ -62,10 +72,22 @@ if isinstance(wg, dict):
     lc = D.get("lastClose")
     kl = float(D["tradePlan"]["stopLine"]["price"])
     cl = float(wg["confirmLevel"])
-    exp_status = "invalid" if lc < kl else ("confirmed" if lc >= cl else "pending")
+    # R825：闸门改「破位记账（latching）」——只要自浪④底以来**曾有收盘**跌破铁律线，
+    # 数浪即已证伪且不得随反弹复原。故此处的期望值必须与 build_data 同口径复算。
+    _br0 = wg.get("breach") or {}
+    _bd0 = int(_br0.get("closeDays") or 0)
+    exp_status = ("invalid" if (_bd0 > 0 or lc < kl)
+                  else ("confirmed" if lc >= cl else "pending"))
     chk(wg.get("status") == exp_status,
-        "wave5Gate.status=%s 与按 (lastClose=%s, 铁律=%s, 确认位=%s) 复算的 %s 不一致"
-        % (wg.get("status"), lc, kl, cl, exp_status))
+        "wave5Gate.status=%s 与按 (lastClose=%s, 铁律=%s, 确认位=%s, 破位记账=%d日) 复算的 %s 不一致"
+        % (wg.get("status"), lc, kl, cl, _bd0, exp_status))
+    chk(bool(wg.get("latched")) == (_bd0 > 0),
+        "wave5Gate.latched=%s 与 breach.closeDays=%d 不符（破位记账自洽性）"
+        % (wg.get("latched"), _bd0))
+    if _bd0 > 0:
+        chk(wg.get("status") == "invalid",
+            "自浪④底以来收盘已 %d 个交易日跌破铁律线，status 却为 %s ⇒ 状态机可被反弹『自愈』"
+            % (_bd0, wg.get("status")))
     chk(wg.get("confirmed") == (wg.get("status") == "confirmed"),
         "wave5Gate.confirmed=%s 与 status=%s 不符" % (wg.get("confirmed"), wg.get("status")))
     chk(abs((lc / cl - 1.0) * 100.0 - float(wg.get("deviationPct"))) < 0.02,
@@ -113,13 +135,87 @@ for r in D.get("ratioCheck") or []:
         "ratioCheck[%s] actual=%s theory=%s ok=%s，按区间复算应为 %s（疑似硬编码）"
         % (r.get("item"), r.get("actual"), th, r.get("ok"), exp_ok))
 
-# ---------- ④ 结构性铁律必须通过（ok 由实测派生，不得被写成恒真或恒假） ----------
-_rn = [r.get("name", "") for r in (D.get("rules") or [])]
-chk(any(n.startswith("铁律") for n in _rn), "rules 中缺少铁律条目")
-for r in D.get("rules") or []:
-    if str(r.get("name", "")).startswith("铁律"):
-        chk(r.get("ok") is True,
-            "结构性铁律「%s」未通过 ⇒ 浪型标注可能已损坏" % r.get("name"))
+# ---------- ④ 铁律必须与 kline 实测一致（防「常量对常量」的恒真判据） ----------
+# R825：原断言是「所有铁律 ok 必须 is True」。这本身就是一条**恒真导向**的断言：
+# 它只能发现"被写成 False"，无法发现"被写成两个常量的比较"（如旧版
+# `ok = w4_low > KEY_LINE`，两端都是人工标注常量 ⇒ 对任何行情都返回 True）。
+# 事实：2026-10-22 收盘 3658.03 已跌破铁律线 3674.40、最低 3574.27 已跌破标注浪④底，
+# 旧断言仍全绿。现改为**从 kline 复算**并与产物比对，允许合法为 False。
+wp = D.get("wavePoints") or []
+k = D.get("kline") or {}
+ks_d = k.get("dates") or []
+ks_o = k.get("ohlc") or []
+ks_c = k.get("close") or []
+chk(len(ks_d) == len(ks_o) == len(ks_c) and len(ks_d) > 0,
+    "kline 数组长度不一致或为空 (dates=%d ohlc=%d close=%d)"
+    % (len(ks_d), len(ks_o), len(ks_c)))
+# data.js 的 kline 没有独立 low/high 字段，最低/最高价在 ohlc 里。
+# 元素序实测为 [open, close, low, high]（非常规序！）—— 先自校验再取用，
+# 避免"列序假设错误"导致复算静默取到错误价位（这正是 R825 初次运行踩到的坑）。
+_ORDER_OK = bool(ks_o) and all(
+    abs(float(o[1]) - float(c)) < 1e-6 for o, c in zip(ks_o[:5], ks_c[:5]))
+chk(_ORDER_OK, "kline.ohlc 元素序不是 [open, close, low, high]，无法定位最低价")
+ks_l = [float(o[2]) for o in ks_o] if _ORDER_OK else []
+ks_h = [float(o[3]) for o in ks_o] if _ORDER_OK else []
+_w3_top = next((p["date"] for p in wp if str(p.get("label", "")).startswith("浪3")), None)
+chk(_w3_top is not None, "wavePoints 缺少浪3顶")
+chk(any(str(r.get("name", "")).startswith("铁律") for r in (D.get("rules") or [])),
+    "rules 中缺少铁律条目")
+if _w3_top and ks_d and ks_l:
+    _seg = [(d, l, c) for d, l, c in zip(ks_d, ks_l, ks_c) if d > _w3_top]
+    chk(len(_seg) > 0, "浪③顶之后无 K 线，无法复算铁律三")
+    _key = float(D["tradePlan"]["stopLine"]["price"])
+    _ann = float(wp[-1]["price"])
+    if _seg:
+        _min_low = min(x[1] for x in _seg)
+        _min_close = min(x[2] for x in _seg)
+        _r3 = next((r for r in (D.get("rules") or [])
+                    if str(r.get("name", "")).startswith("铁律三")), None)
+        chk(_r3 is not None, "rules 缺少铁律三条目")
+        if _r3 is not None:
+            chk(_r3.get("ok") == (_min_low > _key),
+                "铁律三 ok=%s，按 kline 复算（浪③顶以来最低 %.2f vs 铁律线 %.2f）应为 %s "
+                "—— 疑似仍用标注常量比对（恒真、零判别力）"
+                % (_r3.get("ok"), _min_low, _key, _min_low > _key))
+            chk(_r3.get("live") is True,
+                "铁律三是唯一随行情变化的结构判据，live 应为 True（否则用户会误当每日风控）")
+        # 浪④锚点披露（R825）必须与 kline 一致
+        wa = D.get("wave4Anchor")
+        chk(isinstance(wa, dict), "wave4Anchor 缺失（R825 锚点有效性披露）")
+        if isinstance(wa, dict):
+            chk(abs(float(wa["actual"]["price"]) - _min_low) < 0.02,
+                "wave4Anchor.actual=%.2f 与 kline 复算最低 %.2f 不一致"
+                % (float(wa["actual"]["price"]), _min_low))
+            chk(wa.get("undercut") == (_min_low < _ann),
+                "wave4Anchor.undercut=%s 与复算（最低 %.2f vs 标注 %.2f）不符"
+                % (wa.get("undercut"), _min_low, _ann))
+            _br = wa.get("breach") or {}
+            _exp_bd = sum(1 for x in _seg if x[2] < _key)
+            chk(int(_br.get("closeDays", -1)) == _exp_bd,
+                "wave4Anchor.breach.closeDays=%s 与复算 %d 不符"
+                % (_br.get("closeDays"), _exp_bd))
+            chk(int(_br.get("lowDays", -1)) == sum(1 for x in _seg if x[1] < _key),
+                "wave4Anchor.breach.lowDays=%s 与复算 %d 不符"
+                % (_br.get("lowDays"), sum(1 for x in _seg if x[1] < _key)))
+            # 回撤双口径：必须与 kline 一致，且 ratioCheck 的浪4回撤 = 实际口径（不得用失效锚点）
+            _w2p = next((p["price"] for p in wp if str(p.get("label", "")).startswith("浪2")), None)
+            _w3p = next((p["price"] for p in wp if str(p.get("label", "")).startswith("浪3")), None)
+            if _w2p and _w3p:
+                _amp = float(_w3p) - float(_w2p)
+                _exp_ret = round((float(_w3p) - _min_low) / _amp * 100, 1)
+                chk(abs(float(wa.get("retraceActual", -999)) - _exp_ret) < 0.15,
+                    "wave4Anchor.retraceActual=%s 与复算 %.1f%% 不符"
+                    % (wa.get("retraceActual"), _exp_ret))
+                chk(abs(float(wa.get("retraceAnnotated", -999))
+                        - round((float(_w3p) - _ann) / _amp * 100, 1)) < 0.15,
+                    "wave4Anchor.retraceAnnotated=%s 与复算不符" % wa.get("retraceAnnotated"))
+                _rc = next((r for r in (D.get("ratioCheck") or [])
+                            if "浪4" in str(r.get("item", ""))), None)
+                if _rc is not None:
+                    _av = float(str(_rc.get("actual", "")).rstrip("%"))
+                    chk(abs(_av - _exp_ret) < 0.15,
+                        "ratioCheck 浪4回撤=%s 与 kline 复算 %.1f%% 不一致（疑似仍以失效锚点计）"
+                        % (_rc.get("actual"), _exp_ret))
 
 # ---------- 结果 ----------
 if problems:
