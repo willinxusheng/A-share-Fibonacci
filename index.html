@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-10-24T09:25:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R825 浪④锚点失效披露 + 破位记账 latching + 校验卡三态渲染)
+var BUILD_TS = "2026-10-24T10:05:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R825 浪④锚点失效披露 + 破位记账 latching + 校验卡三态渲染 + 风险横幅与自动判定行均按破位记账派生)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1350,16 +1350,50 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     var cld = (_wg && _wg.confirmDate) ? _wg.confirmDate : '';
     var dev = (_wg && _wg.deviationPct != null) ? Math.abs(_wg.deviationPct).toFixed(1) : '?';
     var ed = (_wg && _wg.daysElapsed != null) ? _wg.daysElapsed : '?';
+    // R825：破位记账字段在三个分支里都要用到，故提到分支外（原先定义在 else 里，
+    // 靠 var 提升勉强可用，但对 strong/base 分支是 undefined，易埋坑）。
+    var _br = (_wg && _wg.breach) || {};
+    var _latched = !!(_wg && _wg.latched);
     if (mode === 'strong') {
       el.style.background = '#fff7e6'; el.style.borderColor = '#f0d9a8'; el.style.borderLeftColor = '#e6a23c'; el.style.color = '#7a5a1e';
-      el.innerHTML = '<span class="tag">强势</span><div><b>浪⑤启动确认</b>：收盘站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，已脱离浪④区间 ⇒ 浪⑤启动（与上方情景推演图「强势」线同源）。完整子浪 ⅰ-ⅴ 细分见下图；若收盘回落跌破上沿 ' + cl + ' 自动切【基准】，跌破铁律 ' + kl + ' 切【风险】失效。' + manual + '<br><span style="color:#9a7b3a">自动判定：收盘 ' + lc + ' ≥ 浪④震荡区上沿 ' + cl + ' → 强势（每日更新跟随行情）</span></div>';
+      el.innerHTML = '<span class="tag">强势</span><div><b>浪⑤启动确认</b>：收盘站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，已脱离浪④区间 ⇒ 浪⑤启动（与上方情景推演图「强势」线同源）。完整子浪 ⅰ-ⅴ 细分见下图；若收盘回落跌破上沿 ' + cl + ' 自动切【基准】，跌破铁律 ' + kl + ' 切【风险】失效。' + manual + '</div>';
     } else if (mode === 'base') {
       el.style.background = '#eef6ee'; el.style.borderColor = '#cfe6cf'; el.style.borderLeftColor = '#67a867'; el.style.color = '#3f6b3f';
-      el.innerHTML = '<span class="tag" style="color:#2f7d2f;background:#d8efd8">基准</span><div><b>浪⑤待确认</b>：收盘 ' + lc + ' 尚未站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，还差 ' + dev + '%（自浪④底已 ' + ed + ' 个交易日）——<b>未突破上沿即不算启动</b>，故子浪推演（浪⑤内部 ⅰ-ⅴ）为<b>条件推演</b>、不作为基准情形。下方为基准走势路径（<b>非子浪细分</b>）。' + manual + '<br><span style="color:#5b8a5b">自动判定：铁律 ' + kl + ' ≤ 收盘 ' + lc + ' < 上沿 ' + cl + ' → 基准（浪④震荡 · 浪⑤待确认）</span></div>';
+      el.innerHTML = '<span class="tag" style="color:#2f7d2f;background:#d8efd8">基准</span><div><b>浪⑤待确认</b>：收盘 ' + lc + ' 尚未站上浪④震荡区上沿 ' + cl + (cld ? '（' + cld + ' 高点）' : '') + '，还差 ' + dev + '%（自浪④底已 ' + ed + ' 个交易日）——<b>未突破上沿即不算启动</b>，故子浪推演（浪⑤内部 ⅰ-ⅴ）为<b>条件推演</b>、不作为基准情形。下方为基准走势路径（<b>非子浪细分</b>）。' + manual + '</div>';
     } else {
+      // R825：风险文案原写死「收盘有效跌破铁律线 X」，并以「收盘 lc < 铁律」作自动判定说明。
+      // 闸门改为破位记账(latching)后，进入风险态的常见情形是「今日收盘在铁律线之上、
+      // 但历史上曾破位」——此时旧文案会输出「收盘 3690.48 < 铁律 3674.40」这种自相矛盾的
+      // 判定说明（数值方向与符号相反）。现按 latched/breach 派生两套文案。
+      var _bTxt;
+      if (_latched) {
+        _bTxt = '<b>铁律三已破，数浪证伪</b>：自浪④底以来收盘曾于 ' + (_br.firstCloseDate || '?') +
+          ' 跌至 ' + (_br.minClose != null ? _br.minClose.toFixed(2) : '?') + '（低于铁律线 ' + kl +
+          '），浪④已侵入浪①价格区；最低 ' + (_br.minLow != null ? _br.minLow.toFixed(2) : '?') +
+          '（' + (_br.minLowDate || '?') + '）。证伪已锁定、反弹不自动复原（当前收盘 ' + lc +
+          ' 虽回到铁律线上方）。子浪推演<b>失效</b>，下方为风险下行路径，仅供风控参考。';
+      } else {
+        _bTxt = '<b>跌破铁律，数浪证伪</b>：收盘 ' + lc + ' 跌破铁律线 ' + kl +
+          '，浪⑤数浪失败，子浪推演<b>失效</b>。下方为风险下行路径，仅供风控参考。';
+      }
       el.style.background = '#fdecec'; el.style.borderColor = '#f3c4c4'; el.style.borderLeftColor = '#c23531'; el.style.color = '#8a2b2b';
-      el.innerHTML = '<span class="tag" style="color:#c23531;background:#f7d4d4">风险</span><div><b>跌破铁律，数浪证伪</b>：收盘有效跌破铁律线 ' + kl + '，浪⑤数浪失败，子浪推演<b>失效</b>。下方为风险下行路径，仅供风控参考。' + manual + '<br><span style="color:#b05a5a">自动判定：收盘 ' + lc + ' < 铁律 ' + kl + ' → 风险</span></div>';
+      el.innerHTML = '<span class="tag" style="color:#c23531;background:#f7d4d4">风险</span><div>' + _bTxt + manual + '</div>';
     }
+    // R825：「自动判定」行必须描述**真实的自动状态**（auto），而不是当前预览的 mode。
+    // 旧实现把该行写在各分支里 ⇒ 手动预览「强势」时会输出「自动判定：收盘 3690.48 ≥ 上沿 3995.18
+    // → 强势」，一个数值方向明显不成立的判定说明（文字与数据相悖）。
+    var _autoLine;
+    if (auto === 'risk') {
+      _autoLine = _latched
+        ? ('自动判定：破位记账 ' + (_br.closeDays || 0) + ' 个交易日收盘 < 铁律 ' + kl +
+           ' → 风险（带记忆，不随反弹复原；需人工重校订浪型方可重置）')
+        : ('自动判定：收盘 ' + lc + ' < 铁律 ' + kl + ' → 风险');
+    } else if (auto === 'strong') {
+      _autoLine = '自动判定：收盘 ' + lc + ' ≥ 浪④震荡区上沿 ' + cl + ' → 强势（每日更新跟随行情）';
+    } else {
+      _autoLine = '自动判定：铁律 ' + kl + ' ≤ 收盘 ' + lc + ' < 上沿 ' + cl + ' → 基准（浪④震荡 · 浪⑤待确认）';
+    }
+    el.innerHTML += '<br><span style="opacity:.85;font-size:12px">' + _autoLine + '</span>';
     var sa = document.getElementById('scnAuto');
     if (sa) sa.innerHTML = '<b>自动判定：' + autoName + '</b>（每日更新跟随行情）';
   }
