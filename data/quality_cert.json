@@ -1,7 +1,7 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-10-23T08:33:11Z",
-  "data_last_date": "2026-10-23 16:31:31",
+  "generated_at": "2026-10-24T10:02:01Z",
+  "data_last_date": "2026-10-24 18:00:48",
   "engine": {
     "driftConf": 0.85,
     "bandScale": 1.0,
@@ -11,12 +11,12 @@
     "vol_bucket": "中"
   },
   "oos_brier": {
-    "production_brier5": 0.23842,
+    "production_brier5": 0.23704,
     "production_baseline": 0.2276,
-    "production_delta_pct": 4.75,
-    "bucket_brier": 0.08948,
+    "production_delta_pct": 4.15,
+    "bucket_brier": 0.08918,
     "bucket_baseline": 0.089,
-    "bucket_delta_pct": 0.54,
+    "bucket_delta_pct": 0.2,
     "sample_cnt": 2560,
     "status": "ok",
     "tolerance_pct": 5.0
@@ -154,7 +154,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-10-23 16:31:31"
+    "asOf": "2026-10-24 18:00:48"
   },
   "error": null
 }
