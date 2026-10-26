@@ -1,49 +1,49 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-10-24T10:02:01Z",
-  "data_last_date": "2026-10-24 18:00:48",
+  "generated_at": "2026-10-26T08:02:47Z",
+  "data_last_date": "2026-10-26 16:01:31",
   "engine": {
     "driftConf": 0.85,
     "bandScale": 1.0,
     "resonance_breadth": -1.0,
     "calib_points": 10,
-    "last_close": 3690.48,
+    "last_close": 3697.52,
     "vol_bucket": "中"
   },
   "oos_brier": {
-    "production_brier5": 0.23704,
+    "production_brier5": 0.23403,
     "production_baseline": 0.2276,
-    "production_delta_pct": 4.15,
-    "bucket_brier": 0.08918,
+    "production_delta_pct": 2.82,
+    "bucket_brier": 0.08907,
     "bucket_baseline": 0.089,
-    "bucket_delta_pct": 0.2,
-    "sample_cnt": 2560,
+    "bucket_delta_pct": 0.08,
+    "sample_cnt": 2576,
     "status": "ok",
     "tolerance_pct": 5.0
   },
   "backtest": {
-    "total_logged": 478,
-    "total_evaluated": 227,
-    "total_pending": 251,
-    "matured_count": 92,
-    "precise_evaluated": 204,
-    "total_dir_evaluated": 453,
+    "total_logged": 487,
+    "total_evaluated": 231,
+    "total_pending": 256,
+    "matured_count": 96,
+    "precise_evaluated": 209,
+    "total_dir_evaluated": 462,
     "total_dir_hits": 93,
-    "realized_hit_rate": 91.7,
-    "dir_realized_hit_rate": 20.7,
-    "dir_base_rate": 39.0,
-    "dir_base_rate_recent": 22.3,
-    "hit_rate_all": 44.6,
-    "hit_rate_matured_only": 79.8,
-    "precise_realized_hit_rate_non_trivial": 67.2,
-    "precise_trivial_count": 78,
-    "precise_realized_hit_rate": 79.6,
+    "realized_hit_rate": 91.4,
+    "dir_realized_hit_rate": 20.3,
+    "dir_base_rate": 38.8,
+    "dir_base_rate_recent": 21.7,
+    "hit_rate_all": 44.4,
+    "hit_rate_matured_only": 79.6,
+    "precise_realized_hit_rate_non_trivial": 66.2,
+    "precise_trivial_count": 81,
+    "precise_realized_hit_rate": 79.1,
     "level_precision_median_dev": 0.0407,
-    "level_precision_within5_pct": 52.1,
+    "level_precision_within5_pct": 52.0,
     "cold_start": false,
-    "overall_hit_rate": 92.1,
-    "overall_dir_hit_rate": 20.7,
-    "overall_precise_hit_rate": 71.8,
+    "overall_hit_rate": 91.8,
+    "overall_dir_hit_rate": 20.3,
+    "overall_precise_hit_rate": 71.9,
     "targets": [
       {
         "cat": "defensive",
@@ -90,40 +90,40 @@
         "key": "子浪ⅰ",
         "n": 35,
         "hitRate": 97.3,
-        "dirHitRate": 34.0,
-        "preciseHitRate": 4.2,
+        "dirHitRate": 33.3,
+        "preciseHitRate": 4.0,
         "avgDays": 1.8,
-        "precDevMedian": -0.014
+        "precDevMedian": -0.0141
       },
       {
         "cat": "subwave",
         "key": "子浪ⅱ",
-        "n": 51,
+        "n": 52,
         "hitRate": 98.1,
-        "dirHitRate": 71.1,
+        "dirHitRate": 69.6,
         "preciseHitRate": 98.1,
         "avgDays": 1.0,
-        "precDevMedian": 0.0877
+        "precDevMedian": 0.0876
       },
       {
         "cat": "subwave",
         "key": "子浪ⅲ",
-        "n": 21,
-        "hitRate": 17.4,
+        "n": 22,
+        "hitRate": 16.7,
         "dirHitRate": 1.9,
-        "preciseHitRate": 4.8,
+        "preciseHitRate": 4.5,
         "avgDays": 3.3,
         "precDevMedian": -0.0864
       },
       {
         "cat": "subwave",
         "key": "子浪ⅳ",
-        "n": 51,
+        "n": 52,
         "hitRate": 98.1,
         "dirHitRate": 1.9,
         "preciseHitRate": 98.1,
         "avgDays": 1.0,
-        "precDevMedian": 0.1788
+        "precDevMedian": 0.1786
       },
       {
         "cat": "subwave",
@@ -138,15 +138,15 @@
       {
         "cat": "subwave",
         "key": "浪⑤起",
-        "n": 51,
+        "n": 52,
         "hitRate": 98.1,
-        "dirHitRate": 82.4,
+        "dirHitRate": 80.8,
         "preciseHitRate": 98.1,
-        "avgDays": 6.4,
+        "avgDays": 6.3,
         "precDevMedian": 0.0467
       }
     ],
-    "note": "回测诚实化(R822)四口径：①<b>方向推进率</b>(窗内·目标感知，走完 50% 目标距离)=20.7（零信息基线 同期=22.3 / 全历史=39.0）。旧口径只问\"未来是否曾高于预测日收盘\"，与目标价无关（同日同 side 恒定）、零信息基线即 94~99%，无判别力已弃用；观测≈基线 ⇒ 该期限内目标方向未展现超越随机的预测增量。②<b>band 触达率</b>：已实现口径=91.7（分母仅含已解决样本——命中当天可判定、未命中须等窗口闭合，被命中富集故系统性偏高）；全量口径=44.6、对称成熟口径=79.8 方可解释。③<b>精确命中率</b>(真实目标价位)=79.6，其中 78 条为\"目标价在预测当日已被自身收盘满足\"的重言式样本 → 去平凡后=67.2。④<b>精确价位精度(#782)</b>：中位偏差 4.07%（↑overshoot 冲过目标 / ↓undershoot 够不到），±5%达标率 52.1。当前 251 个目标观察窗未闭合、92 个已成熟(窗口闭合)。"
+    "note": "回测诚实化(R822)四口径：①<b>方向推进率</b>(窗内·目标感知，走完 50% 目标距离)=20.3（零信息基线 同期=21.7 / 全历史=38.8）。旧口径只问\"未来是否曾高于预测日收盘\"，与目标价无关（同日同 side 恒定）、零信息基线即 94~99%，无判别力已弃用；观测≈基线 ⇒ 该期限内目标方向未展现超越随机的预测增量。②<b>band 触达率</b>：已实现口径=91.4（分母仅含已解决样本——命中当天可判定、未命中须等窗口闭合，被命中富集故系统性偏高）；全量口径=44.4、对称成熟口径=79.6 方可解释。③<b>精确命中率</b>(真实目标价位)=79.1，其中 81 条为\"目标价在预测当日已被自身收盘满足\"的重言式样本 → 去平凡后=66.2。④<b>精确价位精度(#782)</b>：中位偏差 4.07%（↑overshoot 冲过目标 / ↓undershoot 够不到），±5%达标率 52.0。当前 256 个目标观察窗未闭合、96 个已成熟(窗口闭合)。"
   },
   "accuracy_status": "WATCH",
   "sentiment": {
@@ -154,7 +154,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-10-24 18:00:48"
+    "asOf": "2026-10-26 16:01:31"
   },
   "error": null
 }
