@@ -503,3 +503,12 @@
 {"date": "2026-10-28", "key": "子浪ⅲ", "cat": "subwave", "side": "sell", "price": 4343.93, "expDays": 51.0, "baseCase": true, "conditional": false}
 {"date": "2026-10-28", "key": "子浪ⅳ", "cat": "subwave", "side": "buy", "price": 4209.13, "expDays": 63.0, "baseCase": true, "conditional": false}
 {"date": "2026-10-28", "key": "子浪ⅴ", "cat": "subwave", "side": "sell", "price": 4493.94, "expDays": 74.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "卖① 保守兑现", "cat": "sellTarget", "side": "sell", "price": 4493.94, "expDays": 77.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "卖② 标准兑现", "cat": "sellTarget", "side": "sell", "price": 4725.81, "expDays": 116.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "卖③ 激进兑现", "cat": "sellTarget", "side": "sell", "price": 5334.35, "expDays": 171.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "浪⑤起", "cat": "subwave", "side": "buy", "price": 3741.11, "expDays": 10.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "子浪ⅰ", "cat": "subwave", "side": "hold", "price": 4026.75, "expDays": 12.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "子浪ⅱ", "cat": "subwave", "side": "buy", "price": 3882.39, "expDays": 27.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "子浪ⅲ", "cat": "subwave", "side": "sell", "price": 4344.56, "expDays": 51.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "子浪ⅳ", "cat": "subwave", "side": "buy", "price": 4208.3, "expDays": 65.0, "baseCase": true, "conditional": false}
+{"date": "2026-10-29", "key": "子浪ⅴ", "cat": "subwave", "side": "sell", "price": 4493.94, "expDays": 77.0, "baseCase": true, "conditional": false}
