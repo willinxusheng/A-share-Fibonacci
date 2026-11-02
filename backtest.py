@@ -514,6 +514,143 @@ def dir_baseline(df, recs):
                           "recentSkippedKeys": recent_skip, "totalKeys": len(per)}
 
 
+# ---- R827：方向命中率 × 目标可达性分层（把"目标太远"从"判错方向"里剥离）----
+# 命题：方向推进率长期偏低，究竟是判据错了，还是目标定得比市场在窗口内能走的更远？
+# 做法：对每条记录用**其自身**的幅度 a_i 与观察窗 w_i（不用桶均值——v1 探针就栽在这：
+# 按"距离下界"分桶会把 3%~10% 全收进一桶、桶均 ~9%，读表时误以为"3% 目标在 30 日内仅 7.6% 可达"），
+# 在全历史上统计「w_i 日内朝同方向走过 ≥ a_i 的起点占比」= rr_i（成熟度对齐，仅取 i+w<=n-1），
+# 再按 rr_i 分档看实际达成率。
+# 实测（11-02，成熟样本 127 条）：
+#   rr<5%     ⇒  0/14 (0.0%)      rr 35~60% ⇒ 29/45 (64.4%)
+#   rr 5~15%  ⇒  0/20 (0.0%)      rr>=60%   ⇒ 18/24 (75.0%)
+#   rr 15~35% ⇒ 10/24 (41.7%)
+# 近乎完美单调 ⇒ 命中率首先由「目标相对市场速率的远近」决定。把 rr 极低的样本计为
+# "方向判错"是口径错误：那不是预测的方向错了，而是目标价在承诺期限内根本没有先例可达。
+# ⚠ 边界：rr 的分母是本地 CSV 窗口（2021-08 起，震荡市为主），绝对概率偏低，
+#   价值在相对排序而非绝对概率；前端必须同时披露样本窗口，否则会被读成"永不可能"。
+REACH_BANDS = (
+    (0.00, 0.05, "lt5", "<5%"),
+    (0.05, 0.15, "5to15", "5~15%"),
+    (0.15, 0.35, "15to35", "15~35%"),
+    (0.35, 0.60, "35to60", "35~60%"),
+    (0.60, 1.01, "ge60", ">=60%"),
+)
+
+
+def dir_bands_by_reach(df, recs):
+    """按「目标在自身观察窗内的历史可达比例」分档，统计各档实际达成率。
+
+    返回 (bands, metas)：bands 为可 JSON 化的分档列表（含成熟命中/总、全部可判数、
+    待定数、所需日均速度中位），metas 含样本窗口与单调性自检结果，供门禁断言。
+    """
+    if df is None or len(df) < 60:
+        return [], {}
+    cl = df["close"].values.astype(float)
+    hi = df["high"].values.astype(float)
+    lo = df["low"].values.astype(float)
+    n = len(cl)
+    _arr_cache = {}
+
+    def _arr(w, up):
+        k = (int(w), bool(up))
+        if k not in _arr_cache:
+            src = hi if up else lo
+            roll = pd.Series(src).rolling(int(w)).max() if up else pd.Series(src).rolling(int(w)).min()
+            _arr_cache[k] = roll.shift(-int(w)).values
+        return _arr_cache[k]
+
+    _rr_cache = {}
+
+    def _rr(up, a, w):
+        k = (bool(up), round(float(a), 5), int(w))
+        if k in _rr_cache:
+            return _rr_cache[k]
+        arr = _arr(w, up)
+        need = cl * (1.0 + a) if up else cl * (1.0 - a)
+        ok = (arr >= need) if up else (arr <= need)
+        mask = np.zeros(n, dtype=bool)
+        mask[: n - int(w)] = True
+        mask &= ~np.isnan(arr)
+        res = float(ok[mask].mean()) if mask.any() else None
+        _rr_cache[k] = res
+        return res
+
+    def _band(rr):
+        for lo_, hi_, key, _lbl in REACH_BANDS:
+            if lo_ <= rr < hi_:
+                return key
+        return REACH_BANDS[-1][2]
+
+    acc = {b[2]: {"matured": 0, "hits": 0, "all": 0, "pending": 0, "dailyRates": [], "sides": {}}
+           for b in REACH_BANDS}
+    unsampled = 0
+    for r in recs:
+        if r.get("dirCorrect") is None:
+            continue
+        g = r.get("dirGap")
+        w = r.get("dirWindow")
+        if g is None or not w or abs(float(g)) <= 0.005:
+            continue
+        rr = _rr(float(g) > 0, abs(float(g)), int(w))
+        if rr is None:
+            unsampled += 1
+            continue
+        key = _band(rr)
+        a = acc[key]
+        a["all"] += 1
+        a["dailyRates"].append((1.0 + abs(float(g))) ** (1.0 / max(1, int(w))) - 1.0)
+        sd = str(r.get("side"))
+        a["sides"].setdefault(sd, {"matured": 0, "hits": 0})
+        if r.get("matured"):
+            a["matured"] += 1
+            a["hits"] += int(bool(r.get("dirCorrect")))
+            a["sides"][sd]["matured"] += 1
+            a["sides"][sd]["hits"] += int(bool(r.get("dirCorrect")))
+        elif r.get("dirPending"):
+            a["pending"] += 1
+
+    bands = []
+    for lo_, hi_, key, lbl in REACH_BANDS:
+        a = acc[key]
+        bands.append({
+            "key": key, "label": lbl, "lo": lo_, "hi": None if hi_ > 1 else hi_,
+            "matured": a["matured"], "hits": a["hits"],
+            # rate    = Laplace 平滑（+1/+2），与全站其他命中率口径一致；
+            # rateRaw = 未平滑原始值。⚠ 两者在小样本档会明显背离（0/14 → 平滑 6.2% / 原始 0.0%），
+            # 本表的全部信息量恰恰在"低可达档命中是否为零"，故单调性自检与前端展示一律用 rateRaw，
+            # 否则平滑项会在 n<20 的档制造假倒挂（首版实测 <5% 档 6.2% > 5~15% 档 4.5%）。
+            "rate": round((a["hits"] + 1.0) / (a["matured"] + 2.0) * 100, 1) if a["matured"] else None,
+            "rateRaw": round(a["hits"] / a["matured"] * 100, 1) if a["matured"] else None,
+            "all": a["all"], "pending": a["pending"],
+            "dailyRateMedian": round(float(np.median(a["dailyRates"])) * 100, 4) if a["dailyRates"] else None,
+            "bySide": {k: {"matured": v["matured"], "hits": v["hits"],
+                           "rateRaw": round(v["hits"] / v["matured"] * 100, 1) if v["matured"] else None}
+                       for k, v in a["sides"].items()},
+        })
+    # 单调性自检：相邻档命中率不得逆向（用原始比率；样本 <5 条的档跳过，避免小样本噪声触发假告警）
+    _mono_ok = True
+    _prev = None
+    _inversions = []
+    for b in bands:
+        if b["rateRaw"] is None or b["matured"] < 5:
+            continue
+        if _prev is not None and b["rateRaw"] < _prev[1] - 1e-9:
+            _mono_ok = False
+            _inversions.append("%s(%.1f%%) < %s(%.1f%%)" % (b["label"], b["rateRaw"], _prev[0], _prev[1]))
+        _prev = (b["label"], b["rateRaw"])
+    metas = {
+        "sampleFrom": df.index[0].strftime("%Y-%m-%d"),
+        "sampleTo": df.index[-1].strftime("%Y-%m-%d"),
+        "sampleRows": int(len(df)),
+        "bandedTotal": sum(b["matured"] for b in bands) + sum(b["pending"] for b in bands),
+        "earlyHit": sum(1 for r in recs if r.get("dirEarlyHit")),
+        "unsampled": unsampled,
+        "monotonic": bool(_mono_ok),
+        "inversions": _inversions,
+    }
+    return bands, metas
+
+
 def aggregate(recs, pdev_recs=None):
     """按 (cat,key) 聚合命中率，样本不足标 cold。
 
@@ -689,6 +826,9 @@ def run_backtest(data, df):
     # R822 方向判据零信息基线：必须在 evaluate 之后（依赖每条的 dirGap/dirWindow）。
     # R826：追加第三返回值 = 基线口径元数据（成熟对齐后的可用 key 数 / 被剔除 key 数）。
     dir_base_rate, dir_base_recent, _base_meta = dir_baseline(df, recs)
+    # R827：方向命中率 × 目标可达性分层（依赖每条的 dirGap/dirWindow，须在 evaluate 之后）。
+    # 目的：把"目标在承诺窗口内无先例可达"从"引擎判错方向"里剥离出来 —— 二者是完全不同的失败。
+    dir_reach_bands, _reach_meta = dir_bands_by_reach(df, recs)
     # R820 独立目标观测(反重复灌水)：下述所有【价位偏差/离散度/成熟度】统计一律以 pdev_recs 为源，
     # 使"样本量"= 独立预测目标数而非日志行数(卖① 28 行 → 1 个目标)。命中率类指标仍走行级 recs
     # (每日发出即一次预测，属另一个问题)。等价锚 子浪ⅴ≡卖① 已在 episode_reps 内去重。
@@ -942,6 +1082,10 @@ def run_backtest(data, df):
         "dirMaturedSpanTo": _mat_span[1] if _mat_span else None,
         # R826 目标距离 → 可达性分桶（成熟对齐口径）：揭示"命中率低"有多少来自目标定得比市场能走的还远
         "dirDistanceBands": dir_dist_bands,
+        # R827 方向命中率 × 目标可达性分层（按每条记录自身的幅度/窗口算 rr，比距离分桶更准）：
+        # rr 极低的样本不是"判错方向"，而是"目标在承诺期限内没有先例可达"——两者不能合并计分。
+        "dirBandsByReach": dir_reach_bands,
+        "dirReachMeta": _reach_meta,
         # ---- R822 诚实化口径（详见上文注释）----
         # dirBaseRate          : 方向推进率的零信息基线（同间距同窗长）。观测 ≈ 基线 ⇒ 无预测增量。
         # hitRateAll           : band 命中率·全量口径（未成熟未命中计入分母，保守下界）。

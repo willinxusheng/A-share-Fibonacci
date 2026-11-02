@@ -397,6 +397,44 @@ def ashare_holidays():
     return s
 
 
+# ---- R827：目标「算术可达性」——目标价与观察窗来自两套互不校验的模型 ----
+# 缺陷（11-02 实证）：目标价由斐波那契扩展派生（_s0/_s1/_s2），观察窗 expDays 由另两条
+# 路径独立派生（卖①/子浪ⅴ = _sf_exp 时间占比分配；卖②③ = _horizon_for 幅度-时长自相似外推），
+# 二者从未做过一致性校验。后果：卖① 4493.94 距现价 +23.53% 却承诺 74 个交易日到达，
+# 隐含日均 0.286%，而浪③ 全程 266 日 +34.92% 仅日均 0.113% —— 要求浪⑤ 比浪③ 快 2.54 倍。
+# 回测证据：507 条可判样本中，目标在自身窗口内历史可达比例 rr<15% 的成熟样本 34 条命中 0 条，
+# rr>=60% 的 24 条命中 18 条（75.0%）。即命中率首先由「目标定得多远」决定。
+# ⚠ 口径边界：rr 的分母是本 CSV 窗口（2021-08 起，震荡市为主），绝对概率偏低；
+#   它的价值在【相对排序】而非绝对概率，前端必须同时披露样本窗口。
+def _reach_prob(close_arr, high_arr, low_arr, up, a, w):
+    """全历史：w 交易日内朝 up 方向走过 >= a（相对起点收盘）的起点占比。
+
+    成熟度对齐：只取 i+w <= n-1 的起点（与 backtest 的 matured 判据同界），
+    否则末尾起点的未来窗口残缺会把比率系统性压低（R826 基线口径失真同族缺陷）。
+    arr[i] = max(high[i+1 : i+1+w]) 用 rolling(w).max().shift(-w) 实现：
+      rolling 给出 r[j]=max(high[j-w+1:j+1])，取 j=i+w ⇒ r[i+w]=max(high[i+1:i+1+w])。正确。
+    返回 (prob, n_samples) ；样本不足返回 (None, 0)。
+    """
+    n = len(close_arr)
+    w = int(max(1, w))
+    if a is None or n - w < 30:
+        return None, 0
+    a = abs(float(a))
+    src = high_arr if up else low_arr
+    roll = pd.Series(src).rolling(w).max() if up else pd.Series(src).rolling(w).min()
+    arr = roll.shift(-w).values
+    c0 = close_arr
+    need = c0 * (1.0 + a) if up else c0 * (1.0 - a)
+    ok = (arr >= need) if up else (arr <= need)
+    mask = np.zeros(n, dtype=bool)
+    mask[: n - w] = True
+    mask &= ~np.isnan(arr)
+    nn = int(mask.sum())
+    if nn <= 0:
+        return None, 0
+    return float(ok[mask].mean()), nn
+
+
 def main():
     _refresh_master_raw()     # R811：先刷新主指数 raw.md（否则 csv 同步永远滞后一轮）
     _sync_sh_csv_from_raw()  # R805：build 前确保主指数 csv 已随 raw.md 更新
@@ -1560,6 +1598,88 @@ def main():
     for k, _r in enumerate(sub_forecast["rows"]):
         _r["expDays"] = _sf_exp[k + 1]
 
+    # ---------- R827：targets 元数据补全 + 目标「算术可达性」----------
+    # ① 真实缺陷（11-02 发现）：`targets`（图表标注用，line ~584）与 `sell_targets`（交易计划用，
+    #    line ~616）是两份独立列表、价格表达式重复计算；而上面对 expDays 的赋值只覆盖
+    #    sell_targets / subForecast ⇒ **data.targets[] 长期缺 expDays 字段**，任何按 targets
+    #    推算观察窗的消费方（前端、外部脚本、回测探针）都会静默回退 30 日 —— 这正是本轮回测
+    #    探针最初把五个卖点全按 30 日算的原因。此处按「价格 → 同一目标」映射补齐，口径与
+    #    sell_targets/subForecast 严格同源（卖①≡子浪ⅴ 用 _sf_exp[5]，其余用 _horizon_for）。
+    # ② 可达性：目标价（斐波那契扩展）与观察窗（时间模型）此前**从未做一致性校验**。此处对每个
+    #    目标量化「在过去 N 年里，同等窗口内朝该方向走过同等幅度的起点占多大比例」，使
+    #    「目标定得比市场能走的更远」这一事实可被看见，而不是被记成"引擎判错方向"。
+    _tgt_exp = {round(float(_s["price"]), 2): int(_s["expDays"]) for _s in sell_targets}
+    _cl_v = df["close"].values.astype(float)
+    _hi_v = df["high"].values.astype(float)
+    _lo_v = df["low"].values.astype(float)
+
+    def _reach_cls(p):
+        if p is None:
+            return "unknown"
+        return "unreachable" if p < 0.10 else ("stretch" if p < 0.35 else "achievable")
+
+    for _t in targets:
+        _px = float(_t["price"])
+        _exp = _tgt_exp.get(round(_px, 2))
+        if _exp is None:
+            # 5年区间扩展等不在 sell_targets 里的目标：与卖②③ 同一路径（幅度-时长自相似）
+            _exp = int(round(_horizon_for(_px)))
+        _t["expDays"] = int(max(1, _exp))
+        _fts = _future_trading_days(last_date, int(max(1, _exp)))
+        _t["expDate"] = _fts[min(len(_fts) - 1, int(max(1, _exp)) - 1)]
+        _ad = _px / last_close - 1.0
+        _p, _nn = _reach_prob(_cl_v, _hi_v, _lo_v, _ad > 0, abs(_ad), int(max(1, _exp)))
+        _daily = (1.0 + abs(_ad)) ** (1.0 / max(1, int(_exp))) - 1.0
+        _t["reach"] = {
+            "prob": round(_p * 100, 2) if _p is not None else None,
+            "window": int(max(1, _exp)),
+            "samples": int(_nn),
+            "dailyRate": round(_daily * 100, 4),
+            "distPct": round(_ad * 100, 2),
+            "cls": _reach_cls(_p),
+        }
+
+    # 交易计划侧的卖①②③ 与 targets 前三个同价（只是命名口径不同），复用同一 reach 结果，
+    # 避免同一价位在"目标表"和"触发带卡片"上给出两个不同的可达性（双份真值）。
+    _tgt_reach = {round(float(_t["price"]), 2): _t["reach"] for _t in targets}
+    for _s in sell_targets:
+        _s["reach"] = _tgt_reach.get(round(float(_s["price"]), 2))
+
+    # ③ 斜率自洽对照：目标隐含的「必须多快到达」vs 同浪级已实现腿的实际速度。
+    #    这是判别「目标是理论位 / 还是可执行目标」的硬标尺，比任何定性描述都可靠。
+    def _leg_rate(_p0, _p1):
+        _seg = df.loc[pd.Timestamp(_p0["date"]):pd.Timestamp(_p1["date"])]
+        _nd = max(1, len(_seg) - 1)
+        _rr = float(_p1["price"]) / float(_p0["price"]) - 1.0
+        return _nd, _rr, ((1.0 + _rr) ** (1.0 / _nd) - 1.0)
+
+    _w1n, _w1r, _w1d = _leg_rate(wave_points[5], wave_points[6])   # 双底 → 浪1顶
+    _w3n, _w3r, _w3d = _leg_rate(wave_points[7], wave_points[8])   # 浪2底 → 浪3顶
+    _t0r = targets[0]["reach"]
+    _cls_cnt = {"achievable": 0, "stretch": 0, "unreachable": 0, "unknown": 0}
+    for _t in targets:
+        _cls_cnt[_t["reach"]["cls"]] += 1
+    reach_summary = {
+        "sampleFrom": df.index[0].strftime("%Y-%m-%d"),
+        "sampleTo": df.index[-1].strftime("%Y-%m-%d"),
+        "sampleRows": int(len(df)),
+        "wave1": {"days": int(_w1n), "retPct": round(_w1r * 100, 2), "dailyRate": round(_w1d * 100, 4)},
+        "wave3": {"days": int(_w3n), "retPct": round(_w3r * 100, 2), "dailyRate": round(_w3d * 100, 4)},
+        "wave5Implied": {
+            "name": targets[0]["name"], "price": targets[0]["price"],
+            "days": _t0r["window"], "retPct": _t0r["distPct"], "dailyRate": _t0r["dailyRate"],
+            "speedVsWave3": round(_t0r["dailyRate"] / (_w3d * 100), 2) if _w3d else None,
+            "speedVsWave1": round(_t0r["dailyRate"] / (_w1d * 100), 3) if _w1d else None,
+        },
+        "byClass": _cls_cnt,
+        "thresholds": {"unreachable": 0.10, "achievable": 0.35},
+        "note": ("可达性＝过去 %s~%s（%d 根 K 线）中，同等观察窗内朝该方向走过同等幅度的起点占比，"
+                 "仅取窗口已闭合的起点。⚠ 该窗口以震荡市为主、样本里暴涨段稀缺，绝对概率偏低，"
+                 "价值在**相对排序**而非绝对概率；比率低不等于走势不可能，只等于"
+                 "「在此样本窗口内没有先例」。"
+                 % (df.index[0].strftime("%Y-%m"), df.index[-1].strftime("%Y-%m"), len(df))),
+    }
+
     # ---------- 预测回测闭环（提前至此，供区间+概率派生回溯命中率；每日自动化无需改）----------
     # 存档当日目标 + 重评全部历史记录 + 聚合命中率，结果供下方 _enrich 取实证命中率。
     # R69：激活「回测实证」级 —— walk-forward 历史类比(条件于当前波动率 regime)
@@ -2462,6 +2582,7 @@ def main():
         "kline": kline, "wavePoints": wave_points, "subWavePoints": sub_wave_points,
         "subZigzag": sub_zigzag, "zigzag": st["zigzag"], "signals": st["signals"],
         "fib5y": fib_5y, "fibW3": fib_w3, "targets": targets, "supports": supports,
+        "reachSummary": reach_summary,
         "rules": rules, "channel": channel, "ratioCheck": ratio_check,
         "volByWave": vol_by_wave, "volatility": volatility, "volRegime": {"pctile": hv_pctile, "bucket": _vol_bucket, "bandScale": _vol_scale, "driftConf": _drift_conf, "note": "HV20 五年 %d%% 分位(%s波动区)：区间带宽×%.2f、漂移信任×%.2f" % (hv_pctile, _vol_bucket, _vol_scale, _drift_conf)}, "weekly": weekly,
         "tzWaveStart": tz_wave_start, "tzWave3Top": tz_wave3_top,

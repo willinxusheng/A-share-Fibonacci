@@ -251,11 +251,17 @@ jobs:
       # ③ 零信息基线必须成熟度对齐，且 w > 同期跨度的 key 必须全部被剔除
       #    （未剔除 ⇒ 同期基线重新退化为"残缺未来窗采样"，会产出 19.5% 这类伪值）。
       # 该门禁同时独立复算 dirRealizedHitRateMatured / dirBaseRateRecent，防"改生产不改副本"。
-      - name: Gatekeepers (validate + audit49..55 + R108 holiday-target)
+      # 第 13 道闸门：目标可达性 + targets 元数据守门员（audit56）。
+      # R827 固化的不变量：① targets[] 必须自带 expDays/expDate/reach（此前 targets 与
+      #   sell_targets 双份列表、只有后者被赋 expDays ⇒ 消费方静默回退 30 日）；
+      # ② reach.prob 由本门禁独立实现重算比对（不复用生产 _reach_prob，防同源同错）；
+      # ③ sellTargets 与同价 target 的 reach 必须逐字段一致（单一真值）；
+      # ④ 可达性分档计数恒等式 + 单调性（rr 越高命中率不得越低）。
+      - name: Gatekeepers (validate + audit49..56 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit_holiday_targets.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done

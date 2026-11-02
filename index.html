@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-11-02T10:20:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R826 方向推进率双口径并列 + 零信息基线成熟度对齐 + 删失偏差双向披露)
+var BUILD_TS = "2026-11-02T11:40:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R827 目标可达性量化 + targets 补 expDays/expDate + 方向命中率按可达性分层披露 + 目标表/触发带标注历史可达%)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1080,10 +1080,21 @@ document.getElementById('rules').innerHTML = D.rules.map(function (r) {
     '<h3><span class="spark">⚡</span>触达即触发 — 卖①②③三档触发带（已绘于上方主图）</h3>' +
     '<div class="lead">卖出信号不是"日历到点"才触发，而是 <b>价格自下向上进入对应触发带（触及该档目标区间）</b> 即触发该档卖出。带越往上、概率越低、越偏激进；进入卖①带即可兑现首批。有效跌破 <b>铁律线 ' + D.tradePlan.stopLine.price.toFixed(2) + '</b> 则浪④数法证伪，第一时间转防御。</div>' +
     '<div class="tiers">' + D.tradePlan.sellTargets.map(function (t, i) {
+      // R827：每档补「历史可达性」——该价位在过去 N 年中、同等窗口内是否真的被走到过。
+      // 与目标表用同一份 reach 数据（build_data 里由价格映射复用），不在前端二次计算。
+      var _r = t.reach || null;
+      var _rline = '';
+      if (_r && _r.prob != null) {
+        var _rc = _r.cls === 'achievable' ? '#2f9e44' : (_r.cls === 'stretch' ? '#e6a23c' : '#c23531');
+        var _rl = _r.cls === 'achievable' ? '可达' : (_r.cls === 'stretch' ? '偏紧' : '无先例');
+        _rline = '<div class="tp">历史可达 <b style="color:' + _rc + '">' + _r.prob.toFixed(2) + '%</b>' +
+          '（' + _r.window + ' 日内 · ' + _rl + ' · 需日均 ' + _r.dailyRate.toFixed(3) + '%）</div>';
+      }
       return '<div class="tier" style="border-top-color:' + _lineCols[i] + '">' +
         '<div class="tn" style="color:' + _lineCols[i] + '">' + _tierNames[i] + '</div>' +
         '<div class="tb">触发带 <b>' + t.lo.toFixed(0) + ' – ' + t.hi.toFixed(0) + '</b><br>中心目标 <b>' + t.price.toFixed(2) + '</b></div>' +
         '<div class="tp">触发概率 <b style="color:' + _lineCols[i] + '">' + t.prob + '%</b>（' + t.probSrc + '）</div>' +
+        _rline +
         '<div class="foot">' + t.note + '</div></div>';
     }).join('') + '</div>';
 
@@ -1755,10 +1766,32 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       return '<tr><td>' + v.wave + '</td><td><b>' + v.vol + '</b></td><td><div style="background:#eef1f6;border-radius:3px;height:10px;width:120px;display:inline-block;vertical-align:middle"><div style="background:' + NAVY + ';height:10px;border-radius:3px;width:' + pct + '%"></div></div></td></tr>';
     }).join('');
 
+  // R827：目标表补「预期到达」与「历史可达性」两列。
+  // 可达性 = 过去 N 年中同等观察窗内朝该方向走过同等幅度的起点占比；cls 三档由其派生
+  // （unreachable<10% / stretch 10~35% / achievable>=35%），不得在前端另设阈值，否则
+  // 「卡片说偏紧、表说无先例」会自相矛盾（R824b 同类：两处呈现同一量却各自硬编码判据）。
+  var _reachCol = function (cls) {
+    return cls === 'achievable' ? '#2f9e44' : (cls === 'stretch' ? '#e6a23c' : '#c23531');
+  };
+  var _reachLbl = function (cls) {
+    return cls === 'achievable' ? '可达' : (cls === 'stretch' ? '偏紧' : '无先例');
+  };
   document.getElementById('targetTable').innerHTML =
-    '<tr><th>口径</th><th>点位</th><th>类型</th></tr>' +
+    '<tr><th>口径</th><th>点位</th><th>预期到达</th><th>历史可达性</th><th>类型</th></tr>' +
     D.targets.map(function (t) {
-      return '<tr><td>' + t.name + '</td><td class="num-red">' + fmt2(t.price) + '</td><td><span class="tag tag-t">目标</span></td></tr>';
+      var _r = t.reach || null;
+      var _exp = (t.expDays != null)
+        ? (t.expDays + ' 日' + (t.expDate ? '<br><span style="color:#8a94a6;font-size:11px">约 ' + t.expDate + '</span>' : ''))
+        : '<span style="color:#c23531">—</span>';
+      var _rc = '—';
+      if (_r && _r.prob != null) {
+        var _col = _reachCol(_r.cls);
+        _rc = '<b style="color:' + _col + '">' + _r.prob.toFixed(2) + '%</b>' +
+              '<br><span style="color:' + _col + ';font-size:11px">' + _reachLbl(_r.cls) +
+              ' · 需日均 ' + _r.dailyRate.toFixed(3) + '%</span>';
+      }
+      return '<tr><td>' + t.name + '</td><td class="num-red">' + fmt2(t.price) + '</td><td>' + _exp +
+        '</td><td>' + _rc + '</td><td><span class="tag tag-t">目标</span></td></tr>';
     }).join('');
 
   document.getElementById('fibTable').innerHTML =
@@ -2007,6 +2040,33 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                 (_farP ? '（另有 ' + _farP + ' 条尚未到期）' : '') +
                 '。这说明低命中率里有很大一块是「目标价定得比市场在该观察窗内能走的距离还远」，' +
                 '属算术必然，与艾略特结构判断对错无关 —— 它是<b>目标集的问题</b>，不是判据的问题。';
+            })()
+          : '') +
+        (bt.dirBandsByReach && bt.dirBandsByReach.length && bt.dirReachMeta
+          ? (function () {
+              var _bd = bt.dirBandsByReach;
+              var _seg = _bd.map(function (x) {
+                return x.label + ' → ' + x.hits + '/' + x.matured +
+                  (x.rateRaw != null ? '(' + x.rateRaw + '%)' : '');
+              }).join(' ｜ ');
+              var _low = _bd.filter(function (x) { return x.lo < 0.15; });
+              var _lowH = _low.reduce(function (a, x) { return a + x.hits; }, 0);
+              var _lowN = _low.reduce(function (a, x) { return a + x.matured; }, 0);
+              var _lowAll = _low.reduce(function (a, x) { return a + x.all; }, 0);
+              var _hiB = _bd.filter(function (x) { return x.lo >= 0.60; })[0];
+              var _m = bt.dirReachMeta;
+              return '<br><b>⚠ 命中率首先由「目标本身的可达性」决定（R827，比距离分桶更准）</b>：' +
+                '对每条预测用<b>它自己</b>的目标距离与观察窗，在 ' + _m.sampleFrom + ' ~ ' + _m.sampleTo +
+                ' 全历史上统计「同等窗口内朝同方向走过同等幅度的起点占比」rr，再按 rr 分档 → ' + _seg + '。' +
+                '<b>rr &lt; 15% 的 ' + _lowN + ' 条成熟样本命中 ' + _lowH + ' 条</b>' +
+                (_hiB && _hiB.rateRaw != null
+                  ? '，而 rr ≥ 60% 的 ' + _hiB.matured + ' 条命中 ' + _hiB.hits + ' 条（' + _hiB.rateRaw + '%）'
+                  : '') +
+                ' —— 近乎完美单调。' +
+                '这些低可达样本（共 ' + _lowAll + ' 条可判）不是「方向判错」，而是<b>目标价在承诺期限内没有先例可达</b>；' +
+                '把二者合并计分，就会把「目标集脱离市场速率」误读成「引擎看错方向」。' +
+                '<b>⚠ 口径边界</b>：rr 的分母仅 ' + _m.sampleRows + ' 根 K 线且以震荡市为主，' +
+                '绝对概率偏低、只能作<b>相对排序</b>；比率为 0 不等于走势不可能，只等于「在此样本窗口内没有先例」。';
             })()
           : '')
       : '（本页指标尚未刷新到 R822 新口径，方向准确率为与目标价无关的旧判据；下次数据更新后自动切换为带零信息基线的「方向推进率」）');
