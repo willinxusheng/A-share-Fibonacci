@@ -136,6 +136,13 @@ hit_mat = pct(len(_mat_hits), len(_mat)) if len(_mat) >= MIN_SAMPLE else None
 d_eval = [o for o in out if o["dirCorrect"] is not None]
 d_hit = [o for o in d_eval if o["dirCorrect"]]
 dir_rate = pct(len(d_hit), len(d_eval))
+# R826 对称成熟口径（无删失）：只有窗已闭合才计入，达成与否一视同仁。
+# 未成熟但已达成者另记（不进比率）——曾误把其并入分母分子，导致当月命中率虚高成 100%。
+_d_mat = [o for o in d_eval if o["matured"]]
+_d_mat_hits = [o for o in _d_mat if o["dirCorrect"]]
+dir_rate_mat = pct(len(_d_mat_hits), len(_d_mat))
+_dir_pending = sum(1 for o in d_eval if (o["dirCorrect"] is False and not o["matured"]))
+_dir_early = sum(1 for o in d_eval if (o["dirCorrect"] is True and not o["matured"]))
 
 # ---- ③ 零信息基线（逐字重实现 dir_baseline）----
 _cl = df["close"].values
@@ -160,6 +167,20 @@ def _fwd_min(w):
 
 _valid = np.zeros(n, dtype=bool)
 _valid[: n - 1] = True
+# R826 成熟度对齐副本：与 backtest.dir_baseline 同改——基线只取【未来 w 天完整】的起算点。
+# 若此处不同步，本复算器会继续复现旧口径（38.1/19.5）而对生产新值报假 FAIL。
+_valid_full = {}
+
+
+def _full_mask(w):
+    k = int(w)
+    if k not in _valid_full:
+        mm = np.zeros(n, dtype=bool)
+        mm[: max(0, n - k)] = True
+        _valid_full[k] = mm
+    return _valid_full[k]
+
+
 per, vals, recent_vals = {}, [], []
 for o in out:
     g = o.get("dirGap")
@@ -172,7 +193,7 @@ for o in out:
         arr = _fwd_max(key[1]) if want_up else _fwd_min(key[1])
         need = _cl * (1.0 + 0.5 * key[0])
         ok = (arr >= need) if want_up else (arr <= need)
-        m = _valid & ~np.isnan(arr)
+        m = _full_mask(key[1]) & ~np.isnan(arr)
         per[key] = (float(ok[m].mean()) if m.any() else None, ok, m)
         # ⚠ 必须写在「key not in per」块内（每个 key 只投一票）。置于块外会按该 key 在日志中
         # 的**出现次数**加权——同一目标连续 28 日的记录会把它的基线值放大 28 倍（实测偏 0.1pp）。
@@ -184,10 +205,13 @@ _i0s = [dates.index(o["date"]) for o in out if o.get("date") in DS]
 _start = max(0, min(min(_i0s) if _i0s else n - 1, n - 1 - 60))
 _rec_valid = np.zeros(n, dtype=bool)
 _rec_valid[_start: n - 1] = True
+_recent_skip = 0
 for key, (b, ok, m) in per.items():
     mm = m & _rec_valid
     if mm.any():
         recent_vals.append(float(ok[mm].mean()))
+    else:
+        _recent_skip += 1
 base_recent = round(float(np.mean(recent_vals)) * 100, 1) if recent_vals else None
 
 # ---- ④ 精确率去平凡 ----
@@ -216,6 +240,10 @@ rows = [
     ("hitRateAll(band 全量口径)", hit_all, bt.get("hitRateAll")),
     ("hitRateMaturedOnly", hit_mat, bt.get("hitRateMaturedOnly")),
     ("dirRealizedHitRate(方向推进率)", dir_rate, bt.get("dirRealizedHitRate")),
+    ("dirRealizedHitRateMatured(对称成熟·无删失)", dir_rate_mat, bt.get("dirRealizedHitRateMatured")),
+    ("dirPendingCount(窗未闭合且未达成)", _dir_pending, bt.get("dirPendingCount")),
+    ("dirEarlyHitCount(未闭合但已达成·不进比率)", _dir_early, bt.get("dirEarlyHitCount")),
+    ("dirBaseRecentSkippedKeys(同期无完整窗被剔除)", _recent_skip, bt.get("dirBaseRecentSkippedKeys")),
     ("dirBaseRate(零信息基线·全历史)", base_glob, bt.get("dirBaseRate")),
     ("dirBaseRateRecent(零信息基线·同期)", base_recent, bt.get("dirBaseRateRecent")),
     ("preciseRealizedHitRateNonTrivial", precise_nt, bt.get("preciseRealizedHitRateNonTrivial")),

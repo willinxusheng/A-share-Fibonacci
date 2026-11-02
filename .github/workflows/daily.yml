@@ -245,11 +245,17 @@ jobs:
       # ② scenarios 各序列日期必须非降序（原硬编码 "2026-09-30" 锚点致时间倒序）；③ rules/ratioCheck
       # 的 ok 必须由 actual 对 theory 区间复算得出（原大批硬编码 True，前端 warn 分支成死代码）。
       # 已通过 7/7 缺陷注入正控（含正则需容许 theory 中 ~ 前夹 % 的坑，否则静默漏报=假绿）。
-      - name: Gatekeepers (validate + audit49..54 + R108 holiday-target)
+      # 第 12 道闸门：回测口径可比性守门员（audit55）。
+      # R826 固化的口径不变量：① 方向推进率三态恒等式 pending + matured == totalDirEvaluated；
+      # ② 全窗口口径与仅成熟口径必须并存且显著不同（相等 ⇒ 三态化失效，删失偏差回归）；
+      # ③ 零信息基线必须成熟度对齐，且 w > 同期跨度的 key 必须全部被剔除
+      #    （未剔除 ⇒ 同期基线重新退化为"残缺未来窗采样"，会产出 19.5% 这类伪值）。
+      # 该门禁同时独立复算 dirRealizedHitRateMatured / dirBaseRateRecent，防"改生产不改副本"。
+      - name: Gatekeepers (validate + audit49..55 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit_holiday_targets.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done

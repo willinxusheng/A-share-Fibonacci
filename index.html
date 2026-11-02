@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-10-24T10:05:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R825 浪④锚点失效披露 + 破位记账 latching + 校验卡三态渲染 + 风险横幅与自动判定行均按破位记账派生)
+var BUILD_TS = "2026-11-02T10:20:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R826 方向推进率双口径并列 + 零信息基线成熟度对齐 + 删失偏差双向披露)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1907,9 +1907,11 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       : (r.preciseHitRate >= 50 ? '较可靠' : (r.preciseHitRate >= 30 ? '价位偏松' : '价位偏弱')));
     // R822 方向推进率与零信息基线并列（观测≈基线 ⇒ 无预测增量价值），避免单看 90%+ 误读为强信号
     var _dirBase = (r.dirBaseRate != null) ? '<span style="color:#98a0ad;font-size:11px"> /基' + r.dirBaseRate + '%</span>' : '';
+    // R826 成熟对齐口径并列：全窗口口径含删失（偏低）、仅成熟口径含时间选择（偏高），单报任一都会误导
+    var _dirMat = (r.dirHitRateMatured != null) ? '<span style="color:#98a0ad;font-size:11px"> ·成熟' + r.dirHitRateMatured + '%</span>' : '';
     return '<tr><td><b>' + (catName[r.cat] || r.cat) + '</b> · ' + r.key + '</td>' +
       '<td>' + r.n + '</td>' +
-      '<td>' + rateCell(r.dirHitRate) + _dirBase + '</td>' +
+      '<td>' + rateCell(r.dirHitRate) + _dirBase + _dirMat + '</td>' +
       '<td>' + rateCell(r.hitRate) + '</td>' +
       '<td>' + rateCell(r.preciseHitRate) + '</td>' +
       '<td>' + days + '</td><td>' + status + '</td></tr>';
@@ -1943,12 +1945,20 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var ov_b = bt.realizedHitRate != null ? bt.realizedHitRate + '%' : '样本不足';
   var ov_ball = bt.hitRateAll != null ? bt.hitRateAll + '%' : '—';
   var ov_d = bt.dirRealizedHitRate != null ? bt.dirRealizedHitRate + '%' : '样本不足';
+  // R826 双口径：全窗口（含删失·偏低） vs 仅成熟（含时间选择·偏高）
+  var _r826 = (bt.dirRealizedHitRateMatured != null);
+  var ov_dmat = _r826 ? bt.dirRealizedHitRateMatured + '%' : '—';
+  var ov_pend = (bt.dirPendingCount != null ? bt.dirPendingCount : '—');
+  var ov_early = (bt.dirEarlyHitCount != null ? bt.dirEarlyHitCount : '—');
+  var _pendPct = (bt.dirPendingCount != null && bt.totalDirEvaluated)
+    ? Math.round(bt.dirPendingCount / bt.totalDirEvaluated * 100) : null;
   var ov_dbase = (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
     ' / 全历史 ' + (bt.dirBaseRate != null ? bt.dirBaseRate + '%' : '—');
   var ov_w = bt.levelPrecisionWithin5Pct != null ? bt.levelPrecisionWithin5Pct + '%' : '—';
   foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
     ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
-    ' ｜ <b>整体：' + (_r822 ? '方向推进率(窗内走完 50% 目标距离) ' + ov_d + ' ｜ 零信息基线 ' + ov_dbase
+    ' ｜ <b>整体：' + (_r822 ? '方向推进率(窗内走完 50% 目标距离) ' + ov_d +
+      (_r826 ? ' ·仅成熟 ' + ov_dmat : '') + ' ｜ 零信息基线 ' + ov_dbase
       : '方向准确率(旧口径) ' + ov_d + ' ｜ 零信息基线 待数据刷新') +
     ' ｜ band 触达率 已实现口径 ' + ov_b + (_r822 ? ' / 全量口径 ' + ov_ball : '') +
     ' ｜ 精确命中率 ' + ov_p + (_r822 ? '(含重言式) / 去平凡 ' + ov_pnt : '') +
@@ -1957,7 +1967,48 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       ? '（<b>方向推进率</b>已按 R822 改为「目标感知 + 限定观察窗」：旧口径只问"未来是否曾高于预测日收盘"，与目标价无关且零信息基线即达 94~99%，无判别力，故弃用。' +
         '<b>band 触达率</b>：已实现口径的分母只含「已解决」样本(命中或窗口闭合未命中)，命中当天即可判定而未命中须等窗口闭合 → 该口径被命中富集、系统性偏高，全量口径才是保守下界。' +
         '精确命中率含「目标价在预测当日已被自身收盘满足」的重言式样本，去平凡后为真实值。' +
-        '已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '）'
+        '已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '）' +
+        (_r826
+          ? '<br><b>⚠ 方向推进率现有两个口径，缺一即误读（R826）</b>：' +
+            '① <b>全窗口口径 ' + ov_d + '</b> 把「观察窗未闭合且尚未走完 50% 目标距离」记为未做到 —— 当前有 ' +
+            ov_pend + ' 条属此类' + (_pendPct != null ? '（占可判样本 ' + _pendPct + '%）' : '') +
+            '，尚未到期就被计为失败 ⇒ <b>系统性偏低（保守下界）</b>；' +
+            '② <b>对称成熟口径 ' + ov_dmat + '</b> 只统计窗口已闭合者（达成与否一视同仁）⇒ 无删失偏差，' +
+            '但样本仅覆盖 ' + (bt.dirMaturedSpanFrom || '—') + ' ~ ' + (bt.dirMaturedSpanTo || '—') +
+            '，只代表该段行情，不能外推到当前。' +
+            '另有 <b>' + ov_early + ' 条「未到期但已达成」</b>：虽属确定事实，但<b>不进任何比率</b> —— ' +
+            '若并入，近期样本就只剩成功者，会把当月命中率虚高成 100%（实测 2026-10 月 12/12；' +
+            '曾误用此口径得出 57.2%，已废弃）。' +
+            '<b>两个口径都不是真值</b>：前者是下界、后者只代表成熟期；须并列判读。' +
+            '<b>零信息基线</b>已同步改为「成熟度对齐」口径（只取未来 w 天完整的起算点）：' +
+            '修正前的同期基线是在观察窗长 w 普遍大于同期跨度、<b>完整未来窗占比为 0</b> 的样本上算出的，' +
+            '属伪值；修正后同期 ' + (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
+            ' / 全历史 ' + (bt.dirBaseRate != null ? bt.dirBaseRate + '%' : '—') +
+            '。因此「引擎 ≈ 基线 ⇒ 无预测价值」这类比较，在修正前是拿两个<b>都被删失压低</b>的值互相印证' +
+            '（当前 ' + ov_d + ' vs 基线 ' + (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
+            '，而仅成熟样本为 ' + ov_dmat + '）—— 那是巧合，不是结论。'
+          : '') +
+        (_r826 && bt.dirDistanceBands && bt.dirDistanceBands.length
+          ? (function () {
+              var _b = bt.dirDistanceBands.map(function (x) {
+                var _hi = (x.hi != null) ? x.hi + '%' : '∞';
+                var _r = (x.rate != null) ? x.rate + '%' : '未到期';
+                return '[' + x.lo + '%,' + _hi + ') ' + _r + '(' + x.n + '条)';
+              }).join(' ｜ ');
+              var _near = bt.dirDistanceBands[0];
+              var _far = bt.dirDistanceBands.filter(function (x) { return x.lo >= 10; });
+              var _farN = _far.reduce(function (a, x) { return a + x.n; }, 0);
+              var _farH = _far.reduce(function (a, x) { return a + x.hits; }, 0);
+              var _farP = _far.reduce(function (a, x) { return a + (x.pending || 0); }, 0);
+              return '<br><b>⚠ 命中率首先由「目标距离」决定（R826）</b>：按目标距当日收盘的百分比分桶、' +
+                '仅统计成熟样本 → ' + _b + '。距离最近的桶命中率 ' +
+                (_near && _near.rate != null ? _near.rate + '%' : '—') + '，越远塌陷越快；' +
+                '<b>距离 ≥10% 的 ' + _farN + ' 条成熟样本命中 ' + _farH + ' 条</b>' +
+                (_farP ? '（另有 ' + _farP + ' 条尚未到期）' : '') +
+                '。这说明低命中率里有很大一块是「目标价定得比市场在该观察窗内能走的距离还远」，' +
+                '属算术必然，与艾略特结构判断对错无关 —— 它是<b>目标集的问题</b>，不是判据的问题。';
+            })()
+          : '')
       : '（本页指标尚未刷新到 R822 新口径，方向准确率为与目标价无关的旧判据；下次数据更新后自动切换为带零信息基线的「方向推进率」）');
   // #790 目标实时追踪：open(pending)目标进度一览，辅助买卖时机判断（不依赖观察窗闭合，可立即查看）
   var trackEl = document.getElementById('btTrack');

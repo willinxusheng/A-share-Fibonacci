@@ -352,6 +352,18 @@ def evaluate(df):
             _triv_hit = None if close0 is None else (
                 (px * (1.0 + _frac) >= close0) if _is_buy else (px * (1.0 - _frac) <= close0))
             rec["dirCorrect"] = _dir_ok
+            # R826 方向命中率·对称成熟口径（消除删失偏差）。
+            #   缺陷（11-02 实证）：dirCorrect 把【观察窗未闭合且尚未推进到 50%】记成 False，
+            #   等价于把"还不知道"判成"没做到"。实测 507 条可判样本中 343 条(68%)窗未闭合，
+            #   全窗口口径 18.7% vs 对称成熟口径 44.9%，**低估 26pp**（与 R822 修的高估方向相反）。
+            # ⚠ 口径陷阱（本轮踩过）：最初写成「已达成即计入(不论成熟) + 未达成须等成熟」，
+            #   看似"真值可早判"，实则对近期样本只保留成功者 ⇒ 实测 2026-10 月 12/12=100%、
+            #   9 月 72.4%、8 月 42.6%，把近期命中率虚高成 100%（57.2% 就是这样来的）。
+            #   故此处严格对称：**只有窗已闭合才计入，无论达成与否**。未成熟但已达成的另记
+            #   dirEarlyHit（确定事实，但不进任何比率，避免幸存者偏差）。
+            rec["dirCorrectMatured"] = (_dir_ok if matured else None)
+            rec["dirEarlyHit"] = bool(_dir_ok is True and not matured)
+            rec["dirPending"] = bool(_dir_ok is False and not matured)
             rec["dirGap"] = round(_delta / close0, 6) if (close0 and _delta is not None) else None
             rec["dirWindow"] = int(_hz)
             rec["trivialPrecise"] = _triv_prec
@@ -437,12 +449,27 @@ def dir_baseline(df, recs):
 
     _valid = np.zeros(_n, dtype=bool)
     _valid[: _n - 1] = True      # 需 i+1 <= n-1（至少 1 根未来 K 线，与记录判据同界）
+    # R826 成熟度对齐：基线必须只用【未来 w 天完整】的起点，才能与引擎侧 matured-only 命中率同口径。
+    # 缺陷（11-02 实证）：旧口径 _valid 仅排除最后一根 ⇒ 含大量"未来窗残缺"的起点。
+    # 在 w=96 而同期区间仅 60 天时，同期内【没有任何】完整未来窗（实测 w>=61 时完整起点数 = 0），
+    # 基线被系统性压低到 19.5%，恰好与同样被删失压低的引擎值 19.0% 接近 ⇒
+    # 得出"引擎 ≈ 零信息基线（无预测价值）"的【伪结论】。同口径重算后为 32.7% vs 引擎 46.6%。
+    _valid_full_by_w = {}
+    def _full_mask(w):
+        k = int(w)
+        if k not in _valid_full_by_w:
+            m = np.zeros(_n, dtype=bool)
+            m[: max(0, _n - k)] = True      # i + w <= n-1 ⇒ 未来 w 天完整
+            _valid_full_by_w[k] = m
+        return _valid_full_by_w[k]
     # 同期基线窗口：覆盖全部预测日期所在区间（不足 60 交易日则向前补足 60）
     _dates = [d.strftime("%Y-%m-%d") for d in df.index]
     _DATESSET = set(_dates)
     per = {}
     vals = []
+    vals_all = []
     recent_vals = []
+    recent_skip = 0
     for r in recs:
         g = r.get("dirGap")
         w = r.get("dirWindow")
@@ -454,24 +481,37 @@ def dir_baseline(df, recs):
             arr = _fwd_max(key[1]) if want_up else _fwd_min(key[1])
             need = _close * (1.0 + 0.5 * key[0])
             ok = (arr >= need) if want_up else (arr <= need)
-            m = _valid & ~np.isnan(arr)
-            per[key] = (float(ok[m].mean()) if m.any() else None,
-                        ok, m)
+            m_all = _valid & ~np.isnan(arr)
+            m_full = _full_mask(key[1]) & ~np.isnan(arr)
+            per[key] = (float(ok[m_all].mean()) if m_all.any() else None,   # 旧口径(保留对照)
+                        float(ok[m_full].mean()) if m_full.any() else None,  # R826 成熟对齐
+                        ok, m_all, m_full, int(m_full.sum()))
             if per[key][0] is not None:
-                vals.append(per[key][0])
-        r["dirBase"] = per[key][0]
+                vals_all.append(per[key][0])
+            if per[key][1] is not None:
+                vals.append(per[key][1])
+        r["dirBase"] = per[key][1] if per[key][1] is not None else per[key][0]
+        r["dirBaseAligned"] = per[key][1]
     glob = round(float(np.mean(vals)) * 100, 1) if vals else None
+    glob_all = round(float(np.mean(vals_all)) * 100, 1) if vals_all else None
     # 同期基线：窗口起点 = min(最早预测日, 末日-60)（至少 60 交易日，覆盖全部预测区间）
     _i0s = [_dates.index(r["date"]) for r in recs if r.get("date") in _DATESSET]
     _start = max(0, min(min(_i0s) if _i0s else _n - 1, _n - 1 - 60))
     _rec_valid = np.zeros(_n, dtype=bool)
     _rec_valid[_start: _n - 1] = True
-    for key, (b, ok, m) in per.items():
-        mm = m & _rec_valid
+    for key, (_ball, _bfull, ok, m_all, m_full, _nf) in per.items():
+        if _ball is None:
+            continue
+        mm = m_full & _rec_valid          # R826：同期 + 成熟度对齐
         if mm.any():
             recent_vals.append(float(ok[mm].mean()))
+        else:
+            # 该 key 在同期区间内无任何完整未来窗 ⇒ 旧实现会退化成"残缺窗采样"并压低基线。
+            # 现直接剔除并计数，供门禁断言"不得全部剔除后仍输出数字"。
+            recent_skip += 1
     recent = round(float(np.mean(recent_vals)) * 100, 1) if recent_vals else None
-    return glob, recent
+    return glob, recent, {"allWindow": glob_all, "recentValidKeys": len(recent_vals),
+                          "recentSkippedKeys": recent_skip, "totalKeys": len(per)}
 
 
 def aggregate(recs, pdev_recs=None):
@@ -501,6 +541,7 @@ def aggregate(recs, pdev_recs=None):
                                "PrecNTEval": 0, "phNT": 0,
                                "preciseEval": 0, "matured": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
+                               "dirMatEval": 0, "dirMatHits": 0, "dirPending": 0,
                                "precDevs": [], "nEff": 0,
                                # #790 目标实时追踪：open(pending=未触达且窗未闭)目标的时间/接近度累计
                                "open": 0, "openElapsed": [], "openExp": [], "openBest": []})
@@ -513,6 +554,16 @@ def aggregate(recs, pdev_recs=None):
             if r.get("dirBase") is not None:
                 g["dirBaseSum"] += r["dirBase"]
                 g["dirBaseN"] += 1
+        # R826 方向命中率·成熟对齐（无删失偏差）：dirCorrectMatured 为 None 表示"窗未闭合且未达成"
+        # = 删失样本，不计入分母。与上式组成双口径并列（前者含删失偏低、后者含时间选择偏高）。
+        if r.get("dirCorrectMatured") is not None:
+            g["dirMatEval"] += 1
+            if r.get("dirCorrectMatured"):
+                g["dirMatHits"] += 1
+        if r.get("dirPending"):
+            g["dirPending"] += 1
+        if r.get("dirEarlyHit"):
+            g["dirEarly"] = g.get("dirEarly", 0) + 1
         # #779 基准情形方向准确率：仅统计 baseCase=True（被系统当作基准发出的目标）的方向判定
         if r.get("baseCase", True) and r.get("dirCorrect") is not None:
             g["bcDirEval"] += 1
@@ -580,6 +631,9 @@ def aggregate(recs, pdev_recs=None):
             if (g["preciseEval"] >= MIN_SAMPLE and g["matured"] >= MIN_SAMPLE) else None
         # 方向准确率(早期信号)用同一 Laplace 收缩；样本不足(含仅 1~2 未来日)也标 None 不伪造高置信。
         dir_rate = round((g["dirHits"] + 1.0) / (g["dirEval"] + 2) * 100, 1) if g["dirEval"] >= MIN_SAMPLE else None
+        # R826 方向推进率·仅成熟样本（对称成熟口径，无删失）。样本不足标 None。
+        dir_rate_mat = (round((g["dirMatHits"] + 1.0) / (g["dirMatEval"] + 2) * 100, 1)
+                        if g["dirMatEval"] >= MIN_SAMPLE else None)
         # #779 基准情形方向准确率(仅 baseCase=True 样本)：衡量"系统真正当作基准发出的目标"方向正确率；
         # 样本不足同样标 None 不伪造高置信。
         base_case_dir_rate = round((g["bcDirHits"] + 1.0) / (g["bcDirEval"] + 2) * 100, 1) if g["bcDirEval"] >= MIN_SAMPLE else None
@@ -590,6 +644,9 @@ def aggregate(recs, pdev_recs=None):
             "preciseEval": g["preciseEval"], "matured": g["matured"],
             "avgDays": avg_days, "cold": cold,
             "dirEval": g["dirEval"], "dirHits": g["dirHits"], "dirHitRate": dir_rate,
+            # R826 方向推进率·仅成熟样本（对称成熟口径）+ 删失样本数（未闭合且未达成）。
+            "dirMatEval": g["dirMatEval"], "dirMatHits": g["dirMatHits"],
+            "dirHitRateMatured": dir_rate_mat, "dirPending": g["dirPending"],
             # R822 该组方向判据的零信息基线（同间距/同窗长，全体历史日复算）——供前端并列展示，
             # 使"方向推进率"可判读：观测≈基线 ⇒ 无预测增量价值。
             "dirBaseRate": round(g["dirBaseSum"] / g["dirBaseN"] * 100, 1) if g["dirBaseN"] else None,
@@ -630,7 +687,8 @@ def run_backtest(data, df):
     archive(data)
     recs = evaluate(df)
     # R822 方向判据零信息基线：必须在 evaluate 之后（依赖每条的 dirGap/dirWindow）。
-    dir_base_rate, dir_base_recent = dir_baseline(df, recs)
+    # R826：追加第三返回值 = 基线口径元数据（成熟对齐后的可用 key 数 / 被剔除 key 数）。
+    dir_base_rate, dir_base_recent, _base_meta = dir_baseline(df, recs)
     # R820 独立目标观测(反重复灌水)：下述所有【价位偏差/离散度/成熟度】统计一律以 pdev_recs 为源，
     # 使"样本量"= 独立预测目标数而非日志行数(卖① 28 行 → 1 个目标)。命中率类指标仍走行级 recs
     # (每日发出即一次预测，属另一个问题)。等价锚 子浪ⅴ≡卖① 已在 episode_reps 内去重。
@@ -780,6 +838,34 @@ def run_backtest(data, df):
         if (precise_eval >= MIN_SAMPLE and matured_count >= MIN_SAMPLE) else None
     # 方向准确率(整体，Laplace 收缩)：早期最诚实信号，独立于成熟门禁。
     dir_realized = round((total_dir_hits + 1.0) / (total_dir_eval + 2.0) * 100, 1) if total_dir_eval else None
+    # R826 双口径：仅成熟样本（无删失）+ 删失样本数
+    _dir_mat_eval = sum(1 for r in recs if r.get("dirCorrectMatured") is not None)
+    _dir_mat_hits = sum(1 for r in recs if r.get("dirCorrectMatured"))
+    _dir_pending_n = sum(1 for r in recs if r.get("dirPending"))
+    _dir_early_n = sum(1 for r in recs if r.get("dirEarlyHit"))
+    # R826 成熟对齐样本的时间跨度（披露时间选择偏差的边界，而非写死"8~9 月上行段"）
+    _mat_dates = sorted(str(r.get("date")) for r in recs if r.get("dirCorrectMatured") is not None)
+    _mat_span = (_mat_dates[0], _mat_dates[-1]) if _mat_dates else None
+    dir_realized_mat = (round((_dir_mat_hits + 1.0) / (_dir_mat_eval + 2.0) * 100, 1)
+                        if _dir_mat_eval else None)
+    # R826 目标距离 → 可达性分桶（回答"为什么命中率低"的第二层原因）：
+    # 实测同距离同期限的历史达成率随 |Δ| 单调塌陷 —— [0.5%,3%) 71%、[3%,10%) 35%、
+    # [10%,20%) 16%、**>=20% 恒为 0%**（286 条无一例外，其中 32 条窗口已闭合仍为 0）。
+    # 而当前日志的目标距离中位数约 12.6%、56% 的样本 >=20% ⇒ 这部分在观察窗内本就不可达，
+    # 与艾略特结构判断对错无关。前端据此说明"低命中率里有多少是算术必然"。
+    _DIST_BANDS = [(0.005, 0.03), (0.03, 0.10), (0.10, 0.20), (0.20, float("inf"))]
+    dir_dist_bands = []
+    for _a, _b in _DIST_BANDS:
+        _sub = [r for r in recs if r.get("dirGap") is not None and _a <= abs(float(r["dirGap"])) < _b]
+        _subm = [r for r in _sub if r.get("dirCorrectMatured") is not None]
+        _h = sum(1 for r in _subm if r.get("dirCorrectMatured"))
+        dir_dist_bands.append({
+            "lo": round(_a * 100, 1),
+            "hi": (round(_b * 100, 1) if _b != float("inf") else None),
+            "n": len(_subm), "hits": _h,
+            "rate": round(_h / len(_subm) * 100, 1) if _subm else None,
+            "pending": sum(1 for r in _sub if r.get("dirPending")),
+        })
     # ---- R822 诚实化补充（不改变既有字段语义，只把被隐藏的分母暴露出来）----
     # 旧 realizedHitRate 的分母是【已解决集】(命中 或 窗口已闭合的 miss)：命中可当天判定、miss 必须
     # 等窗口闭合 → 该集合在任一快照都被命中富集（删失偏差），实测 97.6% vs 全量口径 45.3%。
@@ -832,6 +918,30 @@ def run_backtest(data, df):
         "totalDirEvaluated": total_dir_eval,
         "totalDirHits": total_dir_hits,
         "dirRealizedHitRate": dir_realized,
+        # ---- R826 删失偏差双向披露 + 基线口径修正（详见 dir_baseline / evaluate 内注释）----
+        # dirRealizedHitRate       : 全窗口口径（未闭合且未达成 → 记为未做到）⇒ 删失偏差，系统性【偏低】。
+        # dirRealizedHitRateMatured: 对称成熟口径（只有窗已闭合才计入，达成与否一视同仁）⇒ 无删失偏差，
+        #                            但样本只覆盖成熟期，不能外推到当前行情。实测 18.7% vs 44.9%。
+        # dirPendingCount          : 窗未闭合且未达成（"还不知道"）的样本数，占比约 68%。
+        # dirEarlyHitCount         : 窗未闭合但已达成（确定事实）——不进任何比率，否则近期样本只留成功者，
+        #                            会把当月命中率虚高成 100%（曾误用此口径得 57.2%，已废弃）。
+        # dirBaseRate / Recent     : 已改为【成熟度对齐】口径（只取未来 w 天完整的起算点）。
+        #                            修正前同期基线 19.5% 是 w>60 时完整窗口占比为 0 的伪值，修正后 32.2%。
+        "dirRealizedHitRateMatured": dir_realized_mat,
+        "dirMaturedEvaluated": _dir_mat_eval,
+        "dirMaturedHits": _dir_mat_hits,
+        "dirPendingCount": _dir_pending_n,
+        "dirEarlyHitCount": _dir_early_n,
+        "dirBaseRateAllWindow": _base_meta["allWindow"],
+        "dirBaseRecentValidKeys": _base_meta["recentValidKeys"],
+        "dirBaseRecentSkippedKeys": _base_meta["recentSkippedKeys"],
+        "dirBaseTotalKeys": _base_meta["totalKeys"],
+        # R826 成熟对齐样本的时间跨度：用于披露"仅成熟口径"的时间选择偏差范围
+        # （样本若全部集中在某一段行情，该口径的命中率就只代表那一段，不能外推到当前）。
+        "dirMaturedSpanFrom": _mat_span[0] if _mat_span else None,
+        "dirMaturedSpanTo": _mat_span[1] if _mat_span else None,
+        # R826 目标距离 → 可达性分桶（成熟对齐口径）：揭示"命中率低"有多少来自目标定得比市场能走的还远
+        "dirDistanceBands": dir_dist_bands,
         # ---- R822 诚实化口径（详见上文注释）----
         # dirBaseRate          : 方向推进率的零信息基线（同间距同窗长）。观测 ≈ 基线 ⇒ 无预测增量。
         # hitRateAll           : band 命中率·全量口径（未成熟未命中计入分母，保守下界）。

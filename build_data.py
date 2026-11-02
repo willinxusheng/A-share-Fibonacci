@@ -369,6 +369,34 @@ def _refresh_master_raw():
     return False
 
 
+# ---- R826：A股休市日历【模块级单一真值】----
+# 原先这套区间清单嵌在 main() 内部（~1330 行），导致多个需要使用它的地方各自复制一份
+# （R825b 就吃过"audit49 日历副本未锁步 ⇒ 假 FAIL 83 vs 79"的亏；R826 又撞上"想用却还没定义"）。
+# 现上提为模块级函数，任何模块内调用点共用同一份定义，杜绝第三、第四份副本。
+_A_SHARE_HOLIDAY_RANGES = [
+    ("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
+    ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
+    ("2026-06-19", "2026-06-21"), ("2026-09-25", "2026-09-27"),
+    ("2026-10-01", "2026-10-07"),
+    # 2027 节日本身（公历日期确定；补班细节待公布）——与 audit_holiday_targets.py 同源
+    ("2027-01-01", "2027-01-01"), ("2027-02-05", "2027-02-09"),
+    ("2027-04-04", "2027-04-06"), ("2027-05-01", "2027-05-05"),
+    ("2027-06-09", "2027-06-11"), ("2027-09-15", "2027-09-17"),
+    ("2027-10-01", "2027-10-07"),
+]
+
+
+def ashare_holidays():
+    """返回 A股休市日集合（周内节假日，不含周末）。模块内唯一真值来源。"""
+    s = set()
+    for _hs, _he in _A_SHARE_HOLIDAY_RANGES:
+        _hd = pd.Timestamp(_hs)
+        while _hd <= pd.Timestamp(_he):
+            s.add(_hd.strftime("%Y-%m-%d"))
+            _hd += pd.Timedelta(days=1)
+    return s
+
+
 def main():
     _refresh_master_raw()     # R811：先刷新主指数 raw.md（否则 csv 同步永远滞后一轮）
     _sync_sh_csv_from_raw()  # R805：build 前确保主指数 csv 已随 raw.md 更新
@@ -1105,21 +1133,46 @@ def main():
     #       同一份产物内自相矛盾，折线退化为零宽竖跳。近端锚点语义 = "约 1 个月后的目标位"，
     #       必须**严格位于** last_date 之后，与 points[0]（今日收盘现状锚）分工不重叠。
     # 门禁 audit54 断言：①各序列日期非降序；②至多一个点等于 last_date 且必须是首点；③无早于 last_date 的点。
-    _nt_anchor = pd.bdate_range(last_date, periods=21)[-1].strftime("%Y-%m-%d")
+    # R826：情景点的全部日期改为【从 last_date 起第 k 个未来交易日】派生，彻底删除字面量。
+    # 复发缺陷（11-02 门禁 audit54 实拦）：R824b 已把近端锚点改成「last_date 起 21 个营业日」，
+    # 但同一数组里 6 个后续日期仍是硬编码字面量。数据一前进，_nt_anchor 恰好滑到 "2026-11-30"，
+    # 与字面量 "_risk_r61/3680/4258" 撞在同一日期 ⇒ **同一 x 轴两个价位**（折线零宽竖跳）。
+    # 这正是 R824b「只改字面量、不改同族字面量」的同一坑第二次踩中：个案修好、全集没扫。
+    # 根治：日期只由「营业日序号」单一真值决定（严格递增 ⇒ 天然不重复），字面量一个不留。
+    # 日历用与 expDays 同一份 _A_SHARE_HOLIDAYS（只排周末不排 A股假日会让点落在休市日，R282/R825b 教训）。
+    _HOL = ashare_holidays()   # 与下方 _A_SHARE_HOLIDAYS 同源（模块级单一真值）
+
+    def _future_trading_days(start, count):
+        _d = pd.Timestamp(start)
+        _out = []
+        while len(_out) < count:
+            _d = _d + pd.Timedelta(days=1)
+            _s = _d.strftime("%Y-%m-%d")
+            if _d.weekday() < 5 and _s not in _HOL:
+                _out.append(_s)
+        return _out
+
+    _FTD = _future_trading_days(last_date, 215)
+
+    def _fp(k):
+        """第 k 个未来交易日（1-based，k>=1）。"""
+        return _FTD[max(0, min(int(k), len(_FTD))) - 1]
+
+    _nt_anchor = _fp(21)
     scenarios = [
         # 浪4完成区间下界=浪③50%回撤支撑(supports[2])、上界=浪④低(w4_low)，
         # 全部由框架派生，消除"3650-3740"硬编码字面（浪型重校订时自动跟随，不会脱节）
         {"name": "基准: 浪4于%.0f-%.0f完成, 浪5看%.0f/%.0f" % (r2(w3_hi - w3 * 0.5), w4_low, _s0, _s1), "color": "#c23531",
-         "points": [[last_date, last_close], [_nt_anchor, 3700], ["2026-11-30", 3680],
-                    ["2027-01-29", 3950], ["2027-03-31", 4200], ["2027-05-31", _s0], ["2027-08-31", _s1]]},
+         "points": [[last_date, last_close], [_fp(21), 3700], [_fp(42), 3680],
+                    [_fp(84), 3950], [_fp(126), 4200], [_fp(168), _s0], [_fp(210), _s1]]},
         {"name": "强势: %.0f已是浪4底, 直接启动浪5" % w4_low, "color": "#e6a23c",
-         "points": [[last_date, last_close], [_nt_anchor, 3980], ["2026-11-30", 4258],
-                    ["2027-02-26", _s0], ["2027-05-31", _s2], ["2027-08-31", 4700]]},
+         "points": [[last_date, last_close], [_fp(21), 3980], [_fp(42), 4258],
+                    [_fp(105), _s0], [_fp(168), _s2], [_fp(210), 4700]]},
         {"name": "风险: 跌破%.0f铁律线, 浪型证伪转深调" % KEY_LINE, "color": "#2f9e44",
          # 风险首点=铁律线 KEY_LINE 派生(原硬编码 3670 与 KEY_LINE 脱节 4.4 点，违反单源真值纪律 R231)；
          # 末点 3400 为人工叙事深调目标，不参与数值契约。
-         "points": [[last_date, last_close], [_nt_anchor, r2(KEY_LINE)], ["2026-11-30", _risk_r61],
-                    ["2027-01-29", _risk_r50y], ["2027-04-30", _risk_r618y], ["2027-08-31", 3400]]},
+         "points": [[last_date, last_close], [_fp(21), r2(KEY_LINE)], [_fp(42), _risk_r61],
+                    [_fp(84), _risk_r50y], [_fp(126), _risk_r618y], [_fp(210), 3400]]},
     ]
 
     # ---------- 真实触达时间估计（驱动区间±σ 的时间锚定）----------
@@ -1311,22 +1364,7 @@ def main():
     # 2026-10-24 CI 实测踩中：目标延伸进 2027 春节（02-05~02-09）⇒ 子浪ⅴ 落在 2027-02-09
     # 休市日，与 R108 当初要防的「2026-10-02 假期目标」是同一类缺陷，只是年份后移。
     # 补班日仍待公布：缺失只会把某个补班日误当休市（误差 ≤1 日，audit_holiday_targets 标 WARNING）。
-    _A_SHARE_HOLIDAYS = set()
-    for _hs, _he in [
-        ("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
-        ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
-        ("2026-06-19", "2026-06-21"), ("2026-09-25", "2026-09-27"),
-        ("2026-10-01", "2026-10-07"),
-        # 2027 节日本身（公历日期确定；补班细节待公布）——与 audit_holiday_targets.py 同源
-        ("2027-01-01", "2027-01-01"), ("2027-02-05", "2027-02-09"),
-        ("2027-04-04", "2027-04-06"), ("2027-05-01", "2027-05-05"),
-        ("2027-06-09", "2027-06-11"), ("2027-09-15", "2027-09-17"),
-        ("2027-10-01", "2027-10-07"),
-    ]:
-        _hd = pd.Timestamp(_hs)
-        while _hd <= pd.Timestamp(_he):
-            _A_SHARE_HOLIDAYS.add(_hd.strftime("%Y-%m-%d"))
-            _hd += pd.Timedelta(days=1)
+    _A_SHARE_HOLIDAYS = ashare_holidays()   # R826：模块级单一定义，此处不再复制区间清单
     _A_SHARE_HOLIDAYS_2026 = _A_SHARE_HOLIDAYS   # 兼容旧名（下游引用未改名）
 
     # R108：调休补班日（周末上班仍交易），与 report.py _A_SHARE_MAKEUP / index.html _MAKEUP_2026 同源。
@@ -1473,11 +1511,13 @@ def main():
         [last_date, last_close],
         # R824b：近端锚点与另两条情景同一口径——用**近端未来交易日** _nt_anchor（非 last_date，
         # 否则同一天出现两个价位）；取子浪路径在该日期的线性插值，语义 = "约 1 个月后子浪走到哪"。
-        [_nt_anchor, r2(_sf_price_at(_nt_anchor))],
-        ["2026-11-30", r2(_sf_price_at("2026-11-30"))],
-        ["2027-02-26", _s0],
-        ["2027-05-31", _s2],
-        ["2027-08-31", 4700],
+        [_fp(21), r2(_sf_price_at(_fp(21)))],
+        # R826：此处 3 个字面量日期一并改为营业日序号派生（原 "2026-11-30"/"2027-02-26"/"2027-05-31"/
+        # "2027-08-31" 与另两条情景的硬编码同源，是同一次"只改个案不扫全集"的漏网）。
+        [_fp(42), r2(_sf_price_at(_fp(42)))],
+        [_fp(105), _s0],
+        [_fp(168), _s2],
+        [_fp(210), 4700],
     ]
 
     # ---------- R824b 情景日期护栏（系统性防复发）----------
@@ -1488,6 +1528,16 @@ def main():
     for _sc in scenarios:
         _keep = [p for p in (_sc.get("points") or []) if str(p[0]) > str(last_date)]
         _sc["points"] = [[last_date, last_close]] + _keep
+    # R826 防复发硬检查：同一序列里任何日期都不得出现两个价位（同一 x 轴两个 y ⇒ 折线零宽竖跳）。
+    # 上一条护栏只能剔除"过期日期"，管不住"两个不同来源的日期恰好相等"——那正是 11-02 事故的形态
+    # （_nt_anchor 随数据前移，撞上同数组里的字面量 "2026-11-30"）。此处让它【构建期硬失败】，
+    # 而不是产出矛盾数据后靠 audit54 事后拦。
+    for _sc in scenarios:
+        _ds = [str(p[0]) for p in _sc["points"]]
+        _dup = sorted({d for d in _ds if _ds.count(d) > 1})
+        if _dup:
+            raise RuntimeError("scenarios[%s] 同日多价（自相矛盾）：%s — 日期必须由营业日序号派生，"
+                               "禁止硬编码字面量" % (_sc.get("name"), _dup))
 
     # ---------- 修复 R44：归档前预先注入真实触达时间 expDays ----------
     # run_backtest 内部 archive→extract_targets 读取 expDays 做观察窗自适应(max(HORIZON,expDays)，R42 修复)。

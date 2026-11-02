@@ -125,6 +125,12 @@ def _main():
         # 精确命中率去平凡后的真实值。均直接透传 run_backtest，不重算（防公式漂移）。
         dir_base_rate = bt.get("dirBaseRate")
         dir_base_recent = bt.get("dirBaseRateRecent")
+        # R826 方向推进率·成熟对齐口径（无删失）与删失样本数：必须与 dir_realized 并列披露，
+        # 单报任一个都会误导（前者含删失偏低、后者含时间选择偏高）。
+        dir_realized_mat = bt.get("dirRealizedHitRateMatured")
+        dir_pending_n = bt.get("dirPendingCount")
+        dir_early_n = bt.get("dirEarlyHitCount")
+        dir_base_all_window = bt.get("dirBaseRateAllWindow")
         hit_rate_all = bt.get("hitRateAll")
         hit_rate_matured = bt.get("hitRateMaturedOnly")
         precise_nt = bt.get("preciseRealizedHitRateNonTrivial")
@@ -227,6 +233,11 @@ def _main():
             # R822 诚实化补充：方向推进率的零信息基线 + 全量/对称命中率 + 去平凡精确命中率
             "dir_base_rate": dir_base_rate,
             "dir_base_rate_recent": dir_base_recent,
+            # R826 双口径 + 基线口径元数据（all_window=修正前旧值，供对照）
+            "dir_realized_hit_rate_matured": dir_realized_mat,
+            "dir_pending_count": dir_pending_n,
+            "dir_early_hit_count": dir_early_n,
+            "dir_base_rate_all_window": dir_base_all_window,
             "hit_rate_all": hit_rate_all,
             "hit_rate_matured_only": hit_rate_matured,
             "precise_realized_hit_rate_non_trivial": precise_nt,
@@ -243,10 +254,16 @@ def _main():
             "targets": targets,
             # R822 诚实化口径说明（替换 R291 旧文案：旧文案含"方向准 X% 证明艾略特框架方向有效"这
             # 一已被 09-30 深度回测证伪的断言——旧方向判据与目标价无关、零信息基线 94~99%）。
-            "note": ("回测诚实化(R822)四口径："
-                     "①<b>方向推进率</b>(窗内·目标感知，走完 50%% 目标距离)=%s（零信息基线 同期=%s / 全历史=%s）。"
+            "note": ("回测诚实化(R822/R826)五口径："
+                     "①<b>方向推进率 双口径(R826)</b>：全窗口口径=%s（含 %s 条\"观察窗未闭合且尚未走完 50%% 距离\"的删失样本，"
+                     "尚未到期即被记为失败 ⇒ 系统性偏低，属保守下界）/ 对称成熟口径=%s（只计窗口已闭合者、达成与否一视同仁 ⇒ 无删失偏差，"
+                     "但仅代表成熟期那一段行情）；另有 %s 条\"未到期但已达成\"<b>不进任何比率</b>——"
+                     "并入会使近期样本只剩成功者，实测把当月命中率虚高成 100%%，故废弃该口径。"
+                     "零信息基线 同期=%s / 全历史=%s（均已按成熟度对齐，只取未来 w 天完整的起算点；"
+                     "修正前同期基线系 w>60 时完整窗口占比为 0 的伪值）。"
+                     "两口径都不是真值（下界 vs 成熟期代表），须并列判读。"
                      "旧口径只问\"未来是否曾高于预测日收盘\"，与目标价无关（同日同 side 恒定）、零信息基线即 94~99%%，"
-                     "无判别力已弃用；观测≈基线 ⇒ 该期限内目标方向未展现超越随机的预测增量。"
+                     "无判别力已弃用。"
                      "②<b>band 触达率</b>：已实现口径=%s（分母仅含已解决样本——命中当天可判定、未命中须等窗口闭合，"
                      "被命中富集故系统性偏高）；全量口径=%s、对称成熟口径=%s 方可解释。"
                      "③<b>精确命中率</b>(真实目标价位)=%s，其中 %s 条为\"目标价在预测当日已被自身收盘满足\"的"
@@ -254,6 +271,9 @@ def _main():
                      "④<b>精确价位精度(#782)</b>：中位偏差 %s（↑overshoot 冲过目标 / ↓undershoot 够不到），"
                      "±5%%达标率 %s。当前 %d 个目标观察窗未闭合、%d 个已成熟(窗口闭合)。"
                      % (dir_realized if dir_realized is not None else "样本不足",
+                        dir_pending_n if dir_pending_n is not None else "—",
+                        dir_realized_mat if dir_realized_mat is not None else "—",
+                        dir_early_n if dir_early_n is not None else "—",
                         dir_base_recent if dir_base_recent is not None else "—",
                         dir_base_rate if dir_base_rate is not None else "—",
                         realized if realized is not None else "样本不足",
@@ -306,10 +326,15 @@ def main():
     print("OOS 裸公式Bucket   = %s (基线 %s, Δ=%s%%)"
           % (obr.get("bucket_brier"), obr.get("bucket_baseline"), obr.get("bucket_delta_pct")))
     bt = c["backtest"]
-    print("回测 方向准确率(早期最诚实信号) = %s%% ｜ band 触达率(整体, 原始pooled) = %s%% ｜ 精确命中率(真实目标价位) = %s%%"
-          " ｜ 已评估 %d / 存档 %d / 成熟(窗口闭合) %s / 冷启动=%s"
-          % (bt.get("overall_dir_hit_rate"), bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate"),
-             bt.get("total_evaluated"), bt.get("total_logged"), bt.get("matured_count"), bt.get("cold_start")))
+    print("回测 方向推进率 全窗口=%s%% / 对称成熟=%s%% (删失 %s 条 · 早达成 %s 条不进比率) ｜ 基线 同期=%s%% 全历史=%s%%"
+          % (bt.get("dir_realized_hit_rate"), bt.get("dir_realized_hit_rate_matured"),
+             bt.get("dir_pending_count"), bt.get("dir_early_hit_count"),
+             bt.get("dir_base_rate_recent"), bt.get("dir_base_rate")))
+    print("回测 band 触达率(整体, 原始pooled) = %s%% ｜ 精确命中率(真实目标价位) = %s%%"
+          % (bt.get("overall_hit_rate"), bt.get("overall_precise_hit_rate")))
+    print("回测 已评估 %d / 存档 %d / 成熟(窗口闭合) %s / 冷启动=%s"
+          % (bt.get("total_evaluated"), bt.get("total_logged"), bt.get("matured_count"),
+             bt.get("cold_start")))
     # #782 精确价位精度(早期可观测，不依赖观察窗闭合)
     _mdev = bt.get("level_precision_median_dev")
     _mdev_str = ("%.2f%%" % (_mdev * 100)) if _mdev is not None else "样本不足"
