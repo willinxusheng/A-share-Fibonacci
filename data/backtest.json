@@ -16,7 +16,7 @@
   "dirMaturedHits": 57,
   "dirPendingCount": 343,
   "dirEarlyHitCount": 37,
-  "dirBaseRateAllWindow": 37.8,
+  "dirBaseRateAllWindow": 37.7,
   "dirBaseRecentValidKeys": 311,
   "dirBaseRecentSkippedKeys": 155,
   "dirBaseTotalKeys": 466,
@@ -56,7 +56,159 @@
       "pending": 123
     }
   ],
-  "dirBaseRate": 38.9,
+  "dirBandsByReach": [
+    {
+      "key": "lt5",
+      "label": "<5%",
+      "lo": 0.0,
+      "hi": 0.05,
+      "matured": 16,
+      "hits": 0,
+      "rate": 5.6,
+      "rateRaw": 0.0,
+      "all": 148,
+      "pending": 132,
+      "dailyRateMedian": 0.2652,
+      "bySide": {
+        "sell": {
+          "matured": 16,
+          "hits": 0,
+          "rateRaw": 0.0
+        },
+        "hold": {
+          "matured": 0,
+          "hits": 0,
+          "rateRaw": null
+        }
+      }
+    },
+    {
+      "key": "5to15",
+      "label": "5~15%",
+      "lo": 0.05,
+      "hi": 0.15,
+      "matured": 18,
+      "hits": 0,
+      "rate": 5.0,
+      "rateRaw": 0.0,
+      "all": 168,
+      "pending": 150,
+      "dailyRateMedian": 0.2486,
+      "bySide": {
+        "sell": {
+          "matured": 18,
+          "hits": 0,
+          "rateRaw": 0.0
+        },
+        "buy": {
+          "matured": 0,
+          "hits": 0,
+          "rateRaw": null
+        },
+        "hold": {
+          "matured": 0,
+          "hits": 0,
+          "rateRaw": null
+        }
+      }
+    },
+    {
+      "key": "15to35",
+      "label": "15~35%",
+      "lo": 0.15,
+      "hi": 0.35,
+      "matured": 23,
+      "hits": 9,
+      "rate": 40.0,
+      "rateRaw": 39.1,
+      "all": 61,
+      "pending": 36,
+      "dailyRateMedian": 0.1638,
+      "bySide": {
+        "sell": {
+          "matured": 0,
+          "hits": 0,
+          "rateRaw": null
+        },
+        "hold": {
+          "matured": 1,
+          "hits": 1,
+          "rateRaw": 100.0
+        },
+        "buy": {
+          "matured": 22,
+          "hits": 8,
+          "rateRaw": 36.4
+        }
+      }
+    },
+    {
+      "key": "35to60",
+      "label": "35~60%",
+      "lo": 0.35,
+      "hi": 0.6,
+      "matured": 46,
+      "hits": 30,
+      "rate": 64.6,
+      "rateRaw": 65.2,
+      "all": 77,
+      "pending": 17,
+      "dailyRateMedian": 0.1077,
+      "bySide": {
+        "sell": {
+          "matured": 0,
+          "hits": 0,
+          "rateRaw": null
+        },
+        "buy": {
+          "matured": 24,
+          "hits": 19,
+          "rateRaw": 79.2
+        },
+        "hold": {
+          "matured": 22,
+          "hits": 11,
+          "rateRaw": 50.0
+        }
+      }
+    },
+    {
+      "key": "ge60",
+      "label": ">=60%",
+      "lo": 0.6,
+      "hi": null,
+      "matured": 24,
+      "hits": 18,
+      "rate": 73.1,
+      "rateRaw": 75.0,
+      "all": 53,
+      "pending": 8,
+      "dailyRateMedian": 0.0454,
+      "bySide": {
+        "buy": {
+          "matured": 19,
+          "hits": 18,
+          "rateRaw": 94.7
+        },
+        "hold": {
+          "matured": 5,
+          "hits": 0,
+          "rateRaw": 0.0
+        }
+      }
+    }
+  ],
+  "dirReachMeta": {
+    "sampleFrom": "2021-06-22",
+    "sampleTo": "2026-11-02",
+    "sampleRows": 1300,
+    "bandedTotal": 470,
+    "earlyHit": 37,
+    "unsampled": 0,
+    "monotonic": true,
+    "inversions": []
+  },
+  "dirBaseRate": 38.8,
   "dirBaseRateRecent": 32.2,
   "hitRateAll": 43.4,
   "hitRateMaturedOnly": 74.2,
@@ -220,7 +372,7 @@
         "key": "子浪ⅱ",
         "open": 1,
         "openElapsedMed": 0.0,
-        "openExpMed": 27.0,
+        "openExpMed": 30.0,
         "openBestMed": null,
         "status": "早期"
       },
@@ -238,7 +390,7 @@
         "key": "子浪ⅳ",
         "open": 1,
         "openElapsedMed": 0.0,
-        "openExpMed": 63.0,
+        "openExpMed": 68.0,
         "openBestMed": null,
         "status": "早期"
       },
@@ -293,7 +445,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": null,
       "dirPending": 0,
-      "dirBaseRate": 90.0,
+      "dirBaseRate": 90.2,
       "preciseEvalNonTrivial": 10,
       "preciseHitsNonTrivial": 10,
       "preciseHitRateNonTrivial": 91.7,
@@ -330,7 +482,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": 14.3,
       "dirPending": 52,
-      "dirBaseRate": 22.0,
+      "dirBaseRate": 21.8,
       "preciseEvalNonTrivial": 5,
       "preciseHitsNonTrivial": 0,
       "preciseHitRateNonTrivial": 14.3,
@@ -367,7 +519,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": null,
       "dirPending": 57,
-      "dirBaseRate": 19.1,
+      "dirBaseRate": 18.7,
       "preciseEvalNonTrivial": null,
       "preciseHitsNonTrivial": null,
       "preciseHitRateNonTrivial": null,
@@ -404,7 +556,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": null,
       "dirPending": 57,
-      "dirBaseRate": 18.0,
+      "dirBaseRate": 17.5,
       "preciseEvalNonTrivial": null,
       "preciseHitsNonTrivial": null,
       "preciseHitRateNonTrivial": null,
@@ -441,7 +593,7 @@
       "dirMatHits": 12,
       "dirHitRateMatured": 43.3,
       "dirPending": 24,
-      "dirBaseRate": 59.4,
+      "dirBaseRate": 58.9,
       "preciseEvalNonTrivial": 28,
       "preciseHitsNonTrivial": 0,
       "preciseHitRateNonTrivial": 3.3,
@@ -478,7 +630,7 @@
       "dirMatHits": 23,
       "dirHitRateMatured": 96.0,
       "dirPending": 18,
-      "dirBaseRate": 74.5,
+      "dirBaseRate": 74.4,
       "preciseEvalNonTrivial": 30,
       "preciseHitsNonTrivial": 30,
       "preciseHitRateNonTrivial": 96.9,
@@ -492,7 +644,7 @@
       "precDevNEff": 50,
       "open": 1,
       "openElapsedMed": 0.0,
-      "openExpMed": 27.0,
+      "openExpMed": 30.0,
       "openBestMed": null,
       "openStatus": "早期"
     },
@@ -552,7 +704,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": 6.2,
       "dirPending": 43,
-      "dirBaseRate": 43.5,
+      "dirBaseRate": 43.6,
       "preciseEvalNonTrivial": null,
       "preciseHitsNonTrivial": null,
       "preciseHitRateNonTrivial": null,
@@ -566,7 +718,7 @@
       "precDevNEff": 50,
       "open": 1,
       "openElapsedMed": 0.0,
-      "openExpMed": 63.0,
+      "openExpMed": 68.0,
       "openBestMed": null,
       "openStatus": "早期"
     },
@@ -589,7 +741,7 @@
       "dirMatHits": 0,
       "dirHitRateMatured": 14.3,
       "dirPending": 52,
-      "dirBaseRate": 21.2,
+      "dirBaseRate": 21.0,
       "preciseEvalNonTrivial": 5,
       "preciseHitsNonTrivial": 0,
       "preciseHitRateNonTrivial": 14.3,
@@ -617,7 +769,7 @@
       "preciseHitRate": 98.3,
       "preciseEval": 57,
       "matured": 28,
-      "avgDays": 5.8,
+      "avgDays": 6.1,
       "cold": false,
       "dirEval": 55,
       "dirHits": 42,
@@ -626,7 +778,7 @@
       "dirMatHits": 22,
       "dirHitRateMatured": 76.7,
       "dirPending": 7,
-      "dirBaseRate": 69.1,
+      "dirBaseRate": 69.4,
       "preciseEvalNonTrivial": 45,
       "preciseHitsNonTrivial": 45,
       "preciseHitRateNonTrivial": 97.9,
