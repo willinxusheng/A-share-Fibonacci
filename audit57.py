@@ -14,7 +14,7 @@
   旧式 _hz = max(HORIZON, expDays) 会给承诺 4~29 天的预测统一 30 天（最多放宽 7.5 倍，
   涉及 188/550=34% 的记录），等于替引擎多要时间 ⇒ 命中率虚高（44.9% vs 40.5%）。
 
-本门禁固化（10 项，全部独立复算，不 import 生产模块）：
+本门禁固化（项数以运行时汇总为准，当前 16 项，全部独立复算，不 import 生产模块）：
   P1  dirPairedN == 独立复算：成熟且有基线 的记录数
   P2  dirPairedBase == 独立复算（自实现 deque 滑窗，容差 0.2pp）
   P3  dirPairedEdge == dirMaturedRateRaw − dirPairedBase（自洽）
@@ -43,9 +43,13 @@ CSV = os.path.join(BASE, "data", "sh000001.csv")
 HORIZON = 30
 
 FAILS = []
+# 断言计数器：结尾汇总**不得**写死项数。R828b 自查发现上一版硬编码「全部 10 项」，
+# 而实际已增至 16 个断言 —— 这正是本项目反复治的「写死计数」毛病（同 audit52 的教训）。
+NCHK = [0]
 
 
 def chk(cond, name, detail=""):
+    NCHK[0] += 1
     print("  [%s] %-46s %s" % ("PASS" if cond else "FAIL", name, detail))
     if not cond:
         FAILS.append(name)
@@ -285,8 +289,8 @@ def main(paths=None):
     if FAILS:
         print("audit57: FAIL=%d → %s" % (len(FAILS), FAILS))
         return 1
-    print("audit57: 全部 10 项通过（配对优势 %s pp｜配对基线 %s%%｜样本 %s 根）"
-          % (bt.get("dirPairedEdge"), bt.get("dirPairedBase"), bt.get("dataWindowRows")))
+    print("audit57: 全部 %d 项通过（配对优势 %s pp｜配对基线 %s%%｜样本 %s 根）"
+          % (NCHK[0], bt.get("dirPairedEdge"), bt.get("dirPairedBase"), bt.get("dataWindowRows")))
     return 0
 
 
