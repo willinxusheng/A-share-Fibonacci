@@ -110,8 +110,15 @@ ok = ok and chk
 
 # ---- ③ 回测语义确认（evaluate 从 B日 推窗，expDays 须相对今日）----
 b2 = open(os.path.join(BASE, "backtest.py"), encoding="utf-8").read()
-chk = _chk('i0 = _safe_idx(dates, rec["date"])' in b2 and 'max(HORIZON, int(rec.get("expDays")' in b2,
-           "evaluate 从 B日(rec['date']=updated=今日) 推 max(HORIZON,expDays) 窗 → expDays 须相对今日")
+# R828：观察窗改为「忠实承诺」。此处做【双向】断言——
+# ① 新规则（按 expDays，缺值才回退 HORIZON）必须存在；
+# ② 旧的 max(HORIZON, expDays) 放宽规则必须不存在（否则会被静默改回去）。
+# 单向断言（只查新规则在不在）挡不住"新旧并存、实际走旧分支"，故两边都要查。
+_win_new = ('_hz = max(1, int(_exp_raw) if _exp_raw else HORIZON)' in b2)
+_win_old = ('max(HORIZON, int(rec.get("expDays")' in b2) or ('max(HORIZON, int(_exp' in b2)
+chk = _chk(_win_new and not _win_old,
+           "evaluate 观察窗 == 忠实 expDays（新规则在: %s / 旧放宽规则已移除: %s）"
+           % (_win_new, not _win_old))
 ok = ok and chk
 
 print("\n守门员结论：" + ("全部不变量通过，0 问题。" if ok else "存在问题，见上。"))

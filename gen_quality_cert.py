@@ -237,6 +237,24 @@ def _main():
             "dir_realized_hit_rate_matured": dir_realized_mat,
             "dir_pending_count": dir_pending_n,
             "dir_early_hit_count": dir_early_n,
+            # R828 观察窗口径 + 严格配对优势（判读"引擎有无预测增量"的唯一可读姿势）
+            "dir_window_rule": bt.get("dirWindowRule"),
+            "dir_matured_rate_raw": bt.get("dirMaturedRateRaw"),
+            "dir_paired_n": bt.get("dirPairedN"),
+            "dir_paired_base": bt.get("dirPairedBase"),
+            "dir_paired_edge": bt.get("dirPairedEdge"),
+            "dir_paired_by_side": bt.get("dirPairedBySide"),
+            # R828 单独成条（不并入下面那条用 % 格式化的长 note，避免格式参数错位）：
+            "dir_paired_note": (
+                "严格配对优势(R828)：观察窗已改为按引擎承诺的 expDays 判定（旧式 max(30,expDays) "
+                "会给 34%% 的短期限预测 3~7.5 倍宽限）。在同一批成熟记录上逐条取该条自身目标的"
+                "零信息基线（同窗同幅度），引擎 %s%% vs 配对基线 %s%% = %s pp；"
+                "按 side：%s。二者分母不同批时（如拿仅成熟口径减全历史基线）相减无意义。"
+                % (bt.get("dirMaturedRateRaw"), bt.get("dirPairedBase"), bt.get("dirPairedEdge"),
+                   "；".join("%s %s/%s (%s%% vs %s%%, %+gpp)"
+                             % (x.get("side"), x.get("hits"), x.get("n"), x.get("rate"),
+                                x.get("base"), x.get("edge"))
+                             for x in (bt.get("dirPairedBySide") or [])) or "—")),
             "dir_base_rate_all_window": dir_base_all_window,
             "hit_rate_all": hit_rate_all,
             "hit_rate_matured_only": hit_rate_matured,

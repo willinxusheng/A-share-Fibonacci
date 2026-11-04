@@ -220,7 +220,13 @@ def evaluate(df):
             # 观察窗口自适应：中长期目标(卖②③/子浪ⅲⅴ 等)真实触达需数月，
             # 固定 HORIZON=30 会让其观察期一到即被永久记 miss→命中率系统性失真。
             # 改用 max(HORIZON, 目标真实触达时间估计expDays)，与 _enrich 时间锚定同源。
-            _hz = max(HORIZON, int(rec.get("expDays") or HORIZON))
+            # R828 修复：原式 max(HORIZON, expDays) 对【短期限】预测是"放宽承诺"——
+            # 引擎自己承诺 4~29 天，回测却统一给 30 天（最多放宽 7.5 倍），命中因此变容易。
+            # 实测 188/550 条(34%) 属此类；成熟命中率 44.9%(放宽) vs 40.5%(忠实)。
+            # 原则只留一条：**按引擎承诺的期限判，缺 expDays 才退回 HORIZON**。
+            # （长期目标 expDays>30 仍用其自身窗口，原设计意图——避免长期目标一到 30 日即被永久记 miss——完整保留）
+            _exp_raw = rec.get("expDays")
+            _hz = max(1, int(_exp_raw) if _exp_raw else HORIZON)
             # R291 成熟门禁：观察窗是否闭合(已有足够未来交易日覆盖 max(HORIZON,expDays))。
             # 闭合(matured)的目标方计入精确命中率分母；未闭合保持 unevaluated，不记精确 miss——
             # 否则需数月/年的浪⑤目标在窗未闭合时会被记为永久精确 miss，污染精确命中率。
@@ -627,17 +633,27 @@ def dir_bands_by_reach(df, recs):
                            "rateRaw": round(v["hits"] / v["matured"] * 100, 1) if v["matured"] else None}
                        for k, v in a["sides"].items()},
         })
-    # 单调性自检：相邻档命中率不得逆向（用原始比率；样本 <5 条的档跳过，避免小样本噪声触发假告警）
-    _mono_ok = True
+    # R828 单调性判据升级：从「字面不得逆向」改为「逆向不得超出统计噪声」。
+    #   理由：相邻档各只有 25~55 条样本，两比例差的标准误约 9pp；字面比较会把 1.6pp 的
+    #   噪声波动判成缺陷（本轮实测 5~15% 29.6% vs 15~35% 28.0%，SE≈9pp，z≈0.17）。
+    #   新判据：z = |Δ| / SE(Δ) >= 1.96 记 hard（真逆向，必须报警）；否则记 soft（噪声，仅披露）。
+    #   另要求【端点严格单调】（首档 < 末档）——这是真信号，量级远超噪声，不受该放宽影响。
     _prev = None
-    _inversions = []
+    _hard, _soft = [], []
     for b in bands:
         if b["rateRaw"] is None or b["matured"] < 5:
             continue
         if _prev is not None and b["rateRaw"] < _prev[1] - 1e-9:
-            _mono_ok = False
-            _inversions.append("%s(%.1f%%) < %s(%.1f%%)" % (b["label"], b["rateRaw"], _prev[0], _prev[1]))
-        _prev = (b["label"], b["rateRaw"])
+            _p1, _n1 = _prev[1] / 100.0, _prev[2]
+            _p2, _n2 = b["rateRaw"] / 100.0, b["matured"]
+            _se = math.sqrt(_p1 * (1 - _p1) / _n1 + _p2 * (1 - _p2) / _n2)
+            _z = ((_prev[1] - b["rateRaw"]) / 100.0 / _se) if _se > 0 else 99.0
+            _msg = "%s(%.1f%%) < %s(%.1f%%) z=%.2f" % (b["label"], b["rateRaw"], _prev[0], _prev[1], _z)
+            (_hard if _z >= 1.96 else _soft).append(_msg)
+        _prev = (b["label"], b["rateRaw"], b["matured"])
+    _ends = [b for b in bands if b["rateRaw"] is not None and b["matured"] >= 5]
+    _end_ok = (len(_ends) < 2) or (_ends[-1]["rateRaw"] > _ends[0]["rateRaw"])
+    _mono_ok = (not _hard) and _end_ok
     metas = {
         "sampleFrom": df.index[0].strftime("%Y-%m-%d"),
         "sampleTo": df.index[-1].strftime("%Y-%m-%d"),
@@ -646,7 +662,10 @@ def dir_bands_by_reach(df, recs):
         "earlyHit": sum(1 for r in recs if r.get("dirEarlyHit")),
         "unsampled": unsampled,
         "monotonic": bool(_mono_ok),
-        "inversions": _inversions,
+        "inversions": _hard,
+        # R828 soft = 幅度在统计噪声内的相邻档逆向（z<1.96），仅披露不报警
+        "inversionsSoft": _soft,
+        "endpointMonotonic": bool(_end_ok),
     }
     return bands, metas
 
@@ -675,6 +694,9 @@ def aggregate(recs, pdev_recs=None):
                                "n": 0, "hit": 0, "ph": 0, "days": [],
                                "dirEval": 0, "dirHits": 0,
                                "dirBaseSum": 0.0, "dirBaseN": 0,
+                               # R828 配对基线：只在【成熟且该键有基线】的记录上累加，
+                               # 与 dirMatEval/dirMatHits 同一批样本 ⇒ 才能算真实优势(edge)。
+                               "pBaseSum": 0.0, "pBaseN": 0,
                                "PrecNTEval": 0, "phNT": 0,
                                "preciseEval": 0, "matured": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
@@ -697,6 +719,10 @@ def aggregate(recs, pdev_recs=None):
             g["dirMatEval"] += 1
             if r.get("dirCorrectMatured"):
                 g["dirMatHits"] += 1
+            # R828 同一批成熟样本上累加其自身目标的零信息基线 → 组内可算 edge
+            if r.get("dirBase") is not None:
+                g["pBaseSum"] += r["dirBase"]
+                g["pBaseN"] += 1
         if r.get("dirPending"):
             g["dirPending"] += 1
         if r.get("dirEarlyHit"):
@@ -787,6 +813,14 @@ def aggregate(recs, pdev_recs=None):
             # R822 该组方向判据的零信息基线（同间距/同窗长，全体历史日复算）——供前端并列展示，
             # 使"方向推进率"可判读：观测≈基线 ⇒ 无预测增量价值。
             "dirBaseRate": round(g["dirBaseSum"] / g["dirBaseN"] * 100, 1) if g["dirBaseN"] else None,
+            # R828 配对基线（同批成熟样本）与真实优势：
+            #   旧 dirBaseRate 的分母是【全部有基线的记录】(含未成熟)，与 dirHitRateMatured 的
+            #   分母不是同一批 ⇒ 两者相减得到的"优势"是口径产物。此处强制同批配对。
+            "dirPairedBase": round(g["pBaseSum"] / g["pBaseN"] * 100, 1) if g["pBaseN"] else None,
+            "dirPairedN": g["pBaseN"],
+            "dirPairedEdge": (round(g["dirMatHits"] / g["dirMatEval"] * 100
+                                    - g["pBaseSum"] / g["pBaseN"] * 100, 1)
+                              if (g["pBaseN"] and g["dirMatEval"]) else None),
             # R822 去平凡精确命中率：剔除"目标价在预测当日已被自身收盘满足"的样本后的真实命中率。
             "preciseEvalNonTrivial": g["PrecNTEval"] or None,
             "preciseHitsNonTrivial": g["phNT"] if g["PrecNTEval"] else None,
@@ -983,6 +1017,32 @@ def run_backtest(data, df):
     _dir_mat_hits = sum(1 for r in recs if r.get("dirCorrectMatured"))
     _dir_pending_n = sum(1 for r in recs if r.get("dirPending"))
     _dir_early_n = sum(1 for r in recs if r.get("dirEarlyHit"))
+    # ---- R828 严格配对：引擎到底有没有「相对同目标随机起点」的优势 ----
+    # 旧做法（R826 遗留）把 dirRealizedHitRateMatured(44.9%) 与 dirBaseRateRecent(31.4%) 并排，
+    # 但两者分母不是同一批记录：后者是「全历史各 (gap,window) 键的平均」，前者是「本次 138 条成熟
+    # 记录」。同批配对后是 44.9% vs 56.9% —— 方向完全相反（引擎劣于随机 −12.0pp）。
+    # 故此处强制：**只在成熟且该条自身有基线的记录上求基线均值**，再与同一批命中率相减。
+    _paired = [r for r in recs
+               if r.get("dirCorrectMatured") is not None and r.get("dirBase") is not None]
+    _dir_matured_raw = round(_dir_mat_hits / _dir_mat_eval * 100, 1) if _dir_mat_eval else None
+    _paired_base = (round(sum(r["dirBase"] for r in _paired) / len(_paired) * 100, 1)
+                    if _paired else None)
+    _paired_edge = (round(_dir_matured_raw - _paired_base, 1)
+                    if (_dir_matured_raw is not None and _paired_base is not None) else None)
+    _side_acc = {}
+    for r in _paired:
+        _sd = r.get("side") or "?"
+        _a = _side_acc.setdefault(_sd, [0, 0, 0.0])
+        _a[0] += 1
+        _a[1] += bool(r.get("dirCorrectMatured"))
+        _a[2] += r["dirBase"]
+    dir_paired_by_side = [
+        {"side": _sd, "n": _v[0], "hits": _v[1],
+         "rate": round(_v[1] / _v[0] * 100, 1),
+         "base": round(_v[2] / _v[0] * 100, 1),
+         "edge": round(_v[1] / _v[0] * 100 - _v[2] / _v[0] * 100, 1)}
+        for _sd, _v in sorted(_side_acc.items()) if _v[0]
+    ]
     # R826 成熟对齐样本的时间跨度（披露时间选择偏差的边界，而非写死"8~9 月上行段"）
     _mat_dates = sorted(str(r.get("date")) for r in recs if r.get("dirCorrectMatured") is not None)
     _mat_span = (_mat_dates[0], _mat_dates[-1]) if _mat_dates else None
@@ -1072,6 +1132,18 @@ def run_backtest(data, df):
         "dirMaturedHits": _dir_mat_hits,
         "dirPendingCount": _dir_pending_n,
         "dirEarlyHitCount": _dir_early_n,
+        # ---- R828 观察窗口径 + 严格配对优势（判读"引擎有无预测增量"的唯一正确姿势）----
+        # dirWindowRule   : "faithful:expDays" = 按引擎自己承诺的期限判（缺 expDays 才退回 HORIZON）。
+        #                   旧式 max(HORIZON,expDays) 会给 188 条(34%)短期限预测 3~7.5 倍宽限。
+        # dirMaturedRateRaw / dirPairedBase / dirPairedEdge :
+        #                   同一批成熟记录上，命中率 vs 该条自身目标的零信息基线，差 = 真实优势。
+        #                   ⚠ 不得再用 dirRealizedHitRateMatured 直接减 dirBaseRateRecent —— 分母不同批。
+        "dirWindowRule": "faithful:expDays",
+        "dirMaturedRateRaw": _dir_matured_raw,
+        "dirPairedN": len(_paired),
+        "dirPairedBase": _paired_base,
+        "dirPairedEdge": _paired_edge,
+        "dirPairedBySide": dir_paired_by_side,
         "dirBaseRateAllWindow": _base_meta["allWindow"],
         "dirBaseRecentValidKeys": _base_meta["recentValidKeys"],
         "dirBaseRecentSkippedKeys": _base_meta["recentSkippedKeys"],

@@ -55,12 +55,22 @@ recs = [json.loads(l) for l in open(LOG, encoding="utf-8") if l.strip()]
 bt = json.load(open(BT, encoding="utf-8"))
 
 # ---- 独立复算 ----
+def _hz_of(r):
+    """R828 忠实观察窗：按引擎承诺的 expDays 判，缺值才退回 HORIZON。
+
+    旧式 max(HORIZON, expDays) 会给 188 条(34%) 短期限预测 3~7.5 倍宽限 ⇒ 命中率虚高。
+    口径变更必须与本文件同步，否则本门禁会复现旧值并对生产新值报假 FAIL（R825b 同族）。
+    """
+    e = r.get("expDays")
+    return max(1, int(e) if e else HORIZON)
+
+
 def judge(r):
     i0 = di.get(r["date"])
     if i0 is None:
         return None, None
     px, c0 = float(r["price"]), close[i0]
-    hz = max(HORIZON, int(r.get("expDays") or HORIZON))
+    hz = _hz_of(r)
     j1 = min(n, i0 + 1 + hz)
     d = px - c0
     if j1 <= i0 + 1 or abs(d) <= 0.005 * c0:
@@ -86,7 +96,7 @@ for r in recs:
         pend += 1
     c0 = close[di[r["date"]]]
     g = (float(r["price"]) - c0) / c0
-    w = max(HORIZON, int(r.get("expDays") or HORIZON))
+    w = _hz_of(r)
     if abs(g) > 0.005:
         gaps[(round(g, 4), w)] = True
 

@@ -73,7 +73,9 @@ for r in recs:
     o = dict(r)
     i0 = dates.index(r["date"])
     exp = r.get("expDays") or HORIZON
-    hz = max(HORIZON, int(exp))
+    # R828：观察窗改为【忠实承诺】——按引擎自己的 expDays 判，缺值才退回 HORIZON。
+    # 旧的 max(HORIZON, exp) 会给 188 条（34%）短期限预测 3~7.5 倍宽限（放宽=抬高命中率）。
+    hz = max(1, int(r["expDays"]) if r.get("expDays") else HORIZON)
     matured = (i0 + hz) <= (n - 1)
     c0 = float(close[i0])
     px = float(r["price"])
@@ -214,6 +216,23 @@ for key, (b, ok, m) in per.items():
         _recent_skip += 1
 base_recent = round(float(np.mean(recent_vals)) * 100, 1) if recent_vals else None
 
+# ---- ③b R828 严格配对：同一批成熟记录上，命中率 vs 该条自身目标的零信息基线 ----
+for o in out:
+    g = o.get("dirGap")
+    w = o.get("dirWindow")
+    if g is None or not w or abs(g) <= 0.005:
+        o["base"] = None
+        continue
+    o["base"] = per.get((round(float(g), 4), int(w)), (None,))[0]
+_pairs = [o for o in _d_mat if o.get("base") is not None]
+mat_raw = round(len(_d_mat_hits) / len(_d_mat) * 100, 1) if _d_mat else None
+paired_base = round(sum(o["base"] for o in _pairs) / len(_pairs) * 100, 1) if _pairs else None
+paired_edge = (round(mat_raw - paired_base, 1)
+               if (mat_raw is not None and paired_base is not None) else None)
+# 窗口口径自校验：每条 dirWindow 必须等于其 expDays（缺值则 HORIZON）
+_bad_win = sum(1 for o in out
+               if o.get("dirWindow") != (int(o["expDays"]) if o.get("expDays") else HORIZON))
+
 # ---- ④ 精确率去平凡 ----
 _pnt = [o for o in out if o["preciseHit"] is not None and not o["trivialPrecise"]]
 _pnt_hits = [o for o in _pnt if o["preciseHit"]]
@@ -249,6 +268,12 @@ rows = [
     ("preciseRealizedHitRateNonTrivial", precise_nt, bt.get("preciseRealizedHitRateNonTrivial")),
     ("preciseNonTrivialEvaluated", len(_pnt), bt.get("preciseNonTrivialEvaluated")),
     ("preciseTrivialCount", _triv_n, bt.get("preciseTrivialCount")),
+    # ---- R828 观察窗口径 + 严格配对优势 ----
+    ("dirWindow≠expDays 的记录数(应为 0)", _bad_win, 0),
+    ("dirMaturedRateRaw(成熟命中率·原始)", mat_raw, bt.get("dirMaturedRateRaw")),
+    ("dirPairedBase(同批配对基线)", paired_base, bt.get("dirPairedBase")),
+    ("dirPairedN(配对样本数)", len(_pairs), bt.get("dirPairedN")),
+    ("dirPairedEdge(真实优势 pp)", paired_edge, bt.get("dirPairedEdge")),
 ]
 bad = 0
 for name, mine, prod in rows:

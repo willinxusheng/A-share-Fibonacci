@@ -29,6 +29,7 @@
 """
 import csv
 import json
+import math
 import os
 import sys
 
@@ -190,6 +191,7 @@ def main(data_path=None):
             "T7 分档计数恒等式",
             "Σmatured+Σpending+early=%d ｜ totalDirEvaluated=%s" % (tot, bt.get("totalDirEvaluated")))
         inv = []
+        inv_soft = []
         prev = None
         raw_bad = []
         for b in bands:
@@ -203,12 +205,29 @@ def main(data_path=None):
             if b.get("rateRaw") is None or b["matured"] < 5:
                 continue
             if prev is not None and b["rateRaw"] < prev[1] - 1e-9:
-                inv.append("%s(%.1f%%)<%s(%.1f%%)" % (b["label"], b["rateRaw"], prev[0], prev[1]))
-            prev = (b["label"], b["rateRaw"])
+                # R828：按【统计显著性】判，而非字面比较。
+                # 相邻档各 25~55 条样本，两比例差的标准误约 9pp —— 字面比较会把 1.6pp 的
+                # 噪声波动判成缺陷（实测 5~15% 29.6% vs 15~35% 28.0%，z≈0.18）。
+                # z>=1.96 记硬逆向（必须报警）；否则只披露为"噪声内"。
+                p1, n1 = prev[1] / 100.0, prev[2]
+                p2, n2 = b["rateRaw"] / 100.0, b["matured"]
+                se = math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2)
+                z = ((prev[1] - b["rateRaw"]) / 100.0 / se) if se > 0 else 99.0
+                (inv if z >= 1.96 else inv_soft).append(
+                    "%s(%.1f%%)<%s(%.1f%%) z=%.2f" % (b["label"], b["rateRaw"], prev[0], prev[1], z))
+            prev = (b["label"], b["rateRaw"], b["matured"])
         chk(not raw_bad, "T8a rateRaw 与 hits/matured 自洽", "异常=%s" % (raw_bad or "无"))
-        chk(not inv, "T8b 分档单调性", "逆向=%s" % (inv or "无"))
+        chk(not inv, "T8b 分档单调性(仅超噪声算逆向)",
+            "硬逆向=%s ｜ 噪声内=%s" % (inv or "无", inv_soft or "无"))
+        # R828 T8c：端点必须严格单调（首档 < 末档）——真信号量级远超噪声，不受上述放宽影响。
+        _e = [b for b in bands if b.get("rateRaw") is not None and b["matured"] >= 5]
+        chk(len(_e) < 2 or _e[-1]["rateRaw"] > _e[0]["rateRaw"],
+            "T8c 端点严格单调",
+            ("%s(%.1f%%) → %s(%.1f%%)" % (_e[0]["label"], _e[0]["rateRaw"],
+                                           _e[-1]["label"], _e[-1]["rateRaw"])) if len(_e) >= 2 else "档数不足")
         chk(bool(meta.get("monotonic")) and not (meta.get("inversions") or []),
-            "T9 meta.monotonic", "monotonic=%s inversions=%s" % (meta.get("monotonic"), meta.get("inversions")))
+            "T9 meta.monotonic", "monotonic=%s inversions=%s soft=%s"
+            % (meta.get("monotonic"), meta.get("inversions"), meta.get("inversionsSoft")))
 
     # ---------- T10 斜率对照自洽 ----------
     rs = D.get("reachSummary") or {}

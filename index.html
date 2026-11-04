@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-11-02T11:40:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R827 目标可达性量化 + targets 补 expDays/expDate + 方向命中率按可达性分层披露 + 目标表/触发带标注历史可达%)
+var BUILD_TS = "2026-11-04T11:20:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R828 观察窗改忠实expDays + 同批配对基线与真实优势 + 删除"引擎≈基线是巧合"的倒因为果表述)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -822,9 +822,11 @@ var CURRENT_SCENARIO = SS.active;  // 自动判定值（每日更新跟随行情
 var SCN_IDX = { base: 0, strong: 1, risk: 2 };  // scenarioSwitch.active → D.scenarios 索引
 // 铁律线单一真值（取自 tradePlan.stopLine.price），注入到文案（避免与 KEY_LINE 双份真值脱节）
 var KL = (D.tradePlan && D.tradePlan.stopLine && D.tradePlan.stopLine.price != null) ? D.tradePlan.stopLine.price.toFixed(2) : '3674.40';
+// ⚠ 必须【全局】替换：String.replace(str,str) 只换第一处，同一元素里出现两次时
+// 第二处会静默留下旧值（看似已派生、实则双份真值）。改为 split/join 的全局替换。
 ['noteChan', 'noteP8', 'discFoot'].forEach(function (id) {
   var e = document.getElementById(id);
-  if (e) e.innerHTML = e.innerHTML.replace('3674.40', KL);
+  if (e) e.innerHTML = e.innerHTML.split('3674.40').join(KL);
 });
 // 图3注释由 D.p3Note 注入（子浪幅度/回撤由 subWavePoints 派生，消除与浪型标注双份真值）
 
@@ -1988,10 +1990,14 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var ov_dbase = (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
     ' / 全历史 ' + (bt.dirBaseRate != null ? bt.dirBaseRate + '%' : '—');
   var ov_w = bt.levelPrecisionWithin5Pct != null ? bt.levelPrecisionWithin5Pct + '%' : '—';
-  foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 ' + bt.horizon +
-    ' 交易日 ｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
+  foot.innerHTML = '数据截止 <b>' + bt.asOf + '</b> ｜ 观察窗口 <b>按目标承诺 expDays</b>' +
+    '（缺值回退 ' + bt.horizon + ' 日）｜ 共存档 ' + bt.totalLogged + ' 条目标位。' + coldNote + probNote +
     ' ｜ <b>整体：' + (_r822 ? '方向推进率(窗内走完 50% 目标距离) ' + ov_d +
-      (_r826 ? ' ·仅成熟 ' + ov_dmat : '') + ' ｜ 零信息基线 ' + ov_dbase
+      (_r826 ? ' ·仅成熟 ' + ov_dmat : '') + ' ｜ 零信息基线 ' + ov_dbase +
+      (bt.dirPairedEdge != null
+        ? ' ｜ <span style="color:' + (bt.dirPairedEdge > 0 ? '#c23531' : '#2f9e44') + '">同批配对基线 ' +
+          bt.dirPairedBase + '% → 优势 ' + (bt.dirPairedEdge > 0 ? '+' : '') + bt.dirPairedEdge + 'pp</span>'
+        : '')
       : '方向准确率(旧口径) ' + ov_d + ' ｜ 零信息基线 待数据刷新') +
     ' ｜ band 触达率 已实现口径 ' + ov_b + (_r822 ? ' / 全量口径 ' + ov_ball : '') +
     ' ｜ 精确命中率 ' + ov_p + (_r822 ? '(含重言式) / 去平凡 ' + ov_pnt : '') +
@@ -2017,9 +2023,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
             '修正前的同期基线是在观察窗长 w 普遍大于同期跨度、<b>完整未来窗占比为 0</b> 的样本上算出的，' +
             '属伪值；修正后同期 ' + (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
             ' / 全历史 ' + (bt.dirBaseRate != null ? bt.dirBaseRate + '%' : '—') +
-            '。因此「引擎 ≈ 基线 ⇒ 无预测价值」这类比较，在修正前是拿两个<b>都被删失压低</b>的值互相印证' +
-            '（当前 ' + ov_d + ' vs 基线 ' + (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
-            '，而仅成熟样本为 ' + ov_dmat + '）—— 那是巧合，不是结论。'
+            '。⚠ <b>R828 修正</b>：本段上一版接着写「引擎 ≈ 基线 ⇒ 无预测价值这一结论不成立」，' +
+            '依据是把仅成熟样本 ' + ov_dmat + ' 与全历史基线 ' + (bt.dirBaseRateRecent != null ? bt.dirBaseRateRecent + '%' : '—') +
+            ' 直接相减 —— 但两者<b>分母不是同一批记录</b>（前者是本次成熟记录，后者是全历史各键平均），' +
+            '相减无意义。同批配对后方向相反，见下方 R828 段。'
           : '') +
         (_r826 && bt.dirDistanceBands && bt.dirDistanceBands.length
           ? (function () {
@@ -2039,14 +2046,18 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                 '<b>距离 ≥10% 的 ' + _farN + ' 条成熟样本命中 ' + _farH + ' 条</b>' +
                 (_farP ? '（另有 ' + _farP + ' 条尚未到期）' : '') +
                 '。这说明低命中率里有很大一块是「目标价定得比市场在该观察窗内能走的距离还远」，' +
-                '属算术必然，与艾略特结构判断对错无关 —— 它是<b>目标集的问题</b>，不是判据的问题。';
+                '属算术必然。<b>但它只解释绝对水平，不能反证判据没问题</b> —— 把目标难度条件住之后' +
+                '（见下方 R828 同批配对），引擎仍劣于随机起点。';
             })()
           : '') +
         (bt.dirBandsByReach && bt.dirBandsByReach.length && bt.dirReachMeta
           ? (function () {
               var _bd = bt.dirBandsByReach;
+              var _esc = function (s) {
+                return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              };
               var _seg = _bd.map(function (x) {
-                return x.label + ' → ' + x.hits + '/' + x.matured +
+                return _esc(x.label) + ' → ' + x.hits + '/' + x.matured +
                   (x.rateRaw != null ? '(' + x.rateRaw + '%)' : '');
               }).join(' ｜ ');
               var _low = _bd.filter(function (x) { return x.lo < 0.15; });
@@ -2064,9 +2075,35 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                   : '') +
                 ' —— 近乎完美单调。' +
                 '这些低可达样本（共 ' + _lowAll + ' 条可判）不是「方向判错」，而是<b>目标价在承诺期限内没有先例可达</b>；' +
-                '把二者合并计分，就会把「目标集脱离市场速率」误读成「引擎看错方向」。' +
+                '不加区分地合并计分，会把「目标集脱离市场速率」记成「引擎看错方向」。' +
                 '<b>⚠ 口径边界</b>：rr 的分母仅 ' + _m.sampleRows + ' 根 K 线且以震荡市为主，' +
                 '绝对概率偏低、只能作<b>相对排序</b>；比率为 0 不等于走势不可能，只等于「在此样本窗口内没有先例」。';
+            })()
+          : '') +
+        (bt.dirPairedEdge != null
+          ? (function () {
+              var _pn = bt.dirPairedN, _pb = bt.dirPairedBase, _pe = bt.dirPairedEdge;
+              var _mr = bt.dirMaturedRateRaw;
+              var _sd = (bt.dirPairedBySide || []).map(function (x) {
+                var _nm = { sell: '卖出', buy: '买入', hold: '持有' }[x.side] || x.side;
+                return _nm + ' ' + x.hits + '/' + x.n + '（' + x.rate + '% vs 基线 ' + x.base +
+                  '%，' + (x.edge > 0 ? '+' : '') + x.edge + 'pp）';
+              }).join(' ｜ ');
+              var _verdict = (_pe > 0)
+                ? '优于随机 ' + _pe + 'pp'
+                : '<b>不优于随机（' + _pe + 'pp）—— 即「方向判断没有统计优势」</b>';
+              return '<br><b>⚠ 严格配对检验：引擎相对「同目标随机起点」有无优势（R828）</b>：' +
+                '在<b>同一批 ' + _pn + ' 条成熟记录</b>上，逐条取<i>它自己那个目标</i>的零信息基线' +
+                '（同观察窗、同幅度，问「历史随机某天在同样期限内走完同样距离的概率」），' +
+                '两者<b>分母完全同批</b>才能相减 → 引擎 ' + _mr + '% vs 配对基线 ' + _pb + '% = ' + _verdict + '。' +
+                '按 side 拆：' + _sd + '。' +
+                '<br>⚠ <b>观察窗口径已修正</b>：旧式 max(30, expDays) 会给承诺 4~29 天的预测统一 30 天' +
+                '（放宽最多 7.5 倍，涉及 34% 的记录），等于替引擎多要时间 ⇒ 命中率虚高。' +
+                '现改为<b>按引擎承诺的 expDays 判定</b>（缺值才退回 30 日）。' +
+                '<br><b>三个口径缺陷叠加、方向各不相同，必须一起看</b>：' +
+                '① 删失（未闭合记为未做到）→ 偏低；② 放宽观察窗 → 偏高；' +
+                '③ 基线未与引擎同批配对 → 使「引擎 vs 随机」的比较本身失真。' +
+                '只有<b>忠实窗 + 同批配对</b>得到的差值才可判读。';
             })()
           : '')
       : '（本页指标尚未刷新到 R822 新口径，方向准确率为与目标价无关的旧判据；下次数据更新后自动切换为带零信息基线的「方向推进率」）');

@@ -257,11 +257,18 @@ jobs:
       # ② reach.prob 由本门禁独立实现重算比对（不复用生产 _reach_prob，防同源同错）；
       # ③ sellTargets 与同价 target 的 reach 必须逐字段一致（单一真值）；
       # ④ 可达性分档计数恒等式 + 单调性（rr 越高命中率不得越低）。
-      - name: Gatekeepers (validate + audit49..56 + R108 holiday-target)
+      # 第 14 道闸门：观察窗口径 + 严格配对优势守门员（audit57）。
+      # R828 固化的不变量：① 观察窗必须按引擎承诺的 expDays（旧式 max(30,expDays) 会给
+      #   188/550=34% 的短期限预测 3~7.5 倍宽限 ⇒ 命中率虚高）；
+      # ② 「引擎 vs 随机」必须同批配对（同一批成熟记录上取该条自身目标的零信息基线），
+      #   禁止拿仅成熟口径直接减全历史基线（两者分母不同批，相减无意义 —— R826 由此得出
+      #   "引擎有 +13.5pp 增量"的错误结论，配对后实为 −9.1pp）；
+      # ③ 前端不得回退到已被推翻的表述（"那是巧合，不是结论" / "不是判据的问题"）。
+      - name: Gatekeepers (validate + audit49..57 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit_holiday_targets.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit57.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done
