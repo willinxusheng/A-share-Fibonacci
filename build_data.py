@@ -876,6 +876,41 @@ def main():
         except Exception:
             return False
 
+    def _last_date_of(path):
+        """返回该 raw.md 的最大交易日字符串；不可解析返回 None。"""
+        try:
+            rows = read_kline_md(path)
+            if not rows:
+                return None
+            return max(r["date"] for r in rows)
+        except Exception:
+            return None
+
+    # R828b 新鲜度门禁：跨市场时差 1 天 + 周末 3 天 = 最多 4 天，留 1 天余量。
+    _FRESH_LAG_DAYS = 5
+
+    def _fresh_enough(path, ref):
+        """末日不早于 ref −_FRESH_LAG_DAYS 个自然日。ref=None 时不做判断（放行）。
+
+        R828b 缺陷实证（必须保留此门禁）：回退链全失败时，旧实现只校验行数 ≥120 就把
+        .idx_cache 里的旧文件复制回 data/。本地实测该缓存是 **2026-08-13** 的纳斯达克
+        （滞后 83 天），被当作"时效性最佳"喂入跨市场广度：
+          陈旧(08-13) ret20 = +3.56% ⇒ 广度 −0.500
+          新鲜(11-03) ret20 = −8.07% ⇒ 广度 −1.000
+        同一份代码同一天，**符号与幅度同时错**，而面板仍写"确认市场可用 4/4，缺失 无"。
+        宁可报"缺失"（广度分母不变、该市场记入 breadthMissing），也不能把陈旧当新鲜。
+        """
+        if not ref:
+            return True
+        d = _last_date_of(path)
+        if not d:
+            return False
+        try:
+            return ((_dt.datetime.strptime(ref, "%Y-%m-%d")
+                     - _dt.datetime.strptime(d, "%Y-%m-%d")).days) <= _FRESH_LAG_DAYS
+        except Exception:
+            return True
+
     def _try_datafeed(key, _p, _cache):
         """R271 海外可达回退：yahoo -> stooq（datafeed 内部链式）。成功写 raw+缓存返回 True。"""
         try:
@@ -923,14 +958,28 @@ def main():
         # 兜底(R278+)：fetch 全失败时，优先用近期 .idx_cache（fetch 成功时写入，时效性最佳），
         # 覆盖可能陈旧/死基线的 _p（git 跟踪的 raw.md 基线可能停在数年前的死数据，如副指数 2021 基线）。
         # 仅当 cache 也缺失/无效时才退化到 git 基线 _p，避免 2021 死数据静默污染共振(R277 灾难重演)。
+        # R828b：两条兜底都必须过【新鲜度门禁】——只校验行数会把 3 个月前的缓存当"时效性最佳"。
+        # 参照日 = 主指数 sh000001 的末日（_idx_raw 首位已先处理完）；若本次处理的就是主指数则
+        # 退化为"今天"，避免自指。
+        if fn == "sh000001_raw.md":
+            _ref = _dt.datetime.now().strftime("%Y-%m-%d")
+        else:
+            _ref = _last_date_of(os.path.join(BASE, "data", "sh000001_raw.md"))
         if os.path.exists(_cache) and _valid_raw(_cache):
-            try:
-                shutil.copyfile(_cache, _p)   # 用近期 cache 覆盖可能陈旧的 _p，确保后续 norm_series 读近期
-                return True
-            except Exception:
-                pass
+            if _fresh_enough(_cache, _ref):
+                try:
+                    shutil.copyfile(_cache, _p)   # 用近期 cache 覆盖可能陈旧的 _p，确保后续 norm_series 读近期
+                    return True
+                except Exception:
+                    pass
+            else:
+                print("  [warn] %s 缓存过旧(末日 %s < 参照 %s 减 %d 日)，拒绝用作兜底"
+                      % (name, _last_date_of(_cache), _ref, _FRESH_LAG_DAYS))
         if os.path.exists(_p) and _valid_raw(_p):
-            return True
+            if _fresh_enough(_p, _ref):
+                return True
+            print("  [warn] %s 基线过旧(末日 %s)，不计入广度（宁可报缺失，不用陈旧冒充新鲜）"
+                  % (name, _last_date_of(_p)))
         print("  [warn] %s 全源取数失败，共振回退为 0" % name)
         return False
 
@@ -1103,13 +1152,30 @@ def main():
         _s = _ic.get("data") or []
         if len(_s) >= 21:
             _r20 = _s[-1][1] / _s[-21][1] - 1.0           # 近20交易日收益(归一化序列, 锚定=_xmk_base)
-            _xmk_details.append({"name": _ic["name"], "ret20": round(_r20 * 100, 2)})
+            # R828b：逐市场披露【实际末日】与相对 A 股的滞后天数。
+            # 旧实现只给 ret20，末日只在 note 里一句"美股为上一交易日"含糊带过，
+            # 一旦回退到陈旧缓存（实测 83 天）面板仍报"确认市场可用 4/4"，无从发现。
+            _asof = _s[-1][0]
+            try:
+                _lag = (_dt.datetime.strptime(last_date, "%Y-%m-%d")
+                        - _dt.datetime.strptime(_asof, "%Y-%m-%d")).days
+            except Exception:
+                _lag = None
+            _xmk_details.append({"name": _ic["name"], "ret20": round(_r20 * 100, 2),
+                                 "asOf": _asof, "lagDays": _lag})
     # 设计集：4 只外部 equity（不含上证自身，纯跨市场交叉验证）
     _xmk_idx = {"恒生指数", "恒生科技", "标普500", "纳斯达克"}
-    _xbs = [d for d in _xmk_details if d["name"] in _xmk_idx]
+    # R828b：滞后超过阈值的市场【不得计入广度】——宁可报缺失，也不用陈旧冒充新鲜。
+    # 实证：陈旧 83 天的纳斯达克(ret20 +3.56%) 与新鲜(−8.07%) 会让广度 −1.000 → −0.500，
+    # 符号与幅度同时错，而 breadthMissing 仍为"无"。故滞后者一律剔出分子分母。
+    _stale_names = sorted(d["name"] for d in _xmk_details
+                          if d["name"] in _xmk_idx and d.get("lagDays") is not None
+                          and d["lagDays"] > _FRESH_LAG_DAYS)
+    _xbs = [d for d in _xmk_details if d["name"] in _xmk_idx and d["name"] not in _stale_names]
     _xmk_total = len(_xmk_idx)
     _xmk_avail = len(_xbs)
     _xmk_missing = sorted(_xmk_idx - set(d["name"] for d in _xbs))
+    _xmk_lags = [d["lagDays"] for d in _xmk_details if d.get("lagDays") is not None]
     _xbreadth = 0.0
     _xbreadth_mag = 0.0
     if _xbs:
@@ -1134,8 +1200,16 @@ def main():
         "breadthMissing": _xmk_missing,
         "shRet20": _sh_r20,
         "details": _xmk_details,
-        "note": "跨市场(港股:恒生/恒生科技 + 美股:标普500/纳斯达克)近20日方向系数 %.2f（±1=全球 equity 同向确认，符号表方向：+1上行/-1下行；0=背离）；确认市场可用 %d/%d，缺失 %s。上证自身近20日 %.2f%% 供背离对照（美股为上一交易日，时差所致）。"
-                 % (_xbreadth, _xmk_avail, _xmk_total, (_xmk_missing or "无"), (_sh_r20 if _sh_r20 is not None else 0)),
+        # R828b 新鲜度披露：refDate = A 股末日（滞后基准）；staleSeries = 因滞后被剔出广度的市场。
+        "refDate": last_date,
+        "staleSeries": _stale_names,
+        "staleThresholdDays": _FRESH_LAG_DAYS,
+        "maxLagDays": max(_xmk_lags) if _xmk_lags else None,
+        "note": "跨市场(港股:恒生/恒生科技 + 美股:标普500/纳斯达克)近20日方向系数 %.2f（±1=全球 equity 同向确认，符号表方向：+1上行/-1下行；0=背离）；确认市场可用 %d/%d，缺失 %s；滞后基准日 %s，各市场末日见 details.asOf（美股因时差通常滞后 1 天），滞后 > %d 天者已剔出广度：%s。上证自身近20日 %.2f%% 供背离对照。"
+                 % (_xbreadth, _xmk_avail, _xmk_total,
+                    ("、".join(_xmk_missing) or "无"), last_date,
+                    _FRESH_LAG_DAYS, ("、".join(_stale_names) or "无"),
+                    (_sh_r20 if _sh_r20 is not None else 0)),
     }
 
     # ---------- 关键位距离（全部从框架派生，避免与 trade_plan/浪型常量双份真值漂移）----------

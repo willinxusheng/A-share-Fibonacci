@@ -86,6 +86,20 @@ CASES = [
      lambda h: h.replace("严格配对检验：引擎相对", "已移除："), ["P7a"]),
     ("PC9 前端恢复已被推翻的表述",
      lambda b: None, None, lambda h: h.replace("</body>", "那是巧合，不是结论</body>"), ["P7b"]),
+    # ---- R828b 新增：样本窗口与跨市场新鲜度 ----
+    ("PC10 样本窗口根数篡改",
+     lambda b: b.__setitem__("dataWindowRows", b["dataWindowRows"] - 7), None, None, ["P8"]),
+    # PC11 只改 asOf 不同步 lagDays ⇒ 自洽性必须被抓（否则 lag 校验是摆设）
+    ("PC11 asOf 改而 lagDays 不跟进",
+     lambda b: None,
+     lambda d: d["crossMarket"]["details"][0].__setitem__("asOf", "2026-01-05"), None, ["P9a"]),
+    # PC12 asOf 与 lagDays 同步改成滞后 672 天，但 staleSeries/breadthAvailable 不更新
+    #      ⇒ 这正是 R828b 要防的"陈旧冒充新鲜"形态，P9b/P9c 必须同时报警
+    ("PC12 陈旧市场未剔出广度",
+     lambda b: None,
+     lambda d: (d["crossMarket"]["details"][0].__setitem__("asOf", "2025-01-01"),
+                d["crossMarket"]["details"][0].__setitem__("lagDays", 672)),
+     None, ["P9b", "P9c"]),
 ]
 
 

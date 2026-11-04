@@ -14,7 +14,7 @@
   旧式 _hz = max(HORIZON, expDays) 会给承诺 4~29 天的预测统一 30 天（最多放宽 7.5 倍，
   涉及 188/550=34% 的记录），等于替引擎多要时间 ⇒ 命中率虚高（44.9% vs 40.5%）。
 
-本门禁固化（7 项，全部独立复算，不 import 生产模块）：
+本门禁固化（10 项，全部独立复算，不 import 生产模块）：
   P1  dirPairedN == 独立复算：成熟且有基线 的记录数
   P2  dirPairedBase == 独立复算（自实现 deque 滑窗，容差 0.2pp）
   P3  dirPairedEdge == dirMaturedRateRaw − dirPairedBase（自洽）
@@ -22,6 +22,9 @@
   P5  每个 side 的 edge == rate − base（自洽）
   P6  dirWindowRule == "faithful:expDays"，且逐条 dirWindow == expDays（防口径回退）
   P7  前端静态：必须展示配对基线与优势，且**不得**再出现已被推翻的「那是巧合，不是结论」表述
+  P8  backtest.dataWindowRows/From/To == CSV 实际（R828b：样本窗口随数据源漂移，必须可审计）
+  P9  crossMarket 新鲜度：lagDays 自洽、staleSeries 完整、滞后市场已剔出 breadthAvailable
+      （R828b：实测陈旧 83 天的纳斯达克让广度 −1.000 → −0.500，符号与幅度同时错）
 """
 import json
 import math
@@ -217,12 +220,73 @@ def main(paths=None):
     hit_ban = [k for k in banned if k in html]
     chk(not hit_ban, "P7b 前端无已被推翻的表述", "命中=%s" % (hit_ban or "无"))
 
+    # ---------- P8 样本窗口披露 == CSV 实际（R828b） ----------
+    # 为什么必须查：不同数据源历史起点不同（eastmoney beg=20210805 / 腾讯 1300 根 2021-06 起 /
+    # yahoo range=5y 滚动），接受门槛 _MIN_ROWS=600 对四者全放行 ⇒ 窗口由"谁先成功"决定。
+    # 实测抖动：同一 CSV 全量 vs 剔头 31 行，引擎侧指标不动，dirPairedBase 49.5→49.2（−0.3pp）。
+    # 该字段是给读者判断"这个 −9.0pp 是在多长的样本上算的"的唯一依据，不能与 CSV 脱节。
+    _rows = [l.strip() for l in open(CSV, encoding="utf-8").read().strip().split("\n") if l.strip()]
+    _hdr, _body = _rows[0], _rows[1:]
+    _first = _body[0].split(",")[0] if _body else None
+    _last = _body[-1].split(",")[0] if _body else None
+    chk(bt.get("dataWindowRows") == len(_body)
+        and bt.get("dataWindowFrom") == _first and bt.get("dataWindowTo") == _last,
+        "P8 样本窗口披露 == CSV 实际",
+        "披露=%s根 %s~%s ｜ CSV=%d根 %s~%s"
+        % (bt.get("dataWindowRows"), bt.get("dataWindowFrom"), bt.get("dataWindowTo"),
+           len(_body), _first, _last))
+
+    # ---------- P9 跨市场新鲜度：滞后者不得计入广度（R828b） ----------
+    # 缺陷实证：fetch 全失败时旧实现只校验行数就把 .idx_cache 旧文件复制回 data/，
+    # 实测是 83 天前的纳斯达克 ⇒ ret20 从 −8.07% 翻成 +3.56%，广度 −1.000 → −0.500，
+    # 符号与幅度同时错，而 breadthMissing 仍为"无"。故必须：
+    #   ① 逐市场 lagDays == (refDate − asOf).days
+    #   ② staleSeries == lagDays>阈值的市场名集合
+    #   ③ breadthAvailable == 设计集中【非滞后】成员的个数（滞后者既不进分子也不进分母）
+    import datetime as _dtm
+    cm = D.get("crossMarket") or {}
+    idx = {"恒生指数", "恒生科技", "标普500", "纳斯达克"}
+    thr = cm.get("staleThresholdDays")
+    ref = cm.get("refDate")
+    # 防真空通过：字段缺失时下方循环会整体 continue ⇒ 断言"全过"。必须先断言字段存在，
+    # 否则旧产物（无 refDate/staleThresholdDays）会假绿。
+    _fields_ok = (thr is not None and ref is not None
+                  and cm.get("staleSeries") is not None
+                  and all((x.get("asOf") is not None and x.get("lagDays") is not None)
+                          for x in (cm.get("details") or [])))
+    chk(_fields_ok, "P9 新鲜度披露字段齐备",
+        "refDate=%s threshold=%s staleSeries=%s"
+        % (ref, thr, cm.get("staleSeries")))
+    bad_lag, stale_calc = [], []
+    for x in (cm.get("details") or []):
+        if x.get("asOf") is None or ref is None:
+            continue
+        try:
+            want = (_dtm.datetime.strptime(ref, "%Y-%m-%d")
+                    - _dtm.datetime.strptime(x["asOf"], "%Y-%m-%d")).days
+        except ValueError:
+            bad_lag.append("%s: 日期不可解析" % x.get("name"))
+            continue
+        if x.get("lagDays") != want:
+            bad_lag.append("%s: lagDays=%s 复算=%d" % (x.get("name"), x.get("lagDays"), want))
+        if thr is not None and want > thr and x.get("name") in idx:
+            stale_calc.append(x["name"])
+    chk(not bad_lag, "P9a 逐市场 lagDays 与 refDate/asOf 自洽", "异常=%s" % (bad_lag or "无"))
+    chk(sorted(cm.get("staleSeries") or []) == sorted(stale_calc),
+        "P9b staleSeries == 滞后超阈值集合",
+        "披露=%s 复算=%s" % (cm.get("staleSeries"), sorted(stale_calc)))
+    _avail_calc = len([x for x in (cm.get("details") or [])
+                       if x.get("name") in idx and x.get("name") not in stale_calc])
+    chk(cm.get("breadthAvailable") == _avail_calc,
+        "P9c breadthAvailable 已剔除滞后市场",
+        "披露=%s 复算=%d（设计集 4）" % (cm.get("breadthAvailable"), _avail_calc))
+
     print("-" * 78)
     if FAILS:
         print("audit57: FAIL=%d → %s" % (len(FAILS), FAILS))
         return 1
-    print("audit57: 全部 7 项通过（配对优势 %s pp｜配对基线 %s%%）"
-          % (bt.get("dirPairedEdge"), bt.get("dirPairedBase")))
+    print("audit57: 全部 10 项通过（配对优势 %s pp｜配对基线 %s%%｜样本 %s 根）"
+          % (bt.get("dirPairedEdge"), bt.get("dirPairedBase"), bt.get("dataWindowRows")))
     return 0
 
 

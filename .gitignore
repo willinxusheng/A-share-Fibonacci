@@ -17,6 +17,8 @@ _idx_cache/
 data/.idx_cache/
 # preflight 调试报告（含时间戳，每次运行都变化，CI 的 git add data/ 会误提交）
 data/_preflight_report.txt
+# R828b 取数旁证（哪个源胜出 + 样本窗口）：单次运行内有效，非源码，勿入库
+data/_feed_provenance.json
 
 # 系统/编辑器
 .DS_Store

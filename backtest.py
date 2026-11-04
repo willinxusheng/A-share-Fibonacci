@@ -30,6 +30,28 @@ OUT_PATH = os.path.join(BASE, "data", "backtest.json")
 HORIZON_BUCKET_EDGES = (20, 60, 120)
 HORIZON_BUCKETS = ("A:<20", "B:20-60", "C:60-120", "D:>=120")
 
+# R828b 取数旁证（由 datafeed.fetch_and_write 写、build 阶段读）：源名 + 该源给的样本窗口。
+_FEED_PROV_PATH = os.path.join(BASE, "data", "_feed_provenance.json")
+
+
+def feed_provenance(key="sh000001"):
+    """读 data/_feed_provenance.json 中某 key 的记录；缺失/损坏一律返回 None（绝不抛出）。
+
+    为什么需要它（R828b 缺陷实证）：四个数据源的【历史起点不同】——
+      eastmoney 硬编码 beg=20210805（≈1270 根）、腾讯 fqkline 取 1300 根（≈2021-06 起）、
+      yahoo range=5y 滚动（端点随当天前移）、stooq 视品种而定；而接受门槛 _MIN_ROWS=600
+      对四者全部放行 ⇒ 同一天同一份代码，窗口起点取决于"哪个源先成功"。
+    实测影响：引擎侧指标不动，仅 dirPairedBase 抖 ≤0.3pp（49.5→49.2），属口径抖动而非
+    结论风险；但此前【完全静默】。本函数把源与窗口变成可审计事实。
+    """
+    try:
+        with open(_FEED_PROV_PATH, encoding="utf-8") as fp:
+            d = json.load(fp) or {}
+        v = d.get(key)
+        return v if isinstance(v, dict) else None
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def horizon_bucket(exp):
     """目标预期触达天数 → horizon 桶 key。边界：<20 / [20,60) / [60,120) / >=120。"""
@@ -860,6 +882,8 @@ def run_backtest(data, df):
     # R822 方向判据零信息基线：必须在 evaluate 之后（依赖每条的 dirGap/dirWindow）。
     # R826：追加第三返回值 = 基线口径元数据（成熟对齐后的可用 key 数 / 被剔除 key 数）。
     dir_base_rate, dir_base_recent, _base_meta = dir_baseline(df, recs)
+    # R828b：取数旁证（源 + 该源给的窗口）。缺失不影响任何计算，仅作披露。
+    _prov = feed_provenance("sh000001")
     # R827：方向命中率 × 目标可达性分层（依赖每条的 dirGap/dirWindow，须在 evaluate 之后）。
     # 目的：把"目标在承诺窗口内无先例可达"从"引擎判错方向"里剥离出来 —— 二者是完全不同的失败。
     dir_reach_bands, _reach_meta = dir_bands_by_reach(df, recs)
@@ -1152,6 +1176,18 @@ def run_backtest(data, df):
         # （样本若全部集中在某一段行情，该口径的命中率就只代表那一段，不能外推到当前）。
         "dirMaturedSpanFrom": _mat_span[0] if _mat_span else None,
         "dirMaturedSpanTo": _mat_span[1] if _mat_span else None,
+        # ---- R828b 样本窗口与取数源（把"静默的口径抖动"变成可审计事实）----
+        # ⚠ 命名刻意与 dirReachMeta 内的 sampleFrom/sampleTo/sampleRows 区分：
+        #    那几个是【可达性分层】的子集口径，这里是【入模全量 df】的窗口。
+        # dataWindowRows/From/To 直接由本次实际入模的 df 派生，不读配置、不猜。
+        # dataSource 来自 datafeed 旁证；缺失为 None（不伪造）。
+        # 抖动实证：同一 CSV 全量 vs 剔头 31 行 ⇒ 成熟命中率 40.5→40.5、成熟样本 185 不变，
+        # 仅 dirPairedBase 49.5→49.2（−0.3pp），dirPairedEdge −9.0→−8.7，结论不变。
+        "dataWindowRows": int(len(df)),
+        "dataWindowFrom": df.index[0].strftime("%Y-%m-%d") if len(df) else None,
+        "dataWindowTo": df.index[-1].strftime("%Y-%m-%d") if len(df) else None,
+        "dataSource": (_prov or {}).get("source"),
+        "dataSourceRows": (_prov or {}).get("rows"),
         # R826 目标距离 → 可达性分桶（成熟对齐口径）：揭示"命中率低"有多少来自目标定得比市场能走的还远
         "dirDistanceBands": dir_dist_bands,
         # R827 方向命中率 × 目标可达性分层（按每条记录自身的幅度/窗口算 rr，比距离分桶更准）：

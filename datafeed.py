@@ -41,6 +41,13 @@ _CI_DEBUG = os.environ.get("CI") == "true" or os.environ.get("DATAFEED_DEBUG") i
 # （production_oos_brier cnt=0、indexCompare 副指数仅 1 点）。现要求「完整」才接受。
 _MIN_ROWS = 600
 
+BASE = os.path.dirname(os.path.abspath(__file__))
+
+# R828b：本次运行中每个 key【实际胜出的数据源 + 其样本窗口】。
+# 存在理由见 _accept() 注释：四源历史起点不同，且都过 _MIN_ROWS 门槛 ⇒ 窗口由"谁先成功"决定。
+# 落盘到 data/_feed_provenance.json 供 build 阶段写进 backtest.json 供面板披露。
+LAST_SOURCE = {}
+
 
 def _debug(fmt, *args):
     if _CI_DEBUG:
@@ -276,6 +283,30 @@ def _stooq_rows(symbol):
         return None
 
 
+def _accept(key, source, rows):
+    """R828b：记录【实际胜出的数据源与其样本窗口】并返回 rows。
+
+    为什么必须记录（缺陷实证）：四个源的【历史起点各不相同】——
+      eastmoney 硬编码 beg=20210805（≈1270 根）、腾讯 fqkline 取 1300 根（≈2021-06 起）、
+      yahoo range=5y 滚动（端点随当天前移）、stooq 视品种而定。
+    且判定门槛 _MIN_ROWS=600 对四者全部放行 ⇒ **同一天、同一份代码，哪个源先成功就决定样本窗口**。
+    实测影响（R828b，同一 CSV 全量 vs 剔头 31 行）：引擎侧指标完全不动
+    （成熟命中率 40.5→40.5、成熟样本 185、命中 75），但 dirPairedBase 49.5→49.2（−0.3pp）
+    ⇒ 结论方向与量级不变，属【口径抖动 ≤0.3pp】而非结论风险。
+    但抖动此前【完全静默】：面板上不会出现任何痕迹。故把源与窗口落盘为可审计事实。
+    """
+    if rows:
+        LAST_SOURCE[key] = {
+            "source": source,
+            "rows": len(rows),
+            "first": rows[0][0],
+            "last": rows[-1][0],
+        }
+        _debug("fetch_rows key=%s accepted from %s (%d rows, %s~%s)",
+               key, source, len(rows), rows[0][0], rows[-1][0])
+    return rows
+
+
 def fetch_rows(key):
     """链式取数：eastmoney -> tencent -> yahoo -> stooq。返回 [(date,open,high,low,close,volume)] 或 None。
 
@@ -283,6 +314,8 @@ def fetch_rows(key):
     使副指数海外（eastmoney 失效、腾讯偶发只回 1 行）能继续尝试 yahoo/stooq 拿完整历史，
     复活副指数共振。仅当某源返回「完整」(>=_MIN_ROWS) 结果才沿线接受（保主源优先级）；
     全部源均不足门槛则返回 None（副指数非致命、主指数将触发上层失败）。
+
+    R828b：每次成功接受都经 _accept 记录源与窗口（见该函数注释的实证依据）。
     """
     if key not in SYMBOLS:
         _debug("fetch_rows unknown key=%s", key)
@@ -290,17 +323,17 @@ def fetch_rows(key):
     em, yh, st, tnt = SYMBOLS[key]
     rows = _eastmoney_rows(em)
     if rows and len(rows) >= _MIN_ROWS:
-        return rows
+        return _accept(key, "eastmoney", rows)
     if tnt:
         rows = _tencent_rows(tnt)
         if rows and len(rows) >= _MIN_ROWS:
-            return rows
+            return _accept(key, "tencent", rows)
     rows = _yahoo_rows(yh)
     if rows and len(rows) >= _MIN_ROWS:
-        return rows
+        return _accept(key, "yahoo", rows)
     rows = _stooq_rows(st)
     if rows and len(rows) >= _MIN_ROWS:
-        return rows
+        return _accept(key, "stooq", rows)
     _debug("fetch_rows key=%s -> all sources failed or all below _MIN_ROWS(%d)", key, _MIN_ROWS)
     return None
 
@@ -317,12 +350,36 @@ def write_raw_md(path, rows):
 
 
 def fetch_and_write(key, path):
-    """取数并写 raw.md；成功返回 True，全源失败返回 False。"""
+    """取数并写 raw.md；成功返回 True，全源失败返回 False。
+
+    R828b：同时把「哪个源胜出 + 其样本窗口」合并写入 data/_feed_provenance.json
+    （该文件在 .gitignore 中，属【单次运行内的旁证】，不提交；CI 里 fetch_indices 与
+    build_data 同 job 同工作区，build 阶段读得到）。合并写而非覆盖，避免逐指数调用时互相清空。
+    """
     rows = fetch_rows(key)
     if not rows:
         return False
     write_raw_md(path, rows)
+    _dump_provenance()
     return True
+
+
+def _dump_provenance():
+    """把 LAST_SOURCE 合并进 data/_feed_provenance.json（失败绝不抛出，取数成功优先）。"""
+    try:
+        out = os.path.join(BASE, "data", "_feed_provenance.json")
+        cur = {}
+        if os.path.exists(out):
+            try:
+                with open(out, encoding="utf-8") as fp:
+                    cur = json.load(fp) or {}
+            except Exception:  # noqa: BLE001
+                cur = {}
+        cur.update(LAST_SOURCE)
+        with open(out, "w", encoding="utf-8") as fp:
+            json.dump(cur, fp, ensure_ascii=False, indent=2, sort_keys=True)
+    except Exception as e:  # noqa: BLE001
+        _debug("dump provenance failed: %s", e)
 
 
 if __name__ == "__main__":
