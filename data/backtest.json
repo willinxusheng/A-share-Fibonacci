@@ -53,6 +53,11 @@
   "dirBaseTotalKeys": 490,
   "dirMaturedSpanFrom": "2026-08-04",
   "dirMaturedSpanTo": "2026-10-21",
+  "dataWindowRows": 1270,
+  "dataWindowFrom": "2021-08-05",
+  "dataWindowTo": "2026-11-04",
+  "dataSource": "eastmoney",
+  "dataSourceRows": 1270,
   "dirDistanceBands": [
     {
       "lo": 0.5,

@@ -1,7 +1,7 @@
 {
   "schema": "a-share-fib-quality-cert/v1",
-  "generated_at": "2026-11-04T11:06:38Z",
-  "data_last_date": "2026-11-04 19:05:25",
+  "generated_at": "2026-11-04T11:37:25Z",
+  "data_last_date": "2026-11-04 19:36:21",
   "engine": {
     "driftConf": 0.6,
     "bandScale": 1.15,
@@ -190,7 +190,7 @@
     "source": "data/sentiment.json",
     "score": null,
     "label": null,
-    "asOf": "2026-11-04 19:05:25"
+    "asOf": "2026-11-04 19:36:21"
   },
   "error": null
 }
