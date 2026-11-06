@@ -95,7 +95,7 @@ jobs:
       # ── 新鲜度门卫（始终运行，不受 skip 条件约束）──────────────────────────────
       # 周末（DOW 6/7）直接跳过整轮（A 股休市，无需更新，避免噪音告警）；
       # 工作日若 data.js fetchedAt 已是今天（北京），说明今天已成功更新，跳过整轮省 runner 分钟。
-      - name: Freshness gate (skip if updated today / weekend / manual intraday)
+      - name: Freshness gate (skip if updated today / weekend / manual intraday / code newer than data)
         id: fresh
         run: |
           # R49 修复：手动触发落在盘中交易时段时，优雅跳过而非红失败。
@@ -135,6 +135,21 @@ jobs:
           fi
           if [ ! -f data/data.js ]; then
             echo "data/data.js missing -> must run"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # R901：代码版本 vs 数据版本 —— 构建类代码（*.py / index.html）比 data.js 新时强制重建。
+          # 背景（R900 实证）：改了 backtest.py 的聚合口径，但当日数据已于 16:04 刷新，
+          # 「今日已更新」判据直接跳过整轮 → 新字段要等次日才进 data.js，线上表格继续展示
+          # 已被证伪的旧口径（精确命中 98.4% 倒挂）。人工勾 force 是唯一逃生舱，极易漏勾且无提示。
+          # 语义：数据是代码的产物，代码变了就该重建一次。重建后 CI 提交 data/ 让 data_ts 反超
+          # code_ts，本判据自动失效，不会形成反复重建（至多多跑一轮）。
+          # 依赖 checkout 的 fetch-depth: 0（本工作流已是），否则 git log 拿不到历史时间戳。
+          DATA_TS=$(git log -1 --format=%ct -- data/data.js)
+          CODE_TS=$(git log -1 --format=%ct -- '*.py' index.html)
+          echo "data_ts=$DATA_TS code_ts=$CODE_TS"
+          if [ -n "$CODE_TS" ] && [ -n "$DATA_TS" ] && [ "$CODE_TS" -gt "$DATA_TS" ]; then
+            echo "::notice::构建类代码提交晚于 data/data.js（差 $(( (CODE_TS - DATA_TS) / 60 )) 分钟）→ 数据为旧代码产物，强制重建。"
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
