@@ -19,7 +19,8 @@ A-share-Fibonacci/   # git clone 出的仓库目录名（本仓库 GitHub 名）
 ├── audit50.py          # 门禁③：概率三级降级数学（与 build_data._enrich 逐字同步）
 ├── audit51.py          # 门禁④：六增强结构不变量（timeCalib.blended≈1）
 ├── audit52.py          # 门禁⑤：前端↔数据脱节静态核对 + node 沙箱运行时（echarts 已代码内打桩，无需安装）
-├── _audit_overlap2.js   # 门禁⑥：标注重叠 SSR 审计（chart1/2/subF×3 真实渲染查重叠，须带 NODE_PATH）
+├── _audit_overlap2.js   # 门禁⑥：标注重叠 SSR 审计（chart1/2/subF×3 真实渲染查重叠，须带 NODE_PATH 且**已装 echarts**）
+├── audit58.py          # 门禁⑮：精确命中率无偏化（独立目标去重/对称成熟）+ 配对基线同行情性
 ├── fetch_indices.py    # 取数（westock kline → data/sh000001_raw.md）
 ├── preflight.py        # 取数后数据体检（主指数变形/失败中止，副指数仅告警）
 ├── index.html          # 前端看板（echarts 走 CDN）
@@ -43,8 +44,13 @@ A-share-Fibonacci/   # git clone 出的仓库目录名（本仓库 GitHub 名）
 | Python 3.13+ | 建 venv 隔离运行 | 必需 |
 | numpy / pandas | 仅这两个第三方包 | 必需 |
 | **wb-finance-skill** | `analyze.py` 需其中的 `elliott_wave.py`（波浪引擎）。`analyze.py` 启动时自动探测 WorkBuddy 安装位置（含 Mac `/Applications/WorkBuddy.app` 与 `~/.workbuddy/plugins/cache`），无需手动放文件 | 必需（装好 WorkBuddy + 该技能即可） |
-| Node.js | 仅 `audit52.py` 用 `vm` 沙箱运行时；echarts 已在脚本内打桩，**无需 `npm install echarts`** | 仅跑 audit52 时需 node，前端 echarts 走 CDN |
+| Node.js | `audit52.py` 用 `vm` 沙箱跑前端脚本（echarts 已在**该脚本内**打桩）；但**门禁⑥ `_audit_overlap2.js` 必须安装真实 echarts**（SSR 渲染 SVG 才能测标注重叠），见下 | 跑 audit52/门禁⑥ 时需 node |
 | 浏览器 + 网络 | 打开 `index.html` 渲染看板 | 看板展示必需 |
+
+> **门禁⑥ 的 echarts 依赖（R900 澄清）**：`_audit_overlap2.js` 需要真实 echarts 才能 SSR 渲染 SVG。
+> 本机首次跑 `bash selfcheck/run_selfcheck.sh` 时若未见 echarts，会打印 `⚠ [2/3] 跳过：缺少 echarts`（退出码 0，**不是审计失败**）。
+> 安装：`npm i echarts@5.4.3 --no-save`（版本须 pin 5.4.3，否则渲染度量漂移会误报重叠）。
+> CI 中由 `daily.yml` 的 "Install overlap-audit deps" 步骤安装，且该步为硬门禁。
 
 > 跨机迁移要点：`analyze.py` 已做跨平台路径探测（R214 修复），只需保证 WorkBuddy + wb-finance-skill 在目标机存在，或设置环境变量 `WORKBUDDY_HOME` 指向 WorkBuddy 根目录。
 

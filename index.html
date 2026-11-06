@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-11-04T11:20:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R828 观察窗改忠实expDays + 同批配对基线与真实优势 + 删除"引擎≈基线是巧合"的倒因为果表述)
+var BUILD_TS = "2026-11-06T10:45:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R900 精确命中率改独立目标去重口径 + 撤回"劣于随机"过度断言 + 同期配对基线并列)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1928,27 +1928,43 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     tbl.innerHTML = '<tr><td>回测数据缺失（请重新运行 build_data.py）</td></tr>';
     return;
   }
-  var catName = { sellTarget: '卖出目标', subwave: '子浪预测' };
+  var catName = { sellTarget: '卖出目标', subwave: '子浪预测', defensive: '防御性基准' };
   function rateCell(v) {
     if (v === null || v === undefined) return '<span style="color:#98a0ad">样本不足</span>';
     if (v >= 60) return '<b class="num-green">' + v + '%</b>';
     if (v >= 40) return '<b style="color:#b8872a">' + v + '%</b>';
     return '<b class="num-red">' + v + '%</b>';
   }
+  // R900：精确命中率改用【无偏口径】，优先级 独立目标去重 > 对称成熟 > 旧口径。
+  // 旧 preciseHitRate 的缺陷（11-06 实证）：①分母被"已命中"富集（未命中须等窗闭合、
+  // 命中可提前判定）；②同一目标价连续数十日入库被当成数十个样本——「浪⑤起」61 条日志
+  // 实际只有 1 个独立目标价(3741.11)，却输出 98.4% 精确命中率。两者都只抬高不压低，
+  // 故此处一律优先展示去重后的独立口径，并把独立样本数 nEff 直接摆出来。
+  function precOf(r) {
+    if (r.preciseHitRateIndep != null) return { v: r.preciseHitRateIndep, n: r.preciseIndepEval, tag: '独立' };
+    if (r.preciseHitRateMatured != null) return { v: r.preciseHitRateMatured, n: r.preciseMatureEval, tag: '成熟' };
+    return { v: r.preciseHitRate, n: r.preciseEval, tag: '' };
+  }
   var rows = bt.summary.map(function (r) {
     var days = r.avgDays === null ? '—' : r.avgDays + ' 天';
+    var _p = precOf(r);
+    // R900：状态判定必须用无偏值，否则「较可靠」建立在被重复计数灌水的虚高命中率上。
     var status = r.cold ? '样本采集中'
-      : (r.preciseHitRate == null ? '待观察'
-      : (r.preciseHitRate >= 50 ? '较可靠' : (r.preciseHitRate >= 30 ? '价位偏松' : '价位偏弱')));
+      : (_p.v == null ? '待观察'
+      : (_p.v >= 50 ? '较可靠' : (_p.v >= 30 ? '价位偏松' : '价位偏弱')));
+    // 未成熟样本不足即「该目标在承诺窗口内尚未走完」，不能给任何可靠性评级
+    if (!r.cold && r.matured != null && r.matured < 3) status = '窗口未闭合';
     // R822 方向推进率与零信息基线并列（观测≈基线 ⇒ 无预测增量价值），避免单看 90%+ 误读为强信号
     var _dirBase = (r.dirBaseRate != null) ? '<span style="color:#98a0ad;font-size:11px"> /基' + r.dirBaseRate + '%</span>' : '';
     // R826 成熟对齐口径并列：全窗口口径含删失（偏低）、仅成熟口径含时间选择（偏高），单报任一都会误导
     var _dirMat = (r.dirHitRateMatured != null) ? '<span style="color:#98a0ad;font-size:11px"> ·成熟' + r.dirHitRateMatured + '%</span>' : '';
+    var _pcell = rateCell(_p.v) + (_p.n != null
+      ? '<span style="color:#98a0ad;font-size:11px"> ·n=' + _p.n + (_p.tag ? '(' + _p.tag + ')' : '') + '</span>' : '');
     return '<tr><td><b>' + (catName[r.cat] || r.cat) + '</b> · ' + r.key + '</td>' +
       '<td>' + r.n + '</td>' +
       '<td>' + rateCell(r.dirHitRate) + _dirBase + _dirMat + '</td>' +
       '<td>' + rateCell(r.hitRate) + '</td>' +
-      '<td>' + rateCell(r.preciseHitRate) + '</td>' +
+      '<td>' + _pcell + '</td>' +
       '<td>' + days + '</td><td>' + status + '</td></tr>';
   }).join('');
   if (!rows) {
@@ -1961,7 +1977,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var _r822 = (bt.dirBaseRate != null);
   tbl.innerHTML = '<tr><th>预测目标</th><th>样本(已评估)</th><th>' +
     (_r822 ? '方向推进率 / 零信息基线' : '方向准确率(旧口径·待数据刷新)') +
-    '</th><th>band触达率</th><th>精确命中率</th><th>平均触达</th><th>状态</th></tr>' + rows;
+    '</th><th>band触达率</th><th>精确命中率(独立目标)</th><th>平均触达</th><th>状态</th></tr>' + rows;
   var coldNote = bt.coldStart
     ? ' 当前处于冷启动：已存档 ' + bt.totalLogged + ' 条，已到观察期 ' + bt.totalEvaluated +
       ' 条（需 ≥ ' + bt.minSample + ' 条方展示比率）。'
@@ -1997,6 +2013,10 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
       (bt.dirPairedEdge != null
         ? ' ｜ <span style="color:' + (bt.dirPairedEdge > 0 ? '#c23531' : '#2f9e44') + '">同批配对基线 ' +
           bt.dirPairedBase + '% → 优势 ' + (bt.dirPairedEdge > 0 ? '+' : '') + bt.dirPairedEdge + 'pp</span>'
+        : '') +
+      (bt.dirPairedBaseSame != null
+        ? ' ｜ <span style="color:' + (bt.dirPairedEdgeSame > 0 ? '#c23531' : '#2f9e44') + '">同期配对基线 ' +
+          bt.dirPairedBaseSame + '% → 优势 ' + (bt.dirPairedEdgeSame > 0 ? '+' : '') + bt.dirPairedEdgeSame + 'pp</span>'
         : '')
       : '方向准确率(旧口径) ' + ov_d + ' ｜ 零信息基线 待数据刷新') +
     ' ｜ band 触达率 已实现口径 ' + ov_b + (_r822 ? ' / 全量口径 ' + ov_ball : '') +
@@ -2007,6 +2027,21 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
         '<b>band 触达率</b>：已实现口径的分母只含「已解决」样本(命中或窗口闭合未命中)，命中当天即可判定而未命中须等窗口闭合 → 该口径被命中富集、系统性偏高，全量口径才是保守下界。' +
         '精确命中率含「目标价在预测当日已被自身收盘满足」的重言式样本，去平凡后为真实值。' +
         '已闭合 ' + (bt.maturedCount || 0) + '/' + bt.totalLogged + '）' +
+        // R900：精确命中率无偏化说明（表格该列已切换口径，此处交代原因与影响量级）
+        (function () {
+          var _piTot = 0, _has = false;
+          (bt.summary || []).forEach(function (r) {
+            if (r.preciseHitRateIndep !== undefined) { _has = true; _piTot += (r.preciseIndepEval || 0); }
+          });
+          if (!_has) return '';
+          return '<br><b>⚠ 精确命中率已改为无偏口径（R900）</b>：旧值分母有两处只抬高不压低 ——' +
+            '① <b>删失不对称</b>：精确命中可在窗未闭合时提前判定，未命中须等窗闭合才记 miss，' +
+            '分母被"已命中"富集；② <b>重复计数</b>：同一目标价连续数十日入库被当成数十个独立样本，' +
+            '实测「浪⑤起」61 条日志背后<b>只有 1 个独立目标价(3741.11)</b>，却输出 98.4% 精确命中率。' +
+            '现表格该列改为<b>按 (类别,键,目标价) 去重</b>的独立目标口径并直接标出 n；' +
+            '全表独立目标合计 <b>' + _piTot + '</b> 个，独立样本不足 3 个的目标一律显示"样本不足"' +
+            '（不再用重复行灌水出高置信）。';
+        })() +
         (_r826
           ? '<br><b>⚠ 方向推进率现有两个口径，缺一即误读（R826）</b>：' +
             '① <b>全窗口口径 ' + ov_d + '</b> 把「观察窗未闭合且尚未走完 50% 目标距离」记为未做到 —— 当前有 ' +
@@ -2046,8 +2081,19 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
                 '<b>距离 ≥10% 的 ' + _farN + ' 条成熟样本命中 ' + _farH + ' 条</b>' +
                 (_farP ? '（另有 ' + _farP + ' 条尚未到期）' : '') +
                 '。这说明低命中率里有很大一块是「目标价定得比市场在该观察窗内能走的距离还远」，' +
-                '属算术必然。<b>但它只解释绝对水平，不能反证判据没问题</b> —— 把目标难度条件住之后' +
-                '（见下方 R828 同批配对），引擎仍劣于随机起点。';
+                '属算术必然。<b>但它只解释绝对水平，不能反证判据没问题</b>。' +
+                (bt.dirPairedBaseSame != null
+                  ? '把目标难度条件住之后（R828/R900 同批配对）：对<b>同期基线 ' +
+                    bt.dirPairedBaseSame + '%</b> 为 ' +
+                    (bt.dirPairedEdgeSame > 0 ? '+' : '') + bt.dirPairedEdgeSame + 'pp，对<b>全历史基线 ' +
+                    bt.dirPairedBase + '%</b> 为 ' + (bt.dirPairedEdge > 0 ? '+' : '') + bt.dirPairedEdge + 'pp。' +
+                    '⚠ 只有<b>同期</b>那对可相减：全历史基线含 2024-25 单边牛市（方向推进天然更容易），' +
+                    '拿它减 2026-08~10 的样本会把劣势放大数倍。<b>以同期口径看，劣势仅 ' +
+                    Math.abs(bt.dirPairedEdgeSame) + 'pp，而独立预测目标仅约 ' +
+                    (bt.dirMaturedCount || '—') + ' 条日志背后的几十个目标 → 该差异完全在统计噪声内。</b>' +
+                    '结论只能是「<b>目前无法证明引擎具备方向判别力，也无法证否</b>」，' +
+                    '此前"引擎仍劣于随机起点"的断言是把不同行情的基线拿来相减所致，已撤回。'
+                  : '把目标难度条件住之后（见下方 R828 同批配对）再判。');
             })()
           : '') +
         (bt.dirBandsByReach && bt.dirBandsByReach.length && bt.dirReachMeta

@@ -93,7 +93,19 @@ windowObj.innerWidth = MOB ? 375 : 1432;  // 让 index.html 的 IS_MOB() 命中�
 windowObj.document = document;
 global.window = windowObj;
 global.document = document;
-const realEcharts = require('echarts');
+// R900：此处是【硬依赖】，不是打桩。README 曾写"echarts 已代码内打桩、无需安装"，
+// 与实际不符——本脚本必须用真实 echarts 的 SSR 渲染出 SVG 才能检测标注重叠。
+// 缺依赖时旧代码抛 MODULE_NOT_FOUND 栈，容易被误读成"审计失败"，故给出可执行提示并以 2 退出
+// （2=环境缺失，1=审计真失败），run_selfcheck.sh 据此区分。
+let realEcharts;
+try {
+  realEcharts = require('echarts');
+} catch (e) {
+  console.error('!! 缺少 echarts，标注重叠审计无法运行（这不是审计失败，是环境缺依赖）。');
+  console.error('!! 修复：npm i echarts@5 --no-save   （或 export NODE_PATH=<含 echarts 的 node_modules>）');
+  console.error('!! 说明：CI 中由 daily.yml 的 "Install overlap-audit deps (echarts only, pinned)" 步骤安装。');
+  process.exit(2);
+}
 
 // ---------- echarts wrapper that captures SVG per container id ----------
 // 真实桌面渲染宽度（.wrap max-width 1480 − 左右 padding 48 ≈ 1432 画布）；此前用 1000 过窄，

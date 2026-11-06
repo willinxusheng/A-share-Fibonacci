@@ -493,6 +493,13 @@ def dir_baseline(df, recs):
     # 同期基线窗口：覆盖全部预测日期所在区间（不足 60 交易日则向前补足 60）
     _dates = [d.strftime("%Y-%m-%d") for d in df.index]
     _DATESSET = set(_dates)
+    # R900：_start/_rec_valid 原先在逐记录循环【之后】才定义，导致 per[key] 只能给出全历史基线，
+    # 而引擎样本只覆盖 2026-08~10 这三个月 ⇒ 拿全历史(含 2024-25 牛市)基线去减同期样本，
+    # 得出"劣于随机 −10.1pp"的过度断言。现将同期窗口定义提前，同时产出 same 基线供逐记录配对。
+    _i0s_pre = [_dates.index(r["date"]) for r in recs if r.get("date") in _DATESSET]
+    _start = max(0, min(min(_i0s_pre) if _i0s_pre else _n - 1, _n - 1 - 60))
+    _rec_valid = np.zeros(_n, dtype=bool)
+    _rec_valid[_start: _n - 1] = True
     per = {}
     vals = []
     vals_all = []
@@ -514,25 +521,28 @@ def dir_baseline(df, recs):
             per[key] = (float(ok[m_all].mean()) if m_all.any() else None,   # 旧口径(保留对照)
                         float(ok[m_full].mean()) if m_full.any() else None,  # R826 成熟对齐
                         ok, m_all, m_full, int(m_full.sum()))
+            # R900 同期基线（同期 + 成熟度对齐）：唯一能与"仅成熟引擎样本"相减的口径
+            _ms = m_full & _rec_valid
+            per[key] = per[key][:2] + (per[key][2], per[key][3], per[key][4], per[key][5],
+                                       (float(ok[_ms].mean()) if _ms.any() else None))
             if per[key][0] is not None:
                 vals_all.append(per[key][0])
             if per[key][1] is not None:
                 vals.append(per[key][1])
         r["dirBase"] = per[key][1] if per[key][1] is not None else per[key][0]
         r["dirBaseAligned"] = per[key][1]
+        r["dirBaseSame"] = per[key][6]
     glob = round(float(np.mean(vals)) * 100, 1) if vals else None
     glob_all = round(float(np.mean(vals_all)) * 100, 1) if vals_all else None
-    # 同期基线：窗口起点 = min(最早预测日, 末日-60)（至少 60 交易日，覆盖全部预测区间）
-    _i0s = [_dates.index(r["date"]) for r in recs if r.get("date") in _DATESSET]
-    _start = max(0, min(min(_i0s) if _i0s else _n - 1, _n - 1 - 60))
-    _rec_valid = np.zeros(_n, dtype=bool)
-    _rec_valid[_start: _n - 1] = True
-    for key, (_ball, _bfull, ok, m_all, m_full, _nf) in per.items():
+    # 同期基线（键等权）：直接复用 per[key][6]（R900 已提前算好同期+成熟对齐值），
+    # 避免同一统计量在函数内出现两份实现而漂移。
+    for key, _pv in per.items():
+        _ball = _pv[0]
         if _ball is None:
             continue
-        mm = m_full & _rec_valid          # R826：同期 + 成熟度对齐
-        if mm.any():
-            recent_vals.append(float(ok[mm].mean()))
+        _same = _pv[6]
+        if _same is not None:
+            recent_vals.append(_same)
         else:
             # 该 key 在同期区间内无任何完整未来窗 ⇒ 旧实现会退化成"残缺窗采样"并压低基线。
             # 现直接剔除并计数，供门禁断言"不得全部剔除后仍输出数字"。
@@ -710,6 +720,7 @@ def aggregate(recs, pdev_recs=None):
     for r in pdev_recs:
         _peff.setdefault((r["cat"], r["key"]), []).append(r["precDev"])
     groups = {}
+    _pi_seen = {}   # R900: (cat,key,price) -> 首个已解决观测的 preciseHit（独立目标去重）
     for r in recs:
         g = groups.setdefault((r["cat"], r["key"]),
                               {"cat": r["cat"], "key": r["key"],
@@ -721,6 +732,10 @@ def aggregate(recs, pdev_recs=None):
                                "pBaseSum": 0.0, "pBaseN": 0,
                                "PrecNTEval": 0, "phNT": 0,
                                "preciseEval": 0, "matured": 0,
+                               # R900：精确命中率的两种无偏化计数
+                               #   pm* = 对称成熟口径（仅 matured 样本，达成与否一视同仁，且去平凡）
+                               #   pi* = 独立目标去重口径（同 key+price 只计一次，与 R820 nEff 同理念）
+                               "pmEval": 0, "pmHits": 0, "piEval": 0, "piHits": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
                                "dirMatEval": 0, "dirMatHits": 0, "dirPending": 0,
                                "precDevs": [], "nEff": 0,
@@ -771,6 +786,25 @@ def aggregate(recs, pdev_recs=None):
             g["preciseEval"] += 1
             if r.get("preciseHit"):
                 g["ph"] += 1
+            # R900 缺陷修复（11-06 实证）：上面 preciseEval 的分母【不是无偏样本】。
+            #   ① 删失不对称：命中(精确或 band)可在窗未闭合时即判 True，而未命中须等窗闭合→
+            #      分母被命中富集。实测"子浪ⅳ 精确命中 98.4% > 同行 band 触达 41.7%"——精确命中
+            #      必然蕴含 band 触达，倒挂即该缺陷的直接证据。
+            #   ② 重复计数：同一目标价连续数十日入库被当成数十个样本。实测「浪⑤起」61 条日志
+            #      实际只有 1 个独立目标价(3741.11)，却输出 98.4% 精确命中率 → 纯伪精度。
+            # 故另立两套无偏口径，供前端并列替换：
+            #   pm* 对称成熟：仅 matured 样本（达成与否一视同仁），且剔除平凡 → 无删失、无重言式
+            #   pi* 独立目标：同 (cat,key,price) 只取首个已解决观测 → 消除重复计数
+            if r.get("matured") and not r.get("trivialPrecise"):
+                g["pmEval"] += 1
+                if r.get("preciseHit"):
+                    g["pmHits"] += 1
+            _pk = (r["cat"], r["key"], round(float(r["price"]), 2))
+            if _pk not in _pi_seen:
+                _pi_seen[_pk] = bool(r["preciseHit"])
+                g["piEval"] += 1
+                if r["preciseHit"]:
+                    g["piHits"] += 1
             # R822 去平凡精确命中：剔除"目标价在预测当日已被自身收盘满足"的记录（不含预测信息），
             # 使精确命中率不再被重言式灌水（实测 78 条已触达中 48 条为平凡）。
             if not r.get("trivialPrecise"):
@@ -849,6 +883,17 @@ def aggregate(recs, pdev_recs=None):
             "preciseHitRateNonTrivial": (round((g["phNT"] + 1.0) / (g["PrecNTEval"] + 2.0) * 100, 1)
                                          if g["PrecNTEval"] >= MIN_SAMPLE else None),
             "trivialPreciseEval": (g["preciseEval"] - g["PrecNTEval"]) or 0,
+            # R900 精确命中率·两套无偏口径（replace 上面 preciseHitRate 的前端主位）：
+            #   preciseHitRateMatured : 对称成熟 + 去平凡（无删失、无重言式）← 推荐作主指标
+            #   preciseHitRateIndep   : 独立目标去重（消除"同一目标连续 62 日"的重复计数）
+            # 旧 preciseHitRate 保留原值不删：gen_quality_cert.py / gen_precision_report.py 仍在消费，
+            # 且历史前端缓存可能引用；但前端主表改展示新口径并在脚注说明差异原因。
+            "preciseMatureEval": g["pmEval"], "preciseMatureHits": g["pmHits"],
+            "preciseHitRateMatured": (round((g["pmHits"] + 1.0) / (g["pmEval"] + 2.0) * 100, 1)
+                                      if g["pmEval"] >= MIN_SAMPLE else None),
+            "preciseIndepEval": g["piEval"], "preciseIndepHits": g["piHits"],
+            "preciseHitRateIndep": (round((g["piHits"] + 1.0) / (g["piEval"] + 2.0) * 100, 1)
+                                    if g["piEval"] >= MIN_SAMPLE else None),
             "baseCaseDirEval": g["bcDirEval"], "baseCaseDirHits": g["bcDirHits"],
             "baseCaseDirRate": base_case_dir_rate,
             # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，
@@ -1053,6 +1098,14 @@ def run_backtest(data, df):
                     if _paired else None)
     _paired_edge = (round(_dir_matured_raw - _paired_base, 1)
                     if (_dir_matured_raw is not None and _paired_base is not None) else None)
+    # R900：同期配对基线。上面 _paired_base 用的是每条记录自身的【全历史】基线（dirBase），
+    # 而引擎成熟样本只覆盖 2026-08~10 三个月 ⇒ 全历史含 2024-25 牛市，方向推进天然更容易，
+    # 直接相减会系统性夸大劣势（实测 -10.1pp，同期口径仅 -2.5pp）。故并列给出同期基线。
+    _paired_same = [r for r in _paired if r.get("dirBaseSame") is not None]
+    _paired_base_same = (round(sum(r["dirBaseSame"] for r in _paired_same) / len(_paired_same) * 100, 1)
+                         if _paired_same else None)
+    _paired_edge_same = (round(_dir_matured_raw - _paired_base_same, 1)
+                         if (_dir_matured_raw is not None and _paired_base_same is not None) else None)
     _side_acc = {}
     for r in _paired:
         _sd = r.get("side") or "?"
@@ -1167,6 +1220,10 @@ def run_backtest(data, df):
         "dirPairedN": len(_paired),
         "dirPairedBase": _paired_base,
         "dirPairedEdge": _paired_edge,
+        # R900 同期配对基线（与引擎成熟样本同处 2026-08~10 行情，唯一可直接相减的对照）
+        "dirPairedBaseSame": _paired_base_same,
+        "dirPairedEdgeSame": _paired_edge_same,
+        "dirPairedNSame": len(_paired_same),
         "dirPairedBySide": dir_paired_by_side,
         "dirBaseRateAllWindow": _base_meta["allWindow"],
         "dirBaseRecentValidKeys": _base_meta["recentValidKeys"],

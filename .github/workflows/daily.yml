@@ -264,11 +264,11 @@ jobs:
       #   禁止拿仅成熟口径直接减全历史基线（两者分母不同批，相减无意义 —— R826 由此得出
       #   "引擎有 +13.5pp 增量"的错误结论，配对后实为 −9.1pp）；
       # ③ 前端不得回退到已被推翻的表述（"那是巧合，不是结论" / "不是判据的问题"）。
-      - name: Gatekeepers (validate + audit49..57 + R108 holiday-target)
+      - name: Gatekeepers (validate + audit49..58 + R108 holiday-target)
         if: steps.fresh.outputs.skip != 'true'
         run: |
           set -e
-          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit57.py audit_holiday_targets.py; do
+          for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit57.py audit58.py audit_holiday_targets.py; do
             echo "=== $s ==="
             python "$s"
           done
