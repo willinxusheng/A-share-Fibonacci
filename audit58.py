@@ -20,7 +20,7 @@
   P2  独立目标数 <= 该行日志已解决数（去重只能减少，不能凭空增加）
   P3  独立口径与旧口径在纯重复目标行上必须不同（证明去重真的生效）
   P4  dirPairedBaseSame 存在且 <= dirPairedBase（同期不含牛市，基线不应更高）
-  P5  同源前提下精确命中率不得 > band 触达率
+  P5  同分母前提下精确命中率不得 > band 触达率（成熟对成熟、独立对独立；跨分母比较会产生假倒挂）
   P6  前端静态：必须标注「精确命中率(独立目标)」，且不得把「引擎仍劣于随机起点」当现行结论
 """
 import json
@@ -102,14 +102,18 @@ def main():
             "同期=%s%% 全历史=%s%% 优势 同期=%spp 全历史=%spp"
             % (ps, ph, bt.get("dirPairedEdgeSame"), bt.get("dirPairedEdge")))
 
-    # P5 精确命中率不得 > band 触达率（二者同源时才可严格比较）
+    # P5 精确命中率不得 > band 触达率 —— 前提是【同分母】。
+    # R902 实证教训：初版拿 preciseHitRateMatured(9 条成熟样本) 去比 hitRate(全部 314 条)，
+    # 分母不同 → 报出"精确 9.1% > band 8.5%"的假倒挂（差 0.6pp 纯属样本构成差异）。
+    # 正确比法：成熟对成熟(hitRateMaturedBand)、独立对独立(hitRateIndep)。
     inv = []
     for r in summary:
-        p = r.get("preciseHitRateMatured")
-        h = r.get("hitRate")
-        if p is not None and h is not None and p > h + 0.05:
-            inv.append((r["key"], p, h))
-    chk(not inv, "P5 精确命中率(成熟) <= band 触达率", "倒挂=%s" % (inv or "无"))
+        for pv, hv, tag in (("preciseHitRateMatured", "hitRateMaturedBand", "成熟"),
+                            ("preciseHitRateIndep", "hitRateIndep", "独立")):
+            p, h = r.get(pv), r.get(hv)
+            if p is not None and h is not None and p > h + 0.05:
+                inv.append((r["key"], tag, p, h))
+    chk(not inv, "P5 同分母下 精确命中率 <= band 触达率", "倒挂=%s" % (inv or "无"))
 
     # P6 前端静态口径
     try:

@@ -736,6 +736,10 @@ def aggregate(recs, pdev_recs=None):
                                #   pm* = 对称成熟口径（仅 matured 样本，达成与否一视同仁，且去平凡）
                                #   pi* = 独立目标去重口径（同 key+price 只计一次，与 R820 nEff 同理念）
                                "pmEval": 0, "pmHits": 0, "piEval": 0, "piHits": 0,
+                               # R902：band 触达的【同分母】计数 —— 没有它们，band 率(全 314 条)
+                               # 与精确率(独立 54 目标)混比就会出"精确 > band"的假倒挂(实测子浪ⅳ)。
+                               #   bi* = 独立目标口径下的 band 触达；bm* = 成熟样本口径下的 band 触达
+                               "biEval": 0, "biHits": 0, "bmEval": 0, "bmHits": 0,
                                "bcDirEval": 0, "bcDirHits": 0,
                                "dirMatEval": 0, "dirMatHits": 0, "dirPending": 0,
                                "precDevs": [], "nEff": 0,
@@ -799,12 +803,23 @@ def aggregate(recs, pdev_recs=None):
                 g["pmEval"] += 1
                 if r.get("preciseHit"):
                     g["pmHits"] += 1
+                # R902：成熟样本口径下的 band 触达 —— 与 pm* 严格同分母（同一批 matured 且非平凡记录）。
+                # 精确命中(触达真实目标价 px)必然蕴含 band 触达(触达 px*(1−frac)，更近)，故恒有
+                # bmHits >= pmHits。此前 band 率取全部 314 条、精确率只取 9 条成熟样本，分母不同
+                # 直接导致 audit58 P5 报出"精确 9.1% > band 8.5%"的假倒挂（错在比法，非数据）。
+                g["bmEval"] += 1
+                if r.get("hit"):
+                    g["bmHits"] += 1
             _pk = (r["cat"], r["key"], round(float(r["price"]), 2))
             if _pk not in _pi_seen:
                 _pi_seen[_pk] = bool(r["preciseHit"])
                 g["piEval"] += 1
                 if r["preciseHit"]:
                     g["piHits"] += 1
+                # R902：同一独立目标上的 band 触达 —— 与 pi* 严格同分母（同一个首次已解决观测）
+                g["biEval"] += 1
+                if r.get("hit"):
+                    g["biHits"] += 1
             # R822 去平凡精确命中：剔除"目标价在预测当日已被自身收盘满足"的记录（不含预测信息），
             # 使精确命中率不再被重言式灌水（实测 78 条已触达中 48 条为平凡）。
             if not r.get("trivialPrecise"):
@@ -894,6 +909,17 @@ def aggregate(recs, pdev_recs=None):
             "preciseIndepEval": g["piEval"], "preciseIndepHits": g["piHits"],
             "preciseHitRateIndep": (round((g["piHits"] + 1.0) / (g["piEval"] + 2.0) * 100, 1)
                                     if g["piEval"] >= MIN_SAMPLE else None),
+            # R902 band 触达·同分母版本（与上面两套精确口径一一配对，可安全相减/比较）：
+            #   hitRateMaturedBand : 与 preciseHitRateMatured 同一批 matured 且非平凡记录
+            #   hitRateIndep       : 与 preciseHitRateIndep   同一批独立目标首次已解决观测
+            # 恒有 hits_band >= hits_precise（精确触达 px 必然先触达更近的 band 边），
+            # 若出现反向即为真口径 bug，由 audit58 P5 硬拦。
+            "maturedEval": g["bmEval"], "maturedHits": g["bmHits"],
+            "hitRateMaturedBand": (round((g["bmHits"] + 1.0) / (g["bmEval"] + 2.0) * 100, 1)
+                                   if g["bmEval"] >= MIN_SAMPLE else None),
+            "indepEval": g["biEval"], "indepHits": g["biHits"],
+            "hitRateIndep": (round((g["biHits"] + 1.0) / (g["biEval"] + 2.0) * 100, 1)
+                             if g["biEval"] >= MIN_SAMPLE else None),
             "baseCaseDirEval": g["bcDirEval"], "baseCaseDirHits": g["bcDirHits"],
             "baseCaseDirRate": base_case_dir_rate,
             # #782 精确价位偏差中位(窗口闭合前即可观测)：中位>0=系统性 overshoot(价格常冲过目标)，

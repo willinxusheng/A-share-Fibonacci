@@ -8,7 +8,7 @@
 // 杜绝"改了前端但用户看到的还是旧入口"。⚠ 注意：仓库内 latest.html 是 2026-08-27 的
 // 【一次性快照、已不再同步】（R822 核实其 BUILD_TS 停在 08-27），不能当作当前版本的镜像；
 // 打开它只会看到陈旧看板。唯一权威入口是本 index.html（Pages 主路径）。
-var BUILD_TS = "2026-11-06T10:45:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R900 精确命中率改独立目标去重口径 + 撤回"劣于随机"过度断言 + 同期配对基线并列)
+var BUILD_TS = "2026-11-06T11:55:00Z"; // R-ENTRY: 每次改 index.html 必同步 bump (R902 band 列改同口径实测 + 锚点模拟降为旁注；R900 精确命中率独立目标去重 + 撤回"劣于随机"过度断言 + 同期配对基线并列)
 (function () {
   try {
     var param = '?v=' + BUILD_TS;
@@ -1960,10 +1960,27 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
     var _dirMat = (r.dirHitRateMatured != null) ? '<span style="color:#98a0ad;font-size:11px"> ·成熟' + r.dirHitRateMatured + '%</span>' : '';
     var _pcell = rateCell(_p.v) + (_p.n != null
       ? '<span style="color:#98a0ad;font-size:11px"> ·n=' + _p.n + (_p.tag ? '(' + _p.tag + ')' : '') + '</span>' : '');
+    // R902：band 列必须与"精确命中率"列【取同一口径】，否则分母不同又会造出假倒挂。
+    // 精确列优先用独立目标口径(precOf 的 tag)，band 就同步用 hitRateIndep；
+    // 精确列退到成熟口径时，band 用 hitRateMaturedBand；两者都缺才退回旧 hitRate。
+    // 旧 r.hitRate 在子浪行已被 build_data.py (_empirical_rates) 用「历史锚点模拟命中率」
+    // 覆盖（数百个锚点的 walk-forward 模拟），与真实回测记录量纲不同，故只作最后兜底并标为锚点模拟。
+    var _band, _bandTag;
+    if (_p.tag === '独立' && r.hitRateIndep != null) {
+      _band = r.hitRateIndep;
+      _bandTag = '<span style="color:#98a0ad;font-size:11px"> ·n=' + (r.indepEval != null ? r.indepEval : '?') + '</span>';
+    } else if (r.hitRateMaturedBand != null) {
+      _band = r.hitRateMaturedBand;
+      _bandTag = '<span style="color:#98a0ad;font-size:11px"> ·n=' + (r.maturedEval != null ? r.maturedEval : '?') + '</span>';
+    } else {
+      _band = r.hitRate;
+      _bandTag = (r.hitRateMaturedBand != null || r.hitRateIndep != null || r.hitRate == null) ? ''
+        : '<span style="color:#98a0ad;font-size:11px"> ·锚点模拟</span>';
+    }
     return '<tr><td><b>' + (catName[r.cat] || r.cat) + '</b> · ' + r.key + '</td>' +
       '<td>' + r.n + '</td>' +
       '<td>' + rateCell(r.dirHitRate) + _dirBase + _dirMat + '</td>' +
-      '<td>' + rateCell(r.hitRate) + '</td>' +
+      '<td>' + rateCell(_band) + _bandTag + '</td>' +
       '<td>' + _pcell + '</td>' +
       '<td>' + days + '</td><td>' + status + '</td></tr>';
   }).join('');
@@ -1977,7 +1994,7 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
   var _r822 = (bt.dirBaseRate != null);
   tbl.innerHTML = '<tr><th>预测目标</th><th>样本(已评估)</th><th>' +
     (_r822 ? '方向推进率 / 零信息基线' : '方向准确率(旧口径·待数据刷新)') +
-    '</th><th>band触达率</th><th>精确命中率(独立目标)</th><th>平均触达</th><th>状态</th></tr>' + rows;
+    '</th><th>band触达率(同口径实测)</th><th>精确命中率(独立目标)</th><th>平均触达</th><th>状态</th></tr>' + rows;
   var coldNote = bt.coldStart
     ? ' 当前处于冷启动：已存档 ' + bt.totalLogged + ' 条，已到观察期 ' + bt.totalEvaluated +
       ' 条（需 ≥ ' + bt.minSample + ' 条方展示比率）。'
@@ -2041,6 +2058,28 @@ window.addEventListener('orientationchange', function () { setTimeout(_resizeAll
             '现表格该列改为<b>按 (类别,键,目标价) 去重</b>的独立目标口径并直接标出 n；' +
             '全表独立目标合计 <b>' + _piTot + '</b> 个，独立样本不足 3 个的目标一律显示"样本不足"' +
             '（不再用重复行灌水出高置信）。';
+        })() +
+        // R902：band 列口径说明 —— 实测成熟 vs 锚点模拟，两者不可混比
+        (function () {
+          var _hasMB = false, _diff = [];
+          (bt.summary || []).forEach(function (r) {
+            if (r.hitRateMaturedBand !== undefined) {
+              _hasMB = true;
+              if (r.hitRate != null && r.hitRateMaturedBand != null &&
+                  Math.abs(r.hitRate - r.hitRateMaturedBand) > 0.05) {
+                _diff.push(r.key + ' ' + r.hitRateMaturedBand + '%(实测) vs ' + r.hitRate + '%(锚点)');
+              }
+            }
+          });
+          if (!_hasMB) return '';
+          return '<br><b>⚠ band 触达率已改为「同口径实测」口径（R902）</b>：' +
+            '此前该列对子浪行显示的是 <b>历史锚点 walk-forward 模拟命中率</b>（在数百个历史锚点上按同一宽带定义复算，' +
+            '样本量数百、供概率融合使用），与相邻的<b>真实回测精确命中率</b>（仅数十条成熟记录）<b>量纲不同</b> —— ' +
+            '并排放会造出「精确命中 98% 却只触达 band 42%」的假倒挂（错在比法，并非数据矛盾）。' +
+            '现该列改用<b>与精确命中率严格同分母</b>的实测成熟口径，锚点模拟值降为旁注小字' +
+            (_diff.length ? '（差异行：' + _diff.slice(0, 4).join('；') + (_diff.length > 4 ? ' 等' : '') + '）' : '') +
+            '。恒有 band 触达 ≥ 精确命中：精确触达真实目标价必然先触达更近的 band 边，' +
+            '若出现反向即为真口径缺陷，由 audit58 P5 硬拦。';
         })() +
         (_r826
           ? '<br><b>⚠ 方向推进率现有两个口径，缺一即误读（R826）</b>：' +
