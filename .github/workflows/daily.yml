@@ -285,7 +285,18 @@ jobs:
           set -e
           for s in validate.py audit49.py audit50.py audit51.py audit52.py audit53.py audit54.py audit55.py audit56.py audit57.py audit58.py audit_holiday_targets.py; do
             echo "=== $s ==="
-            python "$s"
+            set +e
+            python "$s" 2>&1 | tee /tmp/_gate_last.log
+            rc=${PIPESTATUS[0]}
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              # R903 可观测性：逐脚本 ::error 标注（annotations API 公开可读，无需 admin 权限即可
+              # 定位失败门禁），并附输出末行摘要。背景：2026-11-02(6 次)与 2026-11-09(2 次)
+              # Gatekeepers 均在 ~2 秒内失败，公开 annotations 只有泛泛的 "exit code 1"，
+              # 无法事后定位是 13 道门禁中的哪一道（日志下载需 admin）。此后失败会自带门禁名。
+              echo "::error::门禁失败: $s EXIT=$rc — $(tail -n 1 /tmp/_gate_last.log)"
+              exit 1
+            fi
           done
 
       # 第 6 道闸门：标注重叠审计（真实 echarts SSR 渲染 + 文本包围盒判重）。
@@ -386,13 +397,19 @@ jobs:
             echo "sentiment refreshed OK ($SENT_DATE == $EXPECTED)"
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::情绪重算后覆盖日=$SENT_DATE 仍 != 预期=$EXPECTED，gen_sentiment.py 可能失败或产出陈旧"
+            # R903：带上 gen_sentiment 步骤的 outcome，区分「重算失败」与「被上游失败跳过」。
+            # 背景实证：2026-11-02/11-09 Gatekeepers 秒败 → gen_sentiment 被 skip → 本步拿着
+            # 旧的 sentiment.json 误报「gen_sentiment.py 可能失败或产出陈旧」，实为连锁误报。
+            echo "::error::情绪覆盖日=$SENT_DATE != 预期=$EXPECTED（sentiment 步骤 outcome=${{ steps.sentiment.outcome }} — skipped=被上游失败跳过，非 gen_sentiment 自身故障；failure=脚本真失败；success=跑了但产出陈旧）"
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 
       # 情绪产物校验失败 → 开/更新 ci-alert issue（让静默失败可见，避免假绿长期冻住情绪）
+      # R903：gen_sentiment 被跳过（outcome=skipped，即上游门禁失败）时不另开情绪报警 ——
+      # 该失败已由「Alert on failure」覆盖，旧逻辑会在每天 16:00 门禁秒败时多发一条
+      # 误导性的「情绪重算失败」issue（11-02 六连败、11-09 两连败均出现此噪音）。
       - name: Sentiment false-green alert
-        if: always() && steps.sentverify.outputs.ok == 'false'
+        if: always() && steps.sentverify.outputs.ok == 'false' && steps.sentiment.outcome != 'skipped'
         uses: actions/github-script@v7
         with:
           script: |
@@ -404,7 +421,7 @@ jobs:
             const TITLE = '⚠️ 情绪看板重算失败（产物校验未通过）';
             const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: ['ci-alert'] });
             const found = existing.data.find(i => i.title === TITLE);
-            const body = `gen_sentiment.py 重算后情绪覆盖日未达预期（expected=${expected}, covered=${covered}），疑似脚本失败或产出陈旧。\n运行日志：${runUrl}\n请检查 gen_sentiment.py 是否在 CI 抛异常（continue-on-error 已吞错，需看完整日志）。`;
+            const body = `gen_sentiment.py 情绪覆盖日未达预期（expected=${expected}, covered=${covered}，sentiment 步骤 outcome=${{ steps.sentiment.outcome }}）。\n运行日志：${runUrl}\noutcome=failure → 脚本真失败（continue-on-error 已吞错，需看完整日志）；outcome=success → 跑了但产出陈旧。`;
             if (found) { await github.rest.issues.createComment({ owner, repo, issue_number: found.number, body: `再次检测到 @ ${ts}\n${runUrl}` }); }
             else { await github.rest.issues.create({ owner, repo, title: TITLE, body, labels: ['ci-alert'] }); }
 

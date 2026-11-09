@@ -120,10 +120,14 @@ def binom_p(k, n, p0):
 
 
 def paired_baseline(bars, recs):
-    """同批配对基线（双口径）。保留每条记录的 |Δ|/c0 与 hz，在同一判据下复算：
+    """同批配对基线（双口径 × 双记录集）。保留每条记录的 |Δ|/c0 与 hz，在同一判据下复算：
       · baseHist  = 在【全历史】可完整观测起点上的达成率（≈ 项目 dirPairedBase 的口径）
       · baseSame  = 在【同期区间】可完整观测起点上的达成率（唯一能与同期引擎样本相减的口径）
-    两者都按【记录】加权（与项目 _paired_base 的聚合方式一致），以便逐项对照。"""
+    记录集两种（R903 修正）：
+      · recordWeighted   = 全部有基线值的记录（参考值，与项目口径【不可】直接相减）
+      · maturedWeighted  = 仅【成熟】记录（与项目 dirPairedBaseSame 同法，唯一可相减口径；
+        R900 初版误用全记录加权得出"+12.3pp 假优势"，与项目 -2.9pp 矛盾——根因是
+        未成熟记录的 (gap,hz) 键分布不同，把基线拉低，与成熟引擎率相减即错配。）"""
     dates = [b["date"] for b in bars]
     idx = {d: i for i, d in enumerate(dates)}
     n = len(bars)
@@ -159,12 +163,15 @@ def paired_baseline(bars, recs):
     out = {}
     for tag, field in (("Hist", "_baseHist"), ("Same", "_baseSame")):
         vals_all = [r[field] for r in recs if r.get(field) is not None]
-        # 记录加权（与项目 _paired_base 同法）
+        vals_mat = [r[field] for r in recs if r.get(field) is not None and r.get("_matured")]
+        # 全记录加权（参考）；成熟记录加权（与项目 _paired_base / _paired_base_same 同法）
         recw = round(sum(vals_all) / len(vals_all), 1) if vals_all else None
+        matw = round(sum(vals_mat) / len(vals_mat), 1) if vals_mat else None
         # 键等权（与项目 dirBaseRate / dirBaseRateRecent 同法）
         kv = {k: v[0 if tag == "Hist" else 1] for k, v in per_key.items()}
         kvv = [x for x in kv.values() if x is not None]
-        out[tag] = {"recordWeighted": recw, "keyMean": round(sum(kvv) / len(kvv), 1) if kvv else None,
+        out[tag] = {"recordWeighted": recw, "maturedWeighted": matw,
+                    "keyMean": round(sum(kvv) / len(kvv), 1) if kvv else None,
                     "keys": len(kvv)}
     return out
 
@@ -221,12 +228,16 @@ def main():
     res["preciseMaturedN"] = len(pmat)
     res["preciseNonTrivialN"] = len(ntriv)
 
-    # ---- 3. 配对基线（全历史 vs 同期，均记录加权）----
+    # ---- 3. 配对基线（全历史 vs 同期；成熟记录加权为唯一可相减口径）----
     bs = paired_baseline(bars, recs)
-    base_hist = bs.get("Hist", {}).get("recordWeighted")
-    base_same = bs.get("Same", {}).get("recordWeighted")
-    res["baseHistRecW"] = base_hist
-    res["baseSameRecW"] = base_same
+    base_hist = bs.get("Hist", {}).get("maturedWeighted")
+    base_hist_all = bs.get("Hist", {}).get("recordWeighted")
+    base_same = bs.get("Same", {}).get("maturedWeighted")
+    base_same_all = bs.get("Same", {}).get("recordWeighted")
+    res["baseHistMatW"] = base_hist
+    res["baseHistRecW"] = base_hist_all
+    res["baseSameMatW"] = base_same
+    res["baseSameRecW"] = base_same_all
     res["baseHistKeyMean"] = bs.get("Hist", {}).get("keyMean")
     res["baseSameKeyMean"] = bs.get("Same", {}).get("keyMean")
     res["edgeVsHist"] = round(res["dirMatured"] - base_hist, 1) if (base_hist and res["dirMatured"] is not None) else None
@@ -277,7 +288,8 @@ def main():
 
     # ---- 6. 分 key 明细 ----
     per = defaultdict(lambda: {"n": 0, "hit": 0, "mat": 0, "mhit": 0,
-                               "prec": 0, "pv": 0, "baseS": None, "baseH": None, "gap": []})
+                               "prec": 0, "pv": 0, "baseS_n": 0, "baseS_s": 0.0,
+                               "baseH_n": 0, "baseH_s": 0.0, "gap": []})
     for r in dirs:
         d = per[r["key"]]
         d["n"] += 1
@@ -286,24 +298,29 @@ def main():
         if r["_matured"]:
             d["mat"] += 1
             d["mhit"] += 1 if r["_dir"] is True else 0
+        # R903：基线取该 key 全部记录的均值（旧版取末条记录的值当 key 基线，是覆盖 bug）
         if r.get("_baseSame") is not None:
-            d["baseS"] = r["_baseSame"]
+            d["baseS_n"] += 1
+            d["baseS_s"] += r["_baseSame"]
         if r.get("_baseHist") is not None:
-            d["baseH"] = r["_baseHist"]
+            d["baseH_n"] += 1
+            d["baseH_s"] += r["_baseHist"]
     for r in pmat:
         per[r["key"]]["pv"] += 1
         per[r["key"]]["prec"] += 1 if r["_precise"] else 0
     res["byKey"] = {}
     for k, d in sorted(per.items()):
         g = sorted(d["gap"])
+        baseS = round(d["baseS_s"] / d["baseS_n"], 1) if d["baseS_n"] else None
+        baseH = round(d["baseH_s"] / d["baseH_n"], 1) if d["baseH_n"] else None
         res["byKey"][k] = {
             "n": d["n"], "matured": d["mat"],
             "dirMaturedRate": rate(d["mhit"], d["mat"]),
-            "baseSame": d["baseS"], "baseHist": d["baseH"],
-            "edgeVsSame": (round(rate(d["mhit"], d["mat"]) - d["baseS"], 1)
-                           if (d["baseS"] is not None and d["mat"]) else None),
-            "edgeVsHist": (round(rate(d["mhit"], d["mat"]) - d["baseH"], 1)
-                           if (d["baseH"] is not None and d["mat"]) else None),
+            "baseSame": baseS, "baseHist": baseH,
+            "edgeVsSame": (round(rate(d["mhit"], d["mat"]) - baseS, 1)
+                           if (baseS is not None and d["mat"]) else None),
+            "edgeVsHist": (round(rate(d["mhit"], d["mat"]) - baseH, 1)
+                           if (baseH is not None and d["mat"]) else None),
             "gapMed": round(g[len(g) // 2], 1) if g else None,
             "preciseRate": rate(d["prec"], d["pv"]),
         }
@@ -321,8 +338,9 @@ def main():
     print("── 1. 方向推进率（复现 backtest.json）──")
     print(f"  全窗口口径     {res['dirAllWindow']}%")
     print(f"  仅成熟口径     {res['dirMatured']}%  95%CI {res['dirMaturedCI']}")
-    print(f"  基线·全历史(记录加权)  {res['baseHistRecW']}%   ← 项目 dirPairedBase 用的就是这个口径")
-    print(f"  基线·同期  (记录加权)  {res['baseSameRecW']}%   ← 唯一能与同期样本相减的口径")
+    print(f"  基线·全历史(成熟记录加权)  {res['baseHistMatW']}%   ← 项目 dirPairedBase 的口径")
+    print(f"  基线·同期  (成熟记录加权)  {res['baseSameMatW']}%   ← 项目 dirPairedBaseSame 的口径（唯一可与成熟样本相减）")
+    print(f"  （参考·全历史全记录加权    {res['baseHistRecW']}% / 同期 {res['baseSameRecW']}% —— 混入未成熟记录，不可相减）")
     print(f"  基线·全历史(键等权)    {res['baseHistKeyMean']}%  ← 对应 dirBaseRate")
     print(f"  基线·同期  (键等权)    {res['baseSameKeyMean']}%  ← 对应 dirBaseRateRecent")
     print(f"  优势·对全历史基线      {('%+.1f'%res['edgeVsHist'])+'pp' if res['edgeVsHist'] is not None else '—'}")
