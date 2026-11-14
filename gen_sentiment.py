@@ -209,7 +209,9 @@ def _is_a_share_trading_day(d):
 
     与 build_data.py R207 的 _next_trading_day 口径同源（上交所 上证公告〔2025〕45号）：
     仅列连续休市区间（周末本就休市，不重复）；补班日虽在周末仍交易。
-    2027 安排待公布后补充。用于 forecast 插值后剔除长假/周末、保留补班日，避免非交易日假数据点。
+    2027 已按官方通知补齐（国办发明电〔2026〕10号，2026-11-05 发布；2027 调休上班日均周末，
+    交易所休市，不入 MAKEUP）。用于 forecast 插值后剔除长假/周末、保留补班日，避免非交易日假数据点。
+    R904 实证：补齐前 forecast 含 7 个落在 2027 元旦/春节的伪交易日（如 2027-02-11）。
     """
     dt = datetime.datetime.strptime(d, "%Y-%m-%d")
     ds = dt.strftime("%Y-%m-%d")
@@ -233,6 +235,8 @@ def _expand_holidays(start, end):
 
 
 # R207 口径（与 build_data.py / report.py / index.html _MAKEUP_2026 同源）
+# R904：补 2027 官方区间（国办发明电〔2026〕10号）——春节 2/5-2/13、清明 4/3-4/5、
+# 端午仅 6/9、中秋仅 9/15；与 build_data.py _A_SHARE_HOLIDAY_RANGES 逐条锁步。
 _A_SHARE_HOLIDAYS = (
     _expand_holidays("2026-01-01", "2026-01-03")
     | _expand_holidays("2026-02-15", "2026-02-23")
@@ -241,6 +245,13 @@ _A_SHARE_HOLIDAYS = (
     | _expand_holidays("2026-06-19", "2026-06-21")
     | _expand_holidays("2026-09-25", "2026-09-27")
     | _expand_holidays("2026-10-01", "2026-10-07")
+    | _expand_holidays("2027-01-01", "2027-01-03")
+    | _expand_holidays("2027-02-05", "2027-02-13")
+    | _expand_holidays("2027-04-03", "2027-04-05")
+    | _expand_holidays("2027-05-01", "2027-05-05")
+    | _expand_holidays("2027-06-09", "2027-06-09")
+    | _expand_holidays("2027-09-15", "2027-09-15")
+    | _expand_holidays("2027-10-01", "2027-10-07")
 )
 _A_SHARE_MAKEUP = {"2026-02-14", "2026-02-28", "2026-05-09", "2026-09-20", "2026-10-10"}
 
