@@ -59,8 +59,8 @@
   "dataWindowRows": 1277,
   "dataWindowFrom": "2021-08-05",
   "dataWindowTo": "2026-11-13",
-  "dataSource": "tencent",
-  "dataSourceRows": 1301,
+  "dataSource": "eastmoney",
+  "dataSourceRows": 1277,
   "dirDistanceBands": [
     {
       "lo": 0.5,
@@ -426,7 +426,7 @@
         "key": "子浪ⅳ",
         "open": 1,
         "openElapsedMed": 0.0,
-        "openExpMed": 60.0,
+        "openExpMed": 59.0,
         "openBestMed": null,
         "status": "早期"
       },
@@ -874,7 +874,7 @@
       "precDevNEff": 59,
       "open": 1,
       "openElapsedMed": 0.0,
-      "openExpMed": 60.0,
+      "openExpMed": 59.0,
       "openBestMed": null,
       "openStatus": "早期"
     },
