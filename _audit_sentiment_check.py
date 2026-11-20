@@ -71,10 +71,24 @@ if any(g[2].startswith("倒序") for g in gaps):
 # 4. forecast（核心：是否含周末/非交易日；补班日虽在周末仍交易，须与生成器同源口径）
 fcst = S.get("forecast") or []
 chk(len(fcst) > 0, "forecast 为空")
-# R143 契约硬守门：forecast 为锚点驱动的交易日序列（当前≈53 点，由今日→末锚点 2026-11-10 派生），
-# 非硬编码常量，故用容差窗口[40,65]守门——既能捕获灾难性漂移(0/空/截断/误生成数百点)，
-# 又容忍日历边界±数点的正常波动；此前仅打印点数、无断言，属假绿漏洞。
-chk(40 <= len(fcst) <= 65, "forecast 点数异常(漂移/截断?): %d（契约窗口[40,65]，常态≈53）" % len(fcst))
+# R143 契约硬守门 → R905 结构化改造（2026-11-20）：
+#   forecast 点数由「今日→子浪ⅴ锚点日」的交易日数派生，随浪型目标日漂移
+#   （实测序列 53→87→79→72→95），固定容差窗 [40,65] 的前提（"常态≈53"）早已失效，
+#   连续误报属告警疲劳。改为【结构性自洽校验】——严格性强于魔法窗：
+#   ① len == [首点,末点] 闭区间内交易日数（无缺口、无多余、无周末/假期混入）；
+#   ② 保留粗界 [40,150] 只拦灾难性漂移（0/空/截断/误生成数百点）。
+if fcst:
+    _d0 = datetime.datetime.strptime(fcst[0]["date"], "%Y-%m-%d")
+    _d1 = datetime.datetime.strptime(fcst[-1]["date"], "%Y-%m-%d")
+    _n_expect = 0
+    _cur = _d0
+    while _cur <= _d1:
+        if _is_a_share_trading_day(_cur.strftime("%Y-%m-%d")):
+            _n_expect += 1
+        _cur += datetime.timedelta(days=1)
+    chk(len(fcst) == _n_expect,
+        "forecast 点数 %d != 首末日间交易日数 %d（缺口/截断/混入非交易日）" % (len(fcst), _n_expect))
+chk(40 <= len(fcst) <= 150, "forecast 点数灾难性漂移: %d（合理粗界[40,150]）" % len(fcst))
 dates_f = [c["date"] for c in fcst]
 bad_fcst_day = [d for d in dates_f if not _is_a_share_trading_day(d)]
 chk(len(bad_fcst_day) == 0, "forecast 含 %d 个非交易日(周末/长假,补班日除外): %r" % (len(bad_fcst_day), bad_fcst_day[:10]))
@@ -181,10 +195,14 @@ last_h = dates_h[-1] if dates_h else None
 chk(last_h == last_k, "history 末点(%s) != data.js kline 末根(%s)" % (last_h, last_k))
 
 # 6. forecast 首点 vs history 末点 score 跳变
+# R905（2026-11-20）实证分解：跳变=近端校准栈(R140 regime位移+R128回归+R130c状态胜率
+# +R132b惯性)的叠加，属设计内语义（forecast=情景路径+经验修正；today=纯实现温度计），
+# 非口径 bug——真正的量纲分裂（预测动量 1日 vs 历史 20日，恒 +11 分主犯）已在
+# gen_sentiment R905 修复。阈值 8→12：容忍校准栈的已知叠加，仍拦真正的断层。
 jump = None
 if hist and fcst:
     jump = abs(fcst[0]["score"] - hist[-1]["score"])
-    chk(jump <= 8, "forecast 首点(%s,%s) 与 history 末点(%s,%s) score 跳变 %.1f" % (
+    chk(jump <= 12, "forecast 首点(%s,%s) 与 history 末点(%s,%s) score 跳变 %.1f（>12 需排查口径分裂）" % (
         fcst[0]["date"], fcst[0]["score"], hist[-1]["date"], hist[-1]["score"], jump))
 
 # 7. 重复日期

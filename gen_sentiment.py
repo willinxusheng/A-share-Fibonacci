@@ -1072,12 +1072,21 @@ def _compute_forecast(D, hist_std=None, regime=None, center=None,
 
     out = []
     for idx, (d, price) in enumerate(path):
-        # R131a 动量：回看窗口由最优逆势窗口 H 数据驱动（H 大→慢变趋势→回看长）；
-        # 早期点数不足 _MOM_WIN 时以「今日收盘」兜底，避免衔接处动量硬归零造成的跳变。
-        if idx >= _MOM_WIN:
+        # R131a 动量：回看窗口由最优逆势窗口 H 数据驱动（H 大→慢变趋势→回看长）。
+        # R905 修复衔接处口径分裂（实证 2026-11-14/11-19 两周跳变恒 +11.0 分）：
+        #   旧逻辑 idx<_MOM_WIN 时以「今日收盘」兜底 → 首点动量=【1 天】路径涨幅，
+        #   而历史已实现动量(ret20)=【20 日】区间，同一 /8 除数下量纲不可比，
+        #   使「今天 21.3 → 明天 32.3」出现无市场原因的 +11 分断层（插桩实证：
+        #   path_score 27.6 vs 今日 21.3，其中 +6.3 即来自动量维度 1日/20日 量纲差）。
+        #   注释原意「避免衔接处动量硬归零」恰好写反——兜底才是跳变元凶。
+        #   新逻辑：窗口长度恒为 _MOM_WIN 个交易日区间，不足部分向【真实历史收盘】
+        #   回看延伸（idx=0 即「path[0] vs closes[-_MOM_WIN]」，与今日 ret20 同尺度平移一天），
+        #   近端与今日实现值连续、远端口径不变；_MOM_WIN 超过历史长度时兜底 closes[0]。
+        if idx - _MOM_WIN >= 0:
             past_price = path[idx - _MOM_WIN][1]
         else:
-            past_price = last_close
+            _nh = _MOM_WIN - idx          # 需从真实历史回看的偏移（closes[-k] 形式）
+            past_price = closes[-_nh] if _nh <= len(closes) else closes[0]
         ret_path = (price / past_price - 1.0) * 100.0 if past_price else 0.0
         sub_mom = _clamp(ret_path / 8.0, -1.0, 1.0)
         # R131b 牛熊位置：未来均线随 horizon 向路径价指数收敛（价格偏离均线终会均值回归的铁律），
@@ -1489,6 +1498,7 @@ def main():
                        "R132：在 R131 基础上对 forecast 做『经验信号调制』——①共识置信度调制(多窗口共振agree/total∈[0,1]→方向修正权重×confMult∈[0.5,1.5]，共振放大/背离保守，只在方向修正层生效、不动R128中枢回归)；②Δ20动量惯性近端偏置(情绪自相关——今日Δ20升/降方向短期延续，近端按Δ20方向小幅偏置、随horizon指数衰减，与R130c象限历史胜率正交)；透明参数见 forecastBand.consensusConf/confMult/inertiaTau/inertiaMaxPts/inertiaMethod。"
                        "R133：在 R132 基础上对 forecast 做『信号方向调制』——①共振方向调制(consensus.verdict=共振(顺势有效)表示高情绪后涨/低情绪后跌的趋势延续强，此时极端区逆势修正方向可能相反→修正权重×0.5保守化防方向性错误；背离亦×0.5；逆势有效维持)；②近端微调优先用分regime条件胜率regimeWin.posPct(当前牛/熊态下该组合状态的条件胜率，R125已验证熊市态中升51%%>全样本47%%，更贴合当前regime；N>=20生效，缺失回退全局posPct)；透明参数见 forecastBand.verdict/verdictMult/regimeWinN/posPctUsed。"
                        "R142：在 R133 基础上做『分regime滚动分位归一抗漂移』——熊/牛regime情绪中枢系统性差~19点(bear 42.6/bull 61.7)，全局分位在牛熊切换时语义失真；故对今日与history逐点改算『同regime近250日滚动分位 regimePct』(仅与同regime样本比，抗中枢系统差)，直接回答『当前情绪在当下牛熊态内有多极端』；并据此调制R140 regime水平位移权重levelW(今日已处regime极端区则减力防过度修正、regime中位维持满权0.35，clamp下限0.3)，使预测在牛熊切换时更稳。history逐点含regimePct、today含regimePct；透明参数见 forecastBand.regimePctileToday/regimePctileMethod/levelWMod。"
+                       "R905：修复 forecast 动量衔接处量纲分裂——旧逻辑 idx<momWinEff 时以『今日收盘』兜底，使近端动量=1日路径涨幅、而历史已实现动量=20日区间，同一/8除数下不可比，实证连续两周『今日→明日』无市场原因跳变恒+11.0分(插桩分解：+6.3动量量纲差+其余近端校准栈)；现改为窗口恒为 momWinEff 个交易日区间、不足部分向真实历史收盘延伸，近端与今日实现值连续、远端口径不变。"
                        % out["scale"]["mode"])
     except Exception as e:  # 降级：在场但不失真，绝不阻断当日推送
         out["error"] = "gen_sentiment 异常: %s" % e
