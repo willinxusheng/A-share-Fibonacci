@@ -1,9 +1,9 @@
 {
   "schema": "a-share-fib-sentiment/v3",
-  "generated_at": "2026-11-27T08:01:44Z",
+  "generated_at": "2026-11-27T12:31:41Z",
   "mode": "monitor_only",
   "error": null,
-  "asOf": "2026-11-27 16:01:03",
+  "asOf": "2026-11-27 20:30:57",
   "history": [
     {
       "date": "2022-08-16",
