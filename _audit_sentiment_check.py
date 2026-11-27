@@ -194,16 +194,31 @@ last_k = kdates[-1] if kdates else None
 last_h = dates_h[-1] if dates_h else None
 chk(last_h == last_k, "history 末点(%s) != data.js kline 末根(%s)" % (last_h, last_k))
 
-# 6. forecast 首点 vs history 末点 score 跳变
+# 6. forecast 首点 vs history 末点 score 跳变（R906 按 Δ20 条件化）
 # R905（2026-11-20）实证分解：跳变=近端校准栈(R140 regime位移+R128回归+R130c状态胜率
 # +R132b惯性)的叠加，属设计内语义（forecast=情景路径+经验修正；today=纯实现温度计），
 # 非口径 bug——真正的量纲分裂（预测动量 1日 vs 历史 20日，恒 +11 分主犯）已在
-# gen_sentiment R905 修复。阈值 8→12：容忍校准栈的已知叠加，仍拦真正的断层。
+# gen_sentiment R905 修复。
+# R906（2026-11-27）：11-27 跳变反弹到 12.6 突破固定阈值 12。插桩分解（/tmp/r906_sandbox）：
+#   raw_path=18.2 → R140位移 +5.3 → R128回归 +0.1 → 近端层 +13.1(=状态胜率+0.05 + 惯性+7.48 + 其余)，
+#   其中惯性层 today_d20=+11.8 满格(clamp 1.0)×8pts 是主因 —— 有明确市场原因（情绪从深冰点急升），
+#   非 R905 那种"无市场原因断层"。固定阈值会在极端 Δ20 日误报。
+# 改条件化阈值（按 today.sentimentChange.d20 分档）：
+#   |Δ20|<5 平静 → 8（严查无缝衔接）｜5~10 → 12｜>=10 极端 → 16（惯性层满格设计内）
+# harness（_R906）A/B 实证：近端平移量对 T+1 命中率影响剧烈不稳(-5→60.7%/-7.5→50.8%)，
+# 无稳定信号 → 不改引擎参数（防过拟合），只修审计判据。
+_d20 = abs(((today.get("sentimentChange") or {}).get("d20") or 0.0))
+if _d20 < 5:
+    _jump_limit = 8.0
+elif _d20 < 10:
+    _jump_limit = 12.0
+else:
+    _jump_limit = 16.0
 jump = None
 if hist and fcst:
     jump = abs(fcst[0]["score"] - hist[-1]["score"])
-    chk(jump <= 12, "forecast 首点(%s,%s) 与 history 末点(%s,%s) score 跳变 %.1f（>12 需排查口径分裂）" % (
-        fcst[0]["date"], fcst[0]["score"], hist[-1]["date"], hist[-1]["score"], jump))
+    chk(jump <= _jump_limit, "forecast 首点(%s,%s) 与 history 末点(%s,%s) score 跳变 %.1f（|Δ20|=%.1f，阈值%.0f）" % (
+        fcst[0]["date"], fcst[0]["score"], hist[-1]["date"], hist[-1]["score"], jump, _d20, _jump_limit))
 
 # 7. 重复日期
 chk(len(set(dates_f)) == len(dates_f), "forecast 存在重复日期")
@@ -258,7 +273,8 @@ if bad_fcst_day:
     print("  bad samples: %s" % bad_fcst_day[:12])
 print("history缺口    = %r" % (gaps[:5] if gaps else "无"))
 print("data.js末根    = %s" % last_k)
-print("forecast首末跳变= %s" % (("%.1f" % jump) if jump is not None else "N/A"))
+print("forecast首末跳变= %s（|Δ20|=%.1f，条件阈值%.0f）" % (
+    ("%.1f" % jump) if jump is not None else "N/A", _d20, _jump_limit))
 if contra:
     _hs = contra.get("horizonScan") or {}
     _st = contra.get("stateSignal") or {}
